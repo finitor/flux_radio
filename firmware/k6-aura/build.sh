@@ -31,9 +31,12 @@ git clone -q "$AURA_REPO" "$WORK"
 git -C "$WORK" checkout -q "$AURA_REV"
 
 SIZE=${SIZE:-llvm-size}
-command -v "$SIZE" >/dev/null 2>&1 || SIZE="rust-size"
+command -v "$SIZE" >/dev/null 2>&1 || SIZE="size"
 NM=${NM:-llvm-nm}
-command -v "$NM" >/dev/null 2>&1 || NM="rust-nm"
+command -v "$NM" >/dev/null 2>&1 || NM="nm"
+command -v "$SIZE" >/dev/null 2>&1 || { echo "need llvm-size, size, or cargo-binutils rust-size" >&2; exit 1; }
+command -v "$NM" >/dev/null 2>&1 || { echo "need llvm-nm, nm, or cargo-binutils rust-nm" >&2; exit 1; }
+export NM
 ELF="$WORK/target/thumbv6m-none-eabi/release/aura"
 
 # flash: everything loaded (vector table, text, rodata, the .data image); RAM: .data + .bss + .uninit
@@ -202,7 +205,7 @@ fi
 if [ "${EXPLORE:-1}" = 1 ]; then
   K6_VOICE=0 K6_CB=spi sh "$ROOT/tools/k6_build.sh"
   lib build-explore
-  variant aura-explore "EXPLORE image: the signal explorer, pager packets and modules, no voice" --features explore,txdog,spilib
+  variant aura-explore "EXPLORE image: the signal explorer, pager packets and modules, no voice" --features pager-explore,txdog,spilib
 fi
 if [ "${VLR:-1}" = 1 ]; then
   K6_CODEC=vlr K6_CB=spi sh "$ROOT/tools/k6_build.sh"

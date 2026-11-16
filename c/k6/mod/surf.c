@@ -103,6 +103,7 @@
 #define K6_MODULE_OPT z
 #endif
 #include "../k6_mod.h"
+#include "../rt.h"
 #ifndef K6_NAME
 #define K6_NAME "SURF"   /* its name in the MENU list (a file that includes this one may set its own) */
 #endif
@@ -139,8 +140,6 @@ K6_MODULE_NAME(K6_NAME);
 #define PUSH 64                 /* a sweep that hears the peak again lifts its caret 8 px */
 #define NCONF 4                 /* settled reads a sweep may spend confirming new peaks */
 #define NBAD 6                  /* an unconfirmed peak is read again after this many sweeps hear it */
-#define RT_BASE 0x0F0000u       /* c/k6/rt.h: 1024 slots of 64 B */
-#define RT_SLOTS 1024
 
 #define GPIOB 0x48000400u
 #define GPIOC 0x48000800u
@@ -1094,12 +1093,13 @@ static void pair(uint8_t *b, int i, int r) { b[16 * r + (i >> 2)] |= (uint8_t)(0
 /* the explorer's repeater table (c/k6/rt.h, level 5's fl_read): every valid record's rx_hz and
    slot, read once at the start (1024 reads of 8 bytes, ~0.1 s) */
 static void rt_load(sf_t *s) {
-  uint32_t r[2];
+  uint8_t r[18];
   int i;
   for (i = 0; i < RT_SLOTS && s->nk < NK; i++) {
-    s->api->fl_read(RT_BASE + 64u * (uint32_t)i, r, 8);   /* (in range: it can't refuse) */
-    if ((uint8_t)r[0] == 0xFC && r[1]) {
-      s->khz[s->nk] = r[1];
+    s->api->fl_read(RT_BASE + 64u * (uint32_t)i, r, sizeof r); /* (in range: it can't refuse) */
+    if (r[0] == 0xFC && r[1] && !(r[16] & (RT_F_VFO & 0xFF)) &&
+        !(r[17] & (RT_F_VFO >> 8))) {
+      s->khz[s->nk] = r[4] | (uint32_t)r[5] << 8 | (uint32_t)r[6] << 16 | (uint32_t)r[7] << 24;
       s->kslot[s->nk++] = (uint16_t)i;
     }
   }
@@ -1135,7 +1135,7 @@ static int bar_h(sf_t *s, int i) {
   return h;
 }
 
-static void draw(sf_t *s) {
+static int draw(sf_t *s) {
   const k6_api_t *api = s->api;
   uint8_t *b = s->bmp;
   int i, r, x, k;
@@ -1242,7 +1242,7 @@ static void draw(sf_t *s) {
   *p = 0;
   api->lcd_text(5, (int32_t)(s->t_msg - s->now) > 0 ? s->msg : s->ln);
   api->lcd_wf(b, ROWS, 0);
-  api->lcd_flush();
+  return api->lcd_flush();
 }
 
 int k6_main(const k6_api_t *api) {
@@ -1250,7 +1250,7 @@ int k6_main(const k6_api_t *api) {
   uint32_t n, room;
   uint8_t *z;
   unsigned i;
-  int k;
+  int k, first_sweep = 1;
   char *p;
   if (api->level < 6) return -3;
   /* the state, the bitmap and the remembered peaks in the store's free RAM: on the stack (with
@@ -1296,6 +1296,11 @@ int k6_main(const k6_api_t *api) {
     say_end(s, stepn(p, s->ch));
   }
   s->t_flush = api->ms() - FLUSH_MS;
+  /* Show the module UI before the first receiver scan. The ordinary loop draws only after its
+     first tune/read/keypad cycle; if that hardware path hangs, the user otherwise sees no screen. */
+  api->say("surf screen begin");
+  if (draw(s) < 0) api->say("surf screen unavailable");
+  else api->say("surf screen ready");
   for (;;) {
     s->now = api->ms();
     pm_fall(s);
@@ -1340,7 +1345,12 @@ int k6_main(const k6_api_t *api) {
     }
     if (s->check) check_bar(s);
     else if (s->parked) park_step(s);
-    else sweep_step(s);
+    else {
+      if (first_sweep) api->say("surf first sweep begin");
+      sweep_step(s);
+      if (first_sweep) api->say("surf first sweep done");
+      first_sweep = 0;
+    }
     s->now = api->ms();
     if (s->now - s->t_flush >= FLUSH_MS) draw(s);
   }

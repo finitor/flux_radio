@@ -1,0 +1,18 @@
+--- a/src/ui/cps.rs
++++ b/src/ui/cps.rs
+@@ -43,3 +43,15 @@
+     super::glyph::text(target, 20, 26 - 6, a, false, true);
+     super::glyph::text(target, 8, 40 - 6, b, false, true);
+ }
++
++/// Two-line message for full Aura builds, used during Blowfang cable transfers.
++#[cfg(not(feature = "pager-only"))]
++pub fn draw_lines<D>(target: &mut D, a: &str, b: &str)
++where
++    D: DrawTarget<Color = BinaryColor>,
++{
++    target.fill_solid(&Rectangle::new(Point::new(0, 0), Size::new(128, 64)), BinaryColor::Off).ok();
++    let style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
++    Text::new(a, Point::new(20, 26), style).draw(target).ok();
++    Text::new(b, Point::new(8, 40), style).draw(target).ok();
++}

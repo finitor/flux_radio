@@ -52,6 +52,7 @@ ACK = 0x06
 CABLE_HANDSHAKE = b"PROGRAMBF-K6BLWF"     # blowfang's cable session (cps::run_cable_session)
 AURA_HANDSHAKE = b"PROGRAMBF-K6AURA"      # Aura's CPS session: its first-boot dump, or full Aura
 CMD_INFO, CMD_CHUNK, CMD_READ, CMD_END, CMD_ERROR = 0x56, 0x4D, 0x44, 0x45, 0xEE
+CHUNK_EARLY_ACK = b"\x7fCHK"
 ERR_BAD_CRC = 0x01
 READ_BLOCK = 64
 CHIP_BYTES = 2 << 20
@@ -69,7 +70,7 @@ CHUNK = 64            # the cable sends L packets: 64 bytes, 58 of image each
 KM = {1: "chunk", 2: "repeat", 3: "checked", -1: "bad CRC", -2: "bad chunk", -3: "bad header",
       -4: "wrong key", -5: "no key in the image", -6: "old serial"}
 KL = {-1: "slot empty", -2: "bad header", -3: "bad tag", -4: "flash refused", -5: "read-back differs",
-      -6: "no such slot"}
+      -6: "no such slot", -7: "not a module"}
 
 TIMEOUT = 3.0         # s for an answer before a frame goes again
 DEFAULT_KEYS = ("~/.config/blowfang/k6-mod.key", "~/.config/sotto/k6-mod.key")
@@ -103,11 +104,19 @@ class CpsLink:
         self.port, self.log, self.timeout = port, log, timeout or TIMEOUT
         self.buf = b""
         self.text = b""
+        self.rx_recent = bytearray()
+        self.bad_response_crcs = 0
+        self.km_diag_stage = None
+        self.km_diag_by_chunk = {}
+        self.km_diag_chunk = None
         self.lines = []                                      # the radio's report lines so far
 
     def _fill(self):
         b = self.port.read(256)
         if b:
+            self.rx_recent.extend(b)
+            if len(self.rx_recent) > 256:
+                del self.rx_recent[:-256]
             self.buf += b
         return bool(b)
 
@@ -161,6 +170,7 @@ class CpsLink:
                         f, self.buf = self.buf[:8 + n], self.buf[8 + n:]
                         if crc16_xmodem(f[1:6 + n]) == struct.unpack(">H", f[6 + n:8 + n])[0]:
                             return f[1], struct.unpack(">H", f[2:4])[0], f[6:6 + n]
+                        self.bad_response_crcs += 1
                         self.buf = f[1:] + self.buf          # not a frame after all: resync
                         continue
             if time.monotonic() > deadline:
@@ -170,11 +180,16 @@ class CpsLink:
     def calls(self, reqs, window=1, retries=4):
         """reqs: [(cmd, addr, data)] -> their answers' data, in order. Up to `window` frames in
         flight; an answer that doesn't come, or a CRC error, sends that frame again."""
+        self.rx_recent.clear()
+        self.bad_response_crcs = 0
         out = [None] * len(reqs)
         todo = list(range(len(reqs)))
         tries = {}
+        crc_errors = {}
         while todo:
             batch, todo = todo[:window], todo[window:]
+            self.km_diag_chunk = (reqs[batch[0]][1]
+                                  if len(batch) == 1 and reqs[batch[0]][0] == CMD_CHUNK else None)
             for i in batch:
                 self.port.write(cps_frame(*reqs[i]))
             pending = list(batch)
@@ -184,13 +199,32 @@ class CpsLink:
                 if f is None:
                     break
                 cmd, addr, data = f
+                if cmd == CMD_INFO and data == b"KM":
+                    self.km_diag_stage = addr
+                    if self.km_diag_chunk is not None:
+                        self.km_diag_by_chunk[self.km_diag_chunk] = addr
+                    if any(reqs[j][0] == CMD_CHUNK and reqs[j][1] == 0 for j in pending):
+                        if addr & 0x80:
+                            self.log(f"  K6: C reached KM_CHUNK return branch (expected r={addr & 0x7F})")
+                        else:
+                            self.log(f"  K6: module loader reached diagnostic stage {addr}")
+                    continue
+                if cmd == CMD_INFO and addr == 0xFFFF and data[:2] == b"KR":
+                    r, have, count, last = struct.unpack("bBBb", data[2:6])
+                    self.log(f"  K6: firmware return probe r={r} have={have} count={count} last={last}")
+                    continue
                 hit = next((i for i in pending if reqs[i][1] == addr), None)
                 if hit is None:
                     continue                                 # a late answer to an earlier try
                 if cmd == CMD_ERROR:
                     if data[:1] != bytes([ERR_BAD_CRC]):
                         raise InstallError(f"the radio refused command {reqs[hit][0]:#04x} at {addr}: error {data.hex()}")
+                    crc_errors[hit] = crc_errors.get(hit, 0) + 1
                     continue                                 # sent again below
+                if cmd == reqs[hit][0] and data == CHUNK_EARLY_ACK:
+                    if reqs[hit][0] == CMD_CHUNK and reqs[hit][1] == 0:
+                        self.log("  K6: radio accepted the first cable frame; waiting for module-loader result")
+                    continue
                 if cmd != reqs[hit][0]:
                     continue
                 out[hit] = data
@@ -199,6 +233,16 @@ class CpsLink:
             for i in again:
                 tries[i] = tries.get(i, 0) + 1
                 if tries[i] > retries:
+                    if crc_errors.get(i, 0):
+                        raise InstallError(f"the radio rejected command {reqs[i][0]:#04x} at {reqs[i][1]} "
+                                           f"{crc_errors[i]} time(s): cable-frame CRC error; check the serial "
+                                           "link and radio UART framing")
+                    if self.bad_response_crcs:
+                        raise InstallError(f"received {self.bad_response_crcs} radio frame(s) with bad CRC; "
+                                           f"last serial bytes: {bytes(self.rx_recent).hex(' ')}")
+                    if self.rx_recent:
+                        raise InstallError(f"radio sent no valid reply to command {reqs[i][0]:#04x}; "
+                                           f"last serial bytes: {bytes(self.rx_recent).hex(' ')}")
                     raise InstallError(f"no answer from the radio to command {reqs[i][0]:#04x} at {reqs[i][1]}")
             todo = again + todo
             if again:
@@ -246,20 +290,35 @@ class Cable(CpsLink):
         return dict(protocol=d[4], slots=d[5], arena=struct.unpack("<H", d[6:8])[0],
                     build_id=d[8:16] if any(d[8:16]) else None)
 
-    def send_image(self, img, xfer, window=3):
+    def send_image(self, img, xfer, window=1):
         """One signed image as L chunks; the last chunk alone (its install erases and programs
         SPI, and the radio's 320-byte receive ring must not overflow meanwhile). Returns
         (km_packet's last result, the install's result)."""
+        self.km_diag_stage = None
+        self.km_diag_by_chunk = {}
         pk = k6mod.packets(img, xfer, CHUNK)
         reqs = [(CMD_CHUNK, i, p) for i, p in enumerate(pk)]
         ans = self.calls(reqs[:-1], window=window) if len(reqs) > 1 else []
         for i, d in enumerate(ans):
             r = struct.unpack("b", d[:1])[0]
+            if r == 0:
+                stage = self.km_diag_by_chunk.get(i)
+                detail = (f"; C reached KM_CHUNK return branch (expected r={stage & 0x7F})" if stage is not None and stage & 0x80
+                          else f"; loader stopped at diagnostic stage {stage}" if stage is not None else "")
+                raise InstallError(f"module packet {i}/{len(pk) - 1} was not recognized{detail}; "
+                                   f"radio reports {d[1]}/{d[2]} chunks; reply bytes {d.hex(' ')}")
             if r < 0:
                 raise InstallError(f"chunk {i}: {KM.get(r, r)}")
         d = self.calls(reqs[-1:])[0]
         r, have, count = struct.unpack("b", d[:1])[0], d[1], d[2]
         put = struct.unpack("<i", d[4:8])[0]
+        if r == 0:
+            i = len(pk) - 1
+            stage = self.km_diag_by_chunk.get(i)
+            detail = (f"; C reached KM_CHUNK return branch (expected r={stage & 0x7F})" if stage is not None and stage & 0x80
+                      else f"; loader stopped at diagnostic stage {stage}" if stage is not None else "")
+            raise InstallError(f"module packet {i}/{len(pk) - 1} was not recognized{detail}; "
+                               f"radio reports {have}/{count} chunks; reply bytes {d.hex(' ')}")
         return r, have, count, put
 
     def slot_head(self, slot):
@@ -269,6 +328,23 @@ class Cable(CpsLink):
             return None
         code = h[16:]
         return h[:16], k6mod.module_name(code)
+
+    def remove_slot(self, slot, key, serial):
+        """Erase one module slot using an authenticated, replay-protected request image."""
+        img = k6mod.image(b"K6ERASE", 0, serial, key, lib=slot, remove=True)
+        transfer_error = None
+        try:
+            r, have, count, result = self.send_image(img, serial & 0xFF)
+            if r != 3 or result:
+                detail = KM.get(r, r) if r != 3 else KL.get(result, result)
+                transfer_error = InstallError(f"radio erase reply: {detail}; accepted {have}/{count} chunks")
+        except InstallError as exc:
+            transfer_error = exc
+        erased = self.read(LIB_BASE + slot * LIB_SLOT, LIB_SLOT) == b"\xff" * LIB_SLOT
+        if not erased:
+            if transfer_error:
+                raise transfer_error
+            raise InstallError(f"slot {slot} failed full-slot erase verification")
 
 
 # ---- the stock bootloader: catch its window, then flash the MCU (AA cmd arg len data CRC EF) ----
@@ -285,11 +361,14 @@ def boot_frame(cmd, arg=0, data=b""):
     return bytes([0xAA]) + body + bytes([c >> 8, c & 0xFF, 0xEF])
 
 
-def boot_answer(port, timeout):
+def boot_answer(port, timeout, trace=None):
     """The bootloader's answer to a frame: (cmd, arg), or None"""
-    deadline, buf = time.monotonic() + timeout, b""
+    deadline, buf, seen = time.monotonic() + timeout, b"", bytearray()
     while time.monotonic() < deadline:
-        buf += port.read(64)
+        chunk = port.read(64)
+        if chunk:
+            seen.extend(chunk)
+            buf += chunk
         i = buf.find(b"\xaa")
         while i >= 0 and len(buf) - i >= 5:
             n = buf[i + 3] << 8 | buf[i + 4]
@@ -299,14 +378,16 @@ def boot_answer(port, timeout):
             if f[-1] == 0xEF and crc16_xmodem(f[1:5 + n]) == (f[5 + n] << 8 | f[6 + n]):
                 return f[1], f[2]
             i = buf.find(b"\xaa", i + 1)
+    if trace:
+        trace("  bootloader RX timeout: " + (bytes(seen[:96]).hex(" ") if seen else "no bytes"))
     return None
 
 
-def boot_call(port, cmd, arg, data, retries=5, timeout=2.0, quiet_ok=False):
+def boot_call(port, cmd, arg, data, retries=5, timeout=2.0, quiet_ok=False, trace=None):
     for _ in range(retries):
         port.reset_input_buffer()
         port.write(boot_frame(cmd, arg, data))
-        a = boot_answer(port, timeout)
+        a = boot_answer(port, timeout, trace)
         if a is None:
             continue
         if a[1] == ACK:
@@ -319,44 +400,51 @@ def boot_call(port, cmd, arg, data, retries=5, timeout=2.0, quiet_ok=False):
     raise InstallError(f"no answer from the bootloader to command {cmd:#04x}")
 
 
-def boot_flash(port, image, log=print):
+def boot_flash(port, image, log=print, trace=None):
     """Flash an image into the MCU: the radio must be in UPDATE mode (catch_window)"""
     n = -(-len(image) // BOOT_PACKAGE)
     if n > 256:
         raise InstallError(f"{len(image)} bytes is more than the bootloader takes")
-    boot_call(port, BOOT_HELLO, 0, b"BOOTLOADER")
-    boot_call(port, BOOT_COUNT, 0, bytes([n & 0xFF]))
+    boot_call(port, BOOT_HELLO, 0, b"BOOTLOADER", trace=trace)
+    boot_call(port, BOOT_COUNT, 0, bytes([n & 0xFF]), trace=trace)
     for seq in range(n):
-        boot_call(port, BOOT_DATA, seq & 0xFF, image[seq * BOOT_PACKAGE:(seq + 1) * BOOT_PACKAGE].ljust(BOOT_PACKAGE, b"\0"))
+        boot_call(port, BOOT_DATA, seq & 0xFF, image[seq * BOOT_PACKAGE:(seq + 1) * BOOT_PACKAGE].ljust(BOOT_PACKAGE, b"\0"), trace=trace)
         if seq % 8 == 7 or seq == n - 1:
             log(f"\r  flashing {seq + 1}/{n} KB", end="")
     log("")
-    boot_call(port, BOOT_END, 0, b"", retries=2, quiet_ok=True)   # it may restart before it answers
+    boot_call(port, BOOT_END, 0, b"", retries=2, quiet_ok=True, trace=trace)   # it may restart before it answers
 
 
-def catch_window(port, window):
+def catch_window(port, window, trace=None):
     """Send the bootloader's UPDATE handshake until it answers (tools/k6_update.py)"""
     import k6_update
-    return k6_update.catch_window(port, window)
+    return k6_update.catch_window(port, window, trace=trace)
 
 
 # ---- keys, signing, bundles ----
 
-def find_key(path=None, create=False, log=print):
-    if path:
-        return os.path.expanduser(path)
-    env = os.environ.get("BLOWFANG_KEY")
-    if env:
-        return os.path.expanduser(env)
-    for p in DEFAULT_KEYS:
-        if os.path.exists(os.path.expanduser(p)):
-            return os.path.expanduser(p)
-    p = os.path.expanduser(DEFAULT_KEYS[0])
-    if not create:
-        raise InstallError(f"no module key yet: run `{sys.argv[0]} key` (it makes {p})")
-    os.makedirs(os.path.dirname(p), mode=0o700, exist_ok=True)
-    k6mod.new_key(p)
-    log(f"made your module key {p} (keep it, and keep it private: it signs everything for your radio)")
+def find_key(path=None, create=False, log=print, create_explicit=False):
+    selected = path or os.environ.get("BLOWFANG_KEY")
+    if selected:
+        p = os.path.expanduser(selected)
+    else:
+        p = next((os.path.expanduser(p) for p in DEFAULT_KEYS
+                  if os.path.exists(os.path.expanduser(p))), os.path.expanduser(DEFAULT_KEYS[0]))
+    if not os.path.exists(p):
+        if not create or (selected and not create_explicit):
+            raise InstallError(f"no module key at {p}: run `{sys.argv[0]} key`")
+        os.makedirs(os.path.dirname(os.path.abspath(p)), mode=0o700, exist_ok=True)
+        k6mod.new_key(p)
+        log(f"made your module key {p} (keep it private and backed up)")
+    try:
+        state = k6mod.ensure_default_key(p)
+    except (OSError, ValueError) as exc:
+        raise InstallError(f"cannot use module key {p}: {exc}") from exc
+    if state == "created":
+        log(f"copied the module key to {k6mod.default_key_path()}")
+    elif state == "different":
+        log(f"WARNING: default key {k6mod.default_key_path()} is different; it was not replaced. "
+            "Use the same --key-file for future operations on this radio.")
     return p
 
 
@@ -388,9 +476,21 @@ def probe_image(serial, key):
     return k6mod.image(b"\x70\x47", 0, serial, key)
 
 
+AUTO_ID_MAGIC = b"K6AUTO1\0"
+AUTO_SLOTS = tuple(range(9)) + tuple(range(16, 32))
+
+
+def auto_marker(module_id):
+    if not isinstance(module_id, str) or not module_id or len(module_id.encode('utf-8')) > 256:
+        raise InstallError("automatic modules require a nonempty stable id (at most 256 UTF-8 bytes)")
+    return AUTO_ID_MAGIC + hashlib.sha256(module_id.encode('utf-8')).digest()[:16]
+
+
 def sign(entry, serial, key):
     """A bundle's library entry, signed for its slot"""
     code = open(entry["path"], "rb").read()
+    if entry.get("_auto"):
+        code += auto_marker(entry["id"])
     kind = entry["kind"]
     return k6mod.image(code, k6mod.bin_entry(code) if kind == "module" else 0, serial, key,
                        entry.get("level", 1), lib=entry["slot"], page=kind == "page", cards=kind == "cards")
@@ -419,6 +519,36 @@ def read_modules_list(path):
         if len(ln) == 2:
             out.append((int(ln[0]), ln[1]))
     return out
+
+
+def cmd_module_bundle(a, log=print):
+    """Package one module without binding it to a radio slot."""
+    auto_marker(a.id)
+    if a.source.endswith(".c"):
+        code, entry = k6mod.build(a.source)
+        level = k6mod.source_level(a.source) if a.level is None else a.level
+        if entry != k6mod.bin_entry(code):
+            raise InstallError("module entry cannot be recovered from its binary")
+    else:
+        if a.level is None:
+            raise InstallError("--level is required for a prebuilt binary")
+        code = open(a.source, "rb").read()
+        level = a.level
+    if not 1 <= level <= 255 or not code or len(code) + 48 > LIB_SLOT:
+        raise InstallError("invalid API level or module too large for a slot")
+    os.makedirs(a.output, exist_ok=True)
+    filename = "module.bin"
+    with open(os.path.join(a.output, filename), "wb") as f:
+        f.write(code)
+    manifest = {"format": 1, "build": "slot-independent module", "build_id": "0000000000000000",
+                "library": [{"id": a.id, "kind": "module", "file": filename,
+                             "name": k6mod.module_name(code) or a.id, "level": level}],
+                "sha256": {filename: hashlib.sha256(code).hexdigest()}}
+    with open(os.path.join(a.output, "manifest.json"), "w") as f:
+        json.dump(manifest, f, indent=2)
+        f.write("\n")
+    log(f"{a.output}: packaged {a.id} (automatic slot)")
+    return 0
 
 
 def cmd_bundle(a, log=print):
@@ -536,32 +666,45 @@ def default_backup_path():
     return os.path.join(d, "k6-spiflash-" + datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%MZ") + ".bin")
 
 
-def flash(port, image, key, how, log=print, ask=input):
+def flash(port, image, key, how, log=print, ask=input, debug_boot=False):
     """Key the image and flash it. how: "cable" (a blowfang radio: end the cable session, catch
-    the window after its restart, no hands) or "power" (you switch the radio on)"""
+    the window after its restart, no hands), "power" (catch a power-on), or "update" (the radio
+    is already showing UPDATE, so start with the bootloader's flash protocol)."""
     data, keyed = keyed_image(image, key)
+    trace = log if debug_boot else None
     if not keyed:
         log("  (this image takes no modules: it is flashed as it is)")
     if how == "cable":
         c = Cable(port, log)
         c.call(CMD_END)
         time.sleep(0.03)
-        ok = catch_window(port, 2.0)
-    else:
+        ok = catch_window(port, 2.0, trace=trace)
+        if not ok:
+            raise InstallError("the bootloader didn't answer after the radio restarted; try the flash again")
+        log("  the radio is in UPDATE mode")
+    elif how == "power":
         ask("Switch the radio OFF, then press Enter here and switch it ON (no keys held) within 10 s... ")
-        ok = catch_window(port, 12.0)
-    if not ok:
-        raise InstallError("the bootloader didn't answer: switch the radio off, press Enter and switch it on "
-                           "again (or hold Side Keys 1 and 2 while switching it on)")
-    log("  the radio is in UPDATE mode")
-    boot_flash(port, data, log)
+        ok = catch_window(port, 12.0, trace=trace)
+        if not ok:
+            raise InstallError("the bootloader didn't answer: switch the radio off, press Enter and switch it on "
+                               "again (or hold Side Keys 1 and 2 while switching it on)")
+        log("  the radio is in UPDATE mode")
+    elif how == "update":
+        log("  using the bootloader already in UPDATE mode")
+    else:
+        raise InstallError(f"unknown flash mode: {how}")
+    boot_flash(port, data, log, trace=trace)
     log("  flashed; the radio restarts (if its screen stays on UPDATE, switch it off and on)")
 
 
 def check_key(c, key, serials, log=print):
-    r, _, _, _ = c.send_image(probe_image(serials.next(), key), serials.n & 0xFF)
+    r, _, _, diag = c.send_image(probe_image(serials.next(), key), serials.n & 0xFF)
     if r == 3:
         return
+    if r == -1:
+        calc, received = (diag >> 16) & 0xFFFF, diag & 0xFFFF
+        raise InstallError(f"the radio rejected the module packet CRC (calculated {calc:04x}, "
+                           f"received {received:04x})")
     if r == -4:
         raise InstallError("the radio's image holds another key than yours: flash the image again with "
                            "`flash` (it keys it with yours), or pass the key it was keyed with (--key-file)")
@@ -570,19 +713,93 @@ def check_key(c, key, serials, log=print):
     raise InstallError(f"the key check came back {KM.get(r, r)}")
 
 
-def load(c, bundle, key, serials, log=print, only=None, verify=False, force=False):
+def allocate_slots(c, entries, info, key):
+    """Plan automatic entries without modifying the manifest or writing flash."""
+    entries = [dict(e) for e in entries]
+    automatic = [e for e in entries if e.get("slot") is None]
+    if not automatic:
+        return entries
+    markers = []
+    for e in automatic:
+        if e.get("kind") != "module":
+            raise InstallError("only modules may use automatic slots")
+        markers.append(auto_marker(e.get("id")))
+        if os.path.getsize(e["path"]) + len(markers[-1]) + 24 > min(info["arena"], LIB_SLOT):
+            raise InstallError(f"{e.get('name', e['id'])}: image with identity does not fit the radio arena or slot")
+    if len(set(markers)) != len(markers):
+        raise InstallError("duplicate automatic module id in bundle")
+    fixed = [e["slot"] for e in entries if e.get("slot") is not None]
+    if any(not isinstance(s, int) or isinstance(s, bool) or not 0 <= s < info["slots"] for s in fixed):
+        raise InstallError("invalid fixed slot")
+    if len(set(fixed)) != len(fixed):
+        raise InstallError("duplicate fixed slot in bundle")
+    free, matches = [], {m: [] for m in markers}
+    for slot in AUTO_SLOTS:
+        if slot >= info["slots"] or slot in fixed:
+            continue
+        address = LIB_BASE + slot * LIB_SLOT
+        head = c.read(address, 64)
+        if head == b"\xff" * 64:
+            free.append(slot)
+            continue
+        if head[:4] != b"K6M" + bytes([k6mod.ABI]) or head[13] != k6mod.LIB_FLAG:
+            continue
+        length = struct.unpack_from("<H", head, 4)[0]
+        total = 16 + length + 8
+        if length < len(AUTO_ID_MAGIC) + 16 or total > LIB_SLOT:
+            continue
+        image = c.read(address, total)
+        if image[-8:] != struct.pack("<Q", k6mod.siphash24(key, image[:-8])):
+            continue
+        marker = image[-8 - 24:-8]
+        if marker in matches:
+            matches[marker].append((slot, total))
+    for e, marker in zip(automatic, markers):
+        found = matches[marker]
+        if len(found) > 1:
+            raise InstallError(f"{e['id']}: installed in multiple slots; resolve manually")
+        erase_bytes = ((os.path.getsize(e["path"]) + len(marker) + 24 + 4095) // 4096) * 4096
+        if found:
+            slot, old_total = found[0]
+            area = c.read(LIB_BASE + slot * LIB_SLOT, erase_bytes)
+            if any(b != 0xff for b in area[old_total:]):
+                raise InstallError(f"{e['id']}: unrelated data in update erase range; resolve manually")
+            e["slot"] = slot
+            e["_update"] = True
+        else:
+            while free:
+                candidate = free.pop(0)
+                if c.read(LIB_BASE + candidate * LIB_SLOT, erase_bytes) == b"\xff" * erase_bytes:
+                    e["slot"] = candidate
+                    break
+            else:
+                raise InstallError("no free module slots; no library images were written")
+        e["_auto"] = True
+    return entries
+
+
+def load(c, bundle, key, serials, log=print, only=None, verify=False, force=False, skip_key_check=False):
     info = c.info()
     log(f"  the radio: cable session {info['protocol']}, {info['slots']} slots, "
+        f"{info['arena']} B upload arena, "
         f"build ID {info['build_id'].hex() if info['build_id'] else '(none: not the voice + EXPLORE image)'}")
-    check_key(c, key, serials, log)
+    if skip_key_check:
+        log("  skipping the separate key probe; each module is still checked by the radio before install")
+    else:
+        check_key(c, key, serials, log)
     want = bytes.fromhex(bundle["build_id"])
-    entries = [e for e in bundle["library"] if only is None or e["slot"] in only]
+    entries = [e for e in bundle["library"] if only is None or e.get("slot") in only]
     if info["build_id"] != want and not force:
         pages = [e for e in entries if e["kind"] == "page"]
         if pages:
             log("  skipping EXPLORE's pages: they are for another image than the radio's "
                 f"(bundle {want.hex()}); flash the bundle's image first")
             entries = [e for e in entries if e["kind"] != "page"]
+    entries = allocate_slots(c, entries, info, key)
+    for entry in entries:
+        if entry.get("_auto"):
+            action = "update" if entry.get("_update") else "install"
+            log(f"  automatic {action}: {entry['id']} -> slot {entry['slot']}")
     order = {"page": 0, "cards": 1, "module": 2}
     entries.sort(key=lambda e: (order[e["kind"]], e["slot"]))
     t, total = time.monotonic(), 0
@@ -594,9 +811,17 @@ def load(c, bundle, key, serials, log=print, only=None, verify=False, force=Fals
             # the last chunk's answer may have been lost and the chunk sent again (it then
             # starts a transfer of its own): the slot itself says whether the install happened
             if r == 3 or c.read(slot, len(img)) != img:
-                why = KM.get(r, r) if r != 3 else KL.get(put, put)
-                raise InstallError(f"slot {e['slot']} ({e['name']}): {why}")
-        elif verify and c.read(slot, len(img)) != img:
+                if r == 0:
+                    why = "radio did not recognize the module packet (restart the cable session)"
+                    if c.km_diag_stage is not None:
+                        why += f"; module-loader diagnostic stage {c.km_diag_stage}"
+                else:
+                    why = KM.get(r, r) if r != 3 else KL.get(put, put)
+                detail = f"radio accepted {have}/{count} chunks"
+                if count > have:
+                    detail += f" ({count - have} still missing)"
+                raise InstallError(f"slot {e['slot']} ({e['name']}): {why}; {detail}")
+        elif (verify or e.get("_auto")) and c.read(slot, len(img)) != img:
             raise InstallError(f"slot {e['slot']} ({e['name']}) reads back differently")
         total += len(img)
         log(f"  slot {e['slot']:2d} {e['kind']:6s} {e['name']:12s} {len(img):6d} B")
@@ -722,28 +947,45 @@ def main(argv=None, log=None, ask=input):
     b.add_argument("-o", "--output")
     f = sub.add_parser("flash", help="key an image with your key and flash it")
     f.add_argument("image")
-    f.add_argument("--power", action="store_true", help="catch the bootloader as you switch the radio on, "
-                                                        "even if it runs blowfang")
+    fg = f.add_mutually_exclusive_group()
+    fg.add_argument("--power", action="store_true", help="catch the bootloader as you switch the radio on, "
+                                                         "even if it runs blowfang")
+    fg.add_argument("--already-update", action="store_true", help="flash directly when the radio is already "
+                                                                   "showing UPDATE")
+    f.add_argument("--debug-boot", action="store_true", help="show raw bootloader reply bytes on timeouts")
     ld = sub.add_parser("load", help="the library: EXPLORE's pages, the help deck, the modules")
     ld.add_argument("bundle")
     ld.add_argument("--only", help="these slots only, e.g. 0,13,26")
     ld.add_argument("--verify", action="store_true")
     ld.add_argument("--force", action="store_true", help="pages even if the radio's build ID differs")
+    ld.add_argument("--skip-key-check", action="store_true", help="skip the standalone probe and try the selected image")
+    rm = sub.add_parser("remove-slot", help="erase one module slot from the radio")
+    rm.add_argument("slot", type=int, help="module slot number; firmware pages and decks are protected")
+    rm.add_argument("--yes", action="store_true", help="confirm erasing this occupied module slot")
     sub.add_parser("status", help="what the radio runs, its codebooks and its library")
     sub.add_parser("key", help="make your module key")
     bd = sub.add_parser("bundle", help="a release folder from build.sh's or CI's out/")
     bd.add_argument("out")
     bd.add_argument("-o", "--output", required=True)
     bd.add_argument("--modules", default=os.path.join(HERE, "k6_release_modules.txt"))
+    mb = sub.add_parser("module-bundle", help="package one module with an automatic slot")
+    mb.add_argument("source", help="module C source or prebuilt binary")
+    mb.add_argument("--id", required=True, help="stable globally unique module ID")
+    mb.add_argument("--level", type=int, help="module API level (required for a binary)")
+    mb.add_argument("-o", "--output", required=True)
     a = ap.parse_args(argv)
     try:
         if a.cmd == "key":
-            p = find_key(a.key_file, create=True, log=log)
+            p = find_key(a.key_file, create=True, log=log, create_explicit=True)
             log(f"your key: {p}")
             return 0
         if a.cmd == "bundle":
             return cmd_bundle(a, log)
-        key_path = find_key(a.key_file, create=a.cmd == "install", log=log) if a.cmd in ("install", "flash", "load") else None
+        if a.cmd == "module-bundle":
+            return cmd_module_bundle(a, log)
+        create_key = a.cmd == "install" or (a.cmd == "flash" and
+                     open(a.image, "rb").read().count(k6mod.PLACEHOLDER) == 1)
+        key_path = find_key(a.key_file, create=create_key, log=log) if a.cmd in ("install", "flash", "load", "remove-slot") else None
         key = k6mod.read_key(key_path) if key_path else None
         bundle = load_bundle(a.bundle) if a.cmd in ("install", "load") else None
         port = open_port(a)
@@ -762,16 +1004,44 @@ def main(argv=None, log=None, ask=input):
                 return 0
             if a.cmd == "flash":
                 how = "power"
-                if not a.power and open_cable(port, log, wait=3.0):
+                if a.already_update:
+                    how = "update"
+                elif not a.power and open_cable(port, log, wait=3.0):
                     how = "cable"
-                flash(port, open(a.image, "rb").read(), key, how, log, ask)
+                flash(port, open(a.image, "rb").read(), key, how, log, ask, a.debug_boot)
                 return 0
             c = open_cable(port, log, wait=20.0)
             if not c:
                 raise InstallError("no cable session: have the radio on a blowfang image, in EXPLORE or the arena")
             if a.cmd == "load":
                 only = {int(s) for s in a.only.split(",")} if a.only else None
-                load(c, bundle, key, Serials(), log, only, a.verify, a.force)
+                try:
+                    load(c, bundle, key, Serials(), log, only, a.verify, a.force, a.skip_key_check)
+                except InstallError:
+                    # Don't leave the radio in a half-finished cable/module-packet session. The
+                    # next attempt starts from a fresh radio state instead of inheriting it.
+                    c.end()
+                    raise
+            elif a.cmd == "remove-slot":
+                info = c.info()
+                if info["protocol"] < 2:
+                    raise InstallError("this radio firmware has no safe module-removal protocol; "
+                                       "flash an image with cable protocol 2 first")
+                if not (0 <= a.slot <= 8 or 16 <= a.slot < LIB_SLOTS):
+                    raise InstallError("only module slots 0-8 and 16-31 can be erased")
+                head = c.slot_head(a.slot)
+                if head is None:
+                    raise InstallError(f"slot {a.slot} is already empty")
+                flags = head[0][13]
+                if not (flags & 1) or flags & (2 | 4):
+                    raise InstallError(f"slot {a.slot} is not a removable module; reserved pages and help decks are protected")
+                if not a.yes and ask(f"Erase module {head[1] or '(unnamed)'} from slot {a.slot}? Type ERASE to continue: ").strip() != "ERASE":
+                    raise InstallError("erase cancelled")
+                log(f"  erasing module {head[1] or '(unnamed)'} from slot {a.slot}...")
+                c.remove_slot(a.slot, key, Serials().next())
+                if c.slot_head(a.slot) is not None:
+                    raise InstallError(f"slot {a.slot} still appears occupied after erase")
+                log(f"  slot {a.slot} erased; the radio is restarting")
             else:
                 info = c.info()
                 log(f"blowfang cable session {info['protocol']}, build ID "

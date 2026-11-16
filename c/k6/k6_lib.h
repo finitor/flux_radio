@@ -55,6 +55,8 @@ extern "C" {
 /* header byte 13 (flags), with KM_F_LIB: a deck of help cards (the release plan), never run:
    kl_load and kl_page refuse it */
 #define KM_F_CARDS 0x04
+/* signed cable-only request: erase the module named in byte 15 instead of installing */
+#define KM_F_REMOVE 0x08
 /* the module name block (K6_MODULE_NAME): magic, then KL_NAME characters */
 #define KL_NAME 12
 
@@ -72,7 +74,8 @@ enum {
   KL_BAD_TAG = -3,   /* the tag doesn't check under this radio's key (or it has none) */
   KL_IO = -4,        /* a flash call refused */
   KL_VERIFY = -5,    /* read back differs from what was written */
-  KL_SLOT = -6       /* no such slot */
+  KL_SLOT = -6,      /* no such slot */
+  KL_NOT_MODULE = -7 /* empty slot, page, deck, or non-library data */
 };
 
 /* Slot n's address */
@@ -81,6 +84,8 @@ enum {
 /* Write the checked image at img (KM_READY from km_packet, flag KM_F_LIB) to the slot in its
    byte 15. The image's length, or KL_*. */
 int kl_install(const uint8_t *img, const kl_flash_t *fl);
+/* Erase one module slot, refusing EXPLORE pages, help decks, and malformed entries. */
+int kl_remove(int slot, const kl_flash_t *fl);
 /* Read slot n into dst (cap bytes) and check it: the code length and arm km_run, or KL_*.
    A page (KM_F_PAGE) is refused: KL_BAD_HDR. */
 int kl_load(int slot, const kl_flash_t *fl, uint8_t *dst, unsigned cap);

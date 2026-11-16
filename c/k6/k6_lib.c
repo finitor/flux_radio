@@ -16,7 +16,7 @@ int kl_install(const uint8_t *img, const kl_flash_t *fl) {
   unsigned total = hdr_len(img), slot = img[15], off, n;
   uint32_t base;
   uint8_t back[64];
-  if (!total || !(img[13] & KM_F_LIB)) return KL_BAD_HDR;
+  if (!total || !(img[13] & KM_F_LIB) || (img[13] & KM_F_REMOVE)) return KL_BAD_HDR;
   if (slot >= KL_SLOTS) return KL_SLOT;
   base = KL_SLOT_ADDR(slot);
   /* only the sectors the image needs; a shorter image leaves 0xFF behind it in the last one */
@@ -34,6 +34,26 @@ int kl_install(const uint8_t *img, const kl_flash_t *fl) {
       if (back[i] != img[off + i]) return KL_VERIFY;
   }
   return (int)total;
+}
+
+int kl_remove(int slot, const kl_flash_t *fl) {
+  kl_info_t info;
+  uint8_t check[64];
+  uint32_t base;
+  unsigned off, i;
+  if (slot < 0 || slot >= KL_SLOTS) return KL_SLOT;
+  if (kl_info(slot, fl, &info) != 0 || !(info.flags & KM_F_LIB) ||
+      (info.flags & (KM_F_PAGE | KM_F_CARDS))) return KL_NOT_MODULE;
+  base = KL_SLOT_ADDR(slot);
+  /* Clear the full slot, including stale data beyond the previous image's final sector. */
+  for (off = 0; off < KL_SLOT_BYTES; off += KL_SECTOR)
+    if (fl->erase(base + off)) return KL_IO;
+  for (off = 0; off < KL_SLOT_BYTES; off += sizeof check) {
+    if (fl->read(base + off, check, sizeof check)) return KL_IO;
+    for (i = 0; i < sizeof check; i++)
+      if (check[i] != 0xFF) return KL_VERIFY;
+  }
+  return 0;
 }
 
 int kl_info(int slot, const kl_flash_t *fl, kl_info_t *out) {
@@ -56,17 +76,23 @@ int kl_info(int slot, const kl_flash_t *fl, kl_info_t *out) {
 
 /* read slot n into dst and check its header and tag: the code length, or KL_* */
 static int load(int slot, const kl_flash_t *fl, uint8_t *dst, unsigned cap, unsigned page) {
-  kl_info_t inf;
-  unsigned total;
-  int r = kl_info(slot, fl, &inf);
-  if (r) return r;
-  if (!(inf.flags & KM_F_PAGE) != !page || (inf.flags & KM_F_CARDS)) return KL_BAD_HDR;
-  total = KM_HDR + inf.code_len + KM_TAG;
+  unsigned total, code, flags;
+  if (slot < 0 || slot >= KL_SLOTS) return KL_SLOT;
+  if (cap < KM_HDR) return KL_BAD_HDR;
+  /* Keep this path shallow: the Aura host calls kl_load from its keypad handler with little
+     stack left. Calling kl_info here nested another C frame and a Rust SPI callback before the
+     image was even read. Read the header into the destination, validate it, then load the image. */
+  if (fl->read(KL_SLOT_ADDR(slot), dst, KM_HDR)) return KL_IO;
+  total = hdr_len(dst);
+  if (!total) return KL_BAD_HDR;
+  code = u16le(dst + 4);
+  flags = dst[13];
+  if (!!(flags & KM_F_PAGE) != !!page || (flags & KM_F_CARDS)) return KL_BAD_HDR;
   if (total > cap) return KL_BAD_HDR;
   if (fl->read(KL_SLOT_ADDR(slot), dst, total)) return KL_IO;
-  if (!hdr_len(dst) || dst[13] != inf.flags) return KL_BAD_HDR;   /* changed between the two reads */
-  if (km_tag_check(dst, inf.code_len)) return KL_BAD_TAG;
-  return inf.code_len;
+  if (!hdr_len(dst) || dst[13] != flags) return KL_BAD_HDR;       /* changed between the two reads */
+  if (km_tag_check(dst, code)) return KL_BAD_TAG;
+  return (int)code;
 }
 
 int kl_load(int slot, const kl_flash_t *fl, uint8_t *dst, unsigned cap) {

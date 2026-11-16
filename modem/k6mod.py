@@ -31,6 +31,7 @@ TLM_MAX = 12             # telemetry parts a module may ask for
 LIB_FLAG = 0x01          # header byte 13: keep it in the SPI module library (c/k6/k6_lib.h)
 PAGE_FLAG = 0x02         # with LIB_FLAG: a code page the image loads itself, never run (kl_page)
 CARDS_FLAG = 0x04        # with LIB_FLAG: a deck of help cards, never run
+REMOVE_FLAG = 0x08       # signed cable-only module-slot erase request
 LIB_SLOTS = 32           # library slots, slot n at 0x110000 + n * 16 KB (12 before the release plan)
 NAME_MAGIC = b"K6NM"     # a module's name block (K6_MODULE_NAME, k6_mod.h): first in its code
 NAME_LEN = 12
@@ -75,11 +76,37 @@ def siphash24(key, m):
     return v[0] ^ v[1] ^ v[2] ^ v[3]
 
 
+def default_key_path():
+    return os.path.expanduser("~/.config/blowfang/k6-mod.key")
+
+
+def ensure_default_key(path):
+    """Populate the default from an existing key, never replace another key."""
+    path = os.path.expanduser(os.fspath(path))
+    default = default_key_path()
+    key = read_key(path)
+    if os.path.abspath(path) == os.path.abspath(default):
+        return "same"
+    os.makedirs(os.path.dirname(default), mode=0o700, exist_ok=True)
+    try:
+        fd = os.open(default, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        try:
+            return "same" if read_key(default) == key else "different"
+        except (OSError, ValueError):
+            return "different"
+    with os.fdopen(fd, "w") as f:
+        f.write(key.hex() + "\n")
+    return "created"
+
+
 def new_key(path):
-    """Write a random key as 32 hex digits, readable by you only."""
+    """Write a random key, and populate the default location if it is empty."""
+    path = os.path.expanduser(os.fspath(path))
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "w") as f:
         f.write(secrets.token_hex(16) + "\n")
+    return ensure_default_key(path)
 
 
 def read_key(path):
@@ -141,7 +168,8 @@ def source_opt(src):
     return m.group(1) if m else "s"
 
 
-def image(code, entry, serial, key, level=LEVEL, tlm=0, lib=None, page=False, magic=b"K6M", cards=False):
+def image(code, entry, serial, key, level=LEVEL, tlm=0, lib=None, page=False, magic=b"K6M", cards=False,
+          remove=False):
     """Header + code + SipHash tag (k6_mod.h). tlm: text parts of say lines the K6 sends back
     after the module runs, when the upload asks for a reply (packets(..., arq=True)). lib: a
     slot of the K6's SPI module library (c/k6/k6_lib.h, 0..LIB_SLOTS-1): the K6 keeps the
@@ -159,11 +187,12 @@ def image(code, entry, serial, key, level=LEVEL, tlm=0, lib=None, page=False, ma
         raise ValueError(f"library slot 0..{LIB_SLOTS - 1}")
     if lib is not None and 16 + len(code) + 8 > LIB_SLOT_BYTES:
         raise ValueError(f"{16 + len(code) + 8} bytes is more than a library slot ({LIB_SLOT_BYTES})")
-    if (page or cards) and lib is None:
+    if (page or cards or remove) and lib is None:
         raise ValueError("a page or a deck goes into a library slot")
-    if page and cards:
-        raise ValueError("a page or a deck, not both")
-    flags, slot = (0, 0) if lib is None else (LIB_FLAG | (PAGE_FLAG if page else 0) | (CARDS_FLAG if cards else 0), lib)
+    if sum(bool(v) for v in (page, cards, remove)) > 1:
+        raise ValueError("a page, a deck, or a removal request, not more than one")
+    flags, slot = (0, 0) if lib is None else (
+        LIB_FLAG | (PAGE_FLAG if page else 0) | (CARDS_FLAG if cards else 0) | (REMOVE_FLAG if remove else 0), lib)
     if len(magic) != 3:
         raise ValueError("the magic is three bytes")
     hdr = bytes(magic) + bytes([ABI]) + struct.pack("<HHIBBBB", len(code), entry, serial & 0xFFFFFFFF, level,

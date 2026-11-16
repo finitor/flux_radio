@@ -23,6 +23,9 @@ __attribute__((used)) static const uint8_t key_store[16] = {KM_PLACEHOLDER};
 static km_status_t K;
 static uint8_t seen[32];        /* a bit per chunk: up to 255 */
 static uint8_t ready;
+static uint32_t crc_diag;        /* last packet: calculated CRC in high half, received in low */
+
+uint32_t km_crc_diag(void) { return crc_diag; }
 
 static uint64_t le64(const uint8_t *p) {
   uint64_t v = 0;
@@ -116,7 +119,8 @@ int km_packet(const uint8_t *payload, int len, void *arena, unsigned arena_bytes
   if ((payload[0] ^ w[0]) != KM_MAGIC && (payload[0] ^ w[0]) != KM_MAGIC_ARQ) return KM_NOT_MINE;
   for (i = 0; i < (unsigned)len; i++) d[i] = payload[i] ^ w[i];
   K.chunk = d[2];
-  if (sp_crc16(d, len - 2) != ((unsigned)d[len - 2] << 8 | d[len - 1])) return K.last = KM_BAD_CRC;
+  crc_diag = (sp_crc16(d, len - 2) << 16) | ((unsigned)d[len - 2] << 8 | d[len - 1]);
+  if ((uint16_t)(crc_diag >> 16) != (uint16_t)crc_diag) return K.last = KM_BAD_CRC;
   idx = d[2], cnt = d[3], off = idx * dl;
   if (!cnt || idx >= cnt || (cnt - 1u) * dl >= arena_bytes) return K.last = KM_BAD_CHUNK;
   if (!K.active && d[1] == K.xfer && cnt == K.count) return K.last = KM_DUP;   /* done already */
@@ -133,7 +137,12 @@ int km_packet(const uint8_t *payload, int len, void *arena, unsigned arena_bytes
   n = arena_bytes - off < dl ? arena_bytes - off : dl;
   for (i = 0; i < n; i++) a[off + i] = d[4 + i];
   K.missing = (uint8_t)(cnt - ++K.have);
-  if (K.have < cnt) return K.last = KM_CHUNK;
+  if (K.have < cnt) {
+    /* Leave the C return path free of diagnostic callbacks: a Rust cable frame emitted here
+       obscures whether the original result survives the callback boundary. */
+    K.last = KM_CHUNK;
+    return KM_CHUNK;
+  }
   K.active = 0;
   n = (cnt - 1u) * dl + n;      /* bytes of image held */
   return K.last = (int8_t)check(a, n, dl);
@@ -156,7 +165,85 @@ int km_run(void *arena, const k6_api_t *api) {
 #endif
 }
 
+#if defined(__thumb__)
+/* The compact Aura host has little free MSP at its module call site. Its LCD page buffer is
+   unused for the whole module run (the lean host disables the module LCD), so it lends that
+   buffer as an isolated module stack. Keep this as a naked ABI trampoline: a compiler prologue
+   on the old stack would defeat the switch, and the saved r3 is restored only after km_run. */
+__attribute__((naked)) int km_run_on_stack(void *arena, const k6_api_t *api, void *stack_top) {
+  __asm volatile("push {r0, r1, r2, lr}\n"
+                 "ldr r3, [sp, #12]\n"
+                 "pop {r0, r1, r2}\n"
+                 "add sp, #4\n"
+                 "mov lr, r3\n"
+                 "mov r3, sp\n"
+                 "mov sp, r2\n"
+                 "push {r3, lr}\n"
+                 "bl km_run\n"
+                 "pop {r3}\n"
+                 "ldr r2, [sp]\n"
+                 "add sp, #4\n"
+                 "mov sp, r3\n"
+                 "bx r2\n");
+}
+
+/* Run LCD callbacks on the module's private stack. The Aura stack can be nearly exhausted by
+   the time a sideloaded module calls us, while the module stack is deliberately reserved for
+   its callbacks as well as its own frames. */
+__attribute__((naked)) void km_call_host_stack(void (*fn)(void *), void *arg) {
+  __asm volatile("push {r4, lr}\n"
+                 "mov r4, sp\n"
+                 "mov r3, r0\n"
+                 "mov r0, r1\n"
+                 "blx r3\n"
+                 "mov sp, r4\n"
+                 "pop {r4, pc}\n");
+}
+
+/* Boot constructs Aura's large App value while the normal MSP has too little headroom.
+   Borrow the still-unused module arena as a temporary descending stack, then restore MSP. */
+__attribute__((naked)) void km_call_on_stack(void *stack_top, void (*fn)(void *), void *arg) {
+  __asm volatile("push {r4, lr}\n"
+                 "mov r4, sp\n"
+                 "mov sp, r0\n"
+                 "mov r0, r2\n"
+                 "blx r1\n"
+                 "mov sp, r4\n"
+                 "pop {r4, pc}\n");
+}
+
+/* The cable loop can arrive with less than km_packet's stack frame free above .bss. Switch
+   this one call to the linker-reserved main stack at SRAM top. */
+__attribute__((naked)) int km_packet_on_stack(const uint8_t *payload, int len, void *arena,
+                                               unsigned arena_bytes) {
+  __asm volatile("push {r4, lr}\n"
+                 "mov r4, sp\n"
+                 "ldr r3, =_stack_start\n"
+                 "mov sp, r3\n"
+                 "push {r4, lr}\n"
+                 "bl km_packet\n"
+                 "pop {r4}\n"
+                 "add sp, #4\n"
+                 "mov sp, r4\n"
+                 "pop {r4, pc}\n");
+}
+#endif
+
+#if !defined(__thumb__)
+int km_packet_on_stack(const uint8_t *payload, int len, void *arena, unsigned arena_bytes) {
+  return km_packet(payload, len, arena, arena_bytes);
+}
+#endif
+
 void km_reset(void) { K.active = 0, ready = 0; }
+void km_cable_begin(void) {
+#ifdef SP_PKT_YIELD
+  /* Cable mode has RF off. Clear the FSK receiver callback so CRC's optional yield hook cannot
+     call a stale or uninitialized receiver context while a module is being uploaded. */
+  sp_set_packet_yield(0, 0);
+#endif
+  km_reset();
+}
 int km_armed(void) { return ready; }
 
 static void report_seal(uint8_t *out, uint8_t kind, uint8_t seq, uint8_t part, uint8_t parts) {

@@ -87,7 +87,11 @@ esac
 # the images with the coded 4FSK session (c/k6/ifpager.c: not lean) are the ones with the codebook
 # in SPI flash: there sp_packet yields to the session's receiver while a packet goes in
 PKY=
-[ "${K6_CB:-}" = spi ] && PKY=-DSP_PKT_YIELD
+if [ "${K6_CB:-}" = spi ]; then
+  # Most SPI builds include the coded receiver, whose packet loop yields to its live FSK
+  # session. Lean host images with no receiver can opt out (K6_PKT_YIELD=0).
+  [ "${K6_PKT_YIELD:-1}" = 0 ] || PKY=-DSP_PKT_YIELD
+fi
 # the decoder's working memory in the firmware's shared RAM block (SP_DEC_POOL, sotto_pager.h):
 # the SPI images, which take RAM modules of up to 8.7 KB; the lean images (install, table, rom)
 # keep the library's own static pool and give modules the store and the PWM ring only
@@ -106,7 +110,9 @@ SYNTH=
 [ "${K6_CB:-}" = spi ] && [ -z "$HISS" ] && SYNTH=-DFX_SYNTH_STATE
 CC=${K6_CC:-clang}
 AR=${K6_AR:-llvm-ar}
+command -v "$AR" >/dev/null 2>&1 || AR=ar
 OBJCOPY=${K6_OBJCOPY:-llvm-objcopy}
+command -v "$OBJCOPY" >/dev/null 2>&1 || OBJCOPY=objcopy
 RES=$("$CC" -print-resource-dir)
 CFLAGS="--target=thumbv6m-none-eabi -mcpu=cortex-m0 -mthumb -mfloat-abi=soft -nostdinc
   -isystem $ROOT/c/fixed/cm4/inc -isystem $RES/include -ffunction-sections -fdata-sections -std=c99
@@ -143,6 +149,11 @@ fi
 $CC $CFLAGS -Oz ${KM:+-DKM_KEY=$KM} -c "$ROOT/c/k6/k6_mod.c" -o "$OUT/k6_mod.o"
 # the SPI module library (k6_lib.h): install / load a module image in its SPI slot
 $CC $CFLAGS -Oz -c "$ROOT/c/k6/k6_lib.c" -o "$OUT/k6_lib.o"
+# PXK6 full-color PixelQSO card record validator and monochrome LCD preview renderer.
+# This is linked only into images/modules that use the card-sync feature.
+$CC $CFLAGS -Oz -c "$ROOT/c/k6/card_record.c" -o "$OUT/card_record.o"
+$CC $CFLAGS -Oz -c "$ROOT/c/k6/card_store.c" -o "$OUT/card_store.o"
+$CC $CFLAGS -Oz -c "$ROOT/c/k6/card_air.c" -o "$OUT/card_air.o"
 # per packet, not per sample (the PWM conversion is 160 samples in 20 ms): -Oz, about 2 KB less
 $CC $CFLAGS ${K6_PAGER_OPT:--Oz} -c "$ROOT/c/k6/sotto_pager.c" -o "$OUT/sotto_pager.o"
 $CC $CFLAGS -Dcalloc=sp_calloc -Dfree=sp_free -c "$ROOT/c/fixed/sotto_fx_dec.c" -o "$OUT/sotto_fx_dec.o"
@@ -176,7 +187,7 @@ $CC $CFLAGS -DKP_PAGE=KP_TABLE -c "$ROOT/c/k6/kp_tab.c" -o "$OUT/kp_table.o"
 $CC $CFLAGS -DKP_PAGE=KP_EDIT -c "$ROOT/c/k6/kp_tab.c" -o "$OUT/kp_edit.o"
 LIBOBJS="$OUT/sotto_pager.o $OUT/k6_mod.o $OUT/sotto_fx_dec.o $OUT/sp_cb.o $OUT/sp_vlr.o $OUT/fx_math.o $OUT/fx_tables.o $OUT/ifpager.o
   $OUT/xscan.o $OUT/xlisten.o $OUT/xdmr.o $OUT/explore.o $OUT/cwid.o $OUT/k6_rt.o $OUT/sted.o"
-LIBOBJS="$LIBOBJS $OUT/k6_lib.o"
+LIBOBJS="$LIBOBJS $OUT/k6_lib.o $OUT/card_record.o $OUT/card_store.o $OUT/card_air.o"
 if [ -n "$LR" ]; then     # not hot (field unpacking and shape sums once per 40 ms): -Oz
   $CC $CFLAGS -Oz -Dcalloc=sp_calloc -Dfree=sp_free -c "$ROOT/c/fixed/sotto_fx_lr.c" -o "$OUT/sotto_fx_lr.o"
   LIBOBJS="$LIBOBJS $OUT/sotto_fx_lr.o"

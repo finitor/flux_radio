@@ -1,0 +1,13 @@
+{
+  "image_sha256": "d01c74cd14317dbe9108d59a5f30ef42a914ff9e70f9927efdf4798cfba8aade",
+  "recorded_from_elf_sha256": "a13de15c99d8ecb044f59793641c1086cc559b0560f7111e9323f47a7b463816",
+  "symbols": {
+    "__sheap": [536892348, 0],
+    "aura::MODULE_PAGE_BUFFER_STORAGE": [536875184, 1152],
+    "aura::hal::arena::ARENA": [536880320, 11776],
+    "aura::APP_SLOT": [536876336, 3024],
+    "aura::app::pager::CB_NOR": [536892124, 4],
+    "aura::ui::MOD_DISPLAY": [536892108, 4],
+    "aura::app::pager::MOD_LCD": [536879980, 4]
+  }
+}

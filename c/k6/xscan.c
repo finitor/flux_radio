@@ -112,6 +112,7 @@ static int full(xs_t *s, uint32_t hz, uint32_t spent) {
 
 int xs_level(xs_t *s, uint32_t hz) { return full(s, hz, 0); }
 
+#ifndef XS_MODULE_NO_REFINE
 /* refine a hit near hz: narrow reads 5 ms after the tune every 2.5 kHz over +-(step + 5 kHz);
    the middle of those within 3 dB of the loudest, snapped to snap_hz */
 static uint32_t refine(xs_t *s, uint32_t hz, int g) {
@@ -135,6 +136,7 @@ static uint32_t refine(xs_t *s, uint32_t hz, int g) {
   if (snap) c = udiv(c + snap / 2, snap) * snap;
   return c;
 }
+#endif
 
 static xs_hot_t *near(xs_t *s, uint32_t hz, uint32_t tol, int up) {
   xs_hot_t *h = s->hot;
@@ -207,6 +209,7 @@ static int new_hit(xs_t *s, int g, uint32_t b, uint32_t hz, int lvl, int r) {
   int i;
   if (!h) {
     if (!slot(s, lvl)) return 0;
+#ifndef XS_MODULE_NO_REFINE
     if (s->refine) {
       c = refine(s, hz, g);
       h = near(s, c, half, 0);
@@ -214,6 +217,7 @@ static int new_hit(xs_t *s, int g, uint32_t b, uint32_t hz, int lvl, int r) {
          fl-115, beside our -21 dBm ID): no hit */
       if (!h && (lvl = full(s, c, 0)) < s->sf + s->hit_db) return 0;
     }
+#endif
   }
   if (h) {
     if (!h->up && !h->spur) starts(h, s->api->ms(), lvl, r);

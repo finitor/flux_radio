@@ -187,6 +187,7 @@ int rt_find(rt_t *t, uint16_t id, uint32_t rx_hz, uint32_t tol, rt_rec_t *out) {
       if (r.id != id) continue;
       d = 0;
     } else {
+      if (r.flags & RT_F_VFO) continue;
       d = r.rx_hz > rx_hz ? r.rx_hz - rx_hz : rx_hz - r.rx_hz;
       if (d > tol) continue;
     }
@@ -203,7 +204,8 @@ int rt_next(rt_t *t, int slot, rt_rec_t *out) {
   uint16_t st;
   int s;
   for (s = slot + 1; s < RT_SLOTS; s++) {
-    if (state(t, s, &st) || LO(st) != RT_ST_VALID || rd(t, s, &r) || !good(&r)) continue;
+    if (state(t, s, &st) || LO(st) != RT_ST_VALID || rd(t, s, &r) || !good(&r) ||
+        (r.flags & RT_F_VFO)) continue;
     if (out) cp(out, &r);
     return s;
   }

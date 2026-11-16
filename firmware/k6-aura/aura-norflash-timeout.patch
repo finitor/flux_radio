@@ -1,0 +1,71 @@
+diff --git a/src/hal/spi.rs b/src/hal/spi.rs
+index 1d907f4..fcd4018 100644
+--- a/src/hal/spi.rs
++++ b/src/hal/spi.rs
+@@ -19,4 +19,6 @@ pub struct SpiBus<'a> {
+     regs: &'a spi1::RegisterBlock,
+ }
+ 
++const TRANSFER_SPIN_LIMIT: u32 = 1_000_000;
++
+ impl<'a> SpiBus<'a> {
+@@ -96,6 +98,27 @@ impl<'a> SpiBus<'a> {
+         while self.regs.sr().read().bsy().bit_is_set() {}
+         rx
+     }
++
++    /// A bounded transfer for operations that must recover from a wedged peripheral.
++    pub fn try_transfer_byte(&mut self, byte: u8) -> Option<u8> {
++        let mut ready = false;
++        for _ in 0..TRANSFER_SPIN_LIMIT {
++            if self.regs.sr().read().txe().bit_is_set() { ready = true; break; }
++        }
++        if !ready { return None; }
++        unsafe { core::ptr::write_volatile(self.regs.dr().as_ptr() as *mut u8, byte); }
++        ready = false;
++        for _ in 0..TRANSFER_SPIN_LIMIT {
++            if self.regs.sr().read().rxne().bit_is_set() { ready = true; break; }
++        }
++        if !ready { return None; }
++        let rx = unsafe { core::ptr::read_volatile(self.regs.dr().as_ptr() as *const u8) };
++        ready = false;
++        for _ in 0..TRANSFER_SPIN_LIMIT {
++            if self.regs.sr().read().bsy().bit_is_clear() { ready = true; break; }
++        }
++        if ready { Some(rx) } else { None }
++    }
+ }
+ 
+ impl embedded_hal::spi::ErrorType for SpiBus<'_> {
+diff --git a/src/drivers/norflash.rs b/src/drivers/norflash.rs
+index 85f9acc..89a40b5 100644
+--- a/src/drivers/norflash.rs
++++ b/src/drivers/norflash.rs
+@@ -72,5 +72,27 @@ impl<'a> NorFlash<'a> {
+         self.cs_high();
+     }
+ 
++    /// A bounded read for the module loader: a wedged SPI status flag must not freeze Aura.
++    pub fn read_bytes_checked(&mut self, addr: u32, buf: &mut [u8]) -> bool {
++        self.cs_low();
++        let mut transfer = |byte| self.spi.try_transfer_byte(byte).is_some();
++        if !transfer(CMD_READ_DATA)
++            || !transfer((addr >> 16) as u8)
++            || !transfer((addr >> 8) as u8)
++            || !transfer(addr as u8)
++        {
++            self.cs_high();
++            return false;
++        }
++        for b in buf.iter_mut() {
++            match self.spi.try_transfer_byte(0x00) {
++                Some(value) => *b = value,
++                None => { self.cs_high(); return false; }
++            }
++        }
++        self.cs_high();
++        true
++    }
++
+     /// `addr` and `data` together must not cross a page boundary.
+     fn write_page(&mut self, addr: u32, data: &[u8]) {

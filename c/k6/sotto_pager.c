@@ -19,6 +19,9 @@
 #endif
 #endif
 #include "../fixed/fx.h"            /* FX_OA_PACKED: whether fx_cs512's 2 KB table is in RAM */
+#ifdef SP_CABLE_DIAG
+extern void km_cable_diag(uint8_t stage);
+#endif
 
 /* ---- the decoder's allocations: sotto_fx_dec.c (and sotto_fx_lr.c) are built with
    -Dcalloc=sp_calloc -Dfree=sp_free, so their state lives here instead of on a heap: one
@@ -135,6 +138,9 @@ static unsigned crc16(const uint8_t *p, int n) {
   unsigned c = 0xFFFF;
   int i;
   for (i = 0; i < n; i++) {
+#ifdef SP_CABLE_DIAG
+    if ((i & 15) == 0) km_cable_diag((uint8_t)(10 + (i >> 4)));
+#endif
     c = crc_byte(c, p[i]);
     PK_YIELD(i, 15);
   }

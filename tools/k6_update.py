@@ -73,18 +73,23 @@ def wait_reset_line(port, timeout, out):
     return False
 
 
-def catch_window(port, window, period=0.018):
+def catch_window(port, window, period=0.018, trace=None):
     """Send the handshake every `period` s (the bootloader ends a frame after 10 ms idle) until
     it answers; True when it does."""
-    deadline, buf = time.monotonic() + window, b""
+    deadline, buf, seen = time.monotonic() + window, b"", bytearray()
     while time.monotonic() < deadline:
         port.write(HANDSHAKE)
         t = time.monotonic() + period
         while time.monotonic() < t:
-            buf += port.read(64)
+            chunk = port.read(64)
+            if chunk:
+                seen.extend(chunk)
+                buf += chunk
             if find_reply(buf):
                 return True
         buf = buf[-16:]
+    if trace:
+        trace("  UPDATE handshake RX timeout: " + (bytes(seen[:96]).hex(" ") if seen else "no bytes"))
     return False
 
 

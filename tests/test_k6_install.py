@@ -26,6 +26,12 @@ BUILD_ID = bytes.fromhex("0123456789abcdef")
 pytestmark = pytest.mark.skipif(not os.path.exists(HOST), reason="needs make -C c/k6 kl_host")
 
 
+@pytest.fixture(autouse=True)
+def isolated_key_home(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("BLOWFANG_KEY", raising=False)
+
+
 class Radio:
     """A serial port with an emulated K6 behind it: the cable session (kl_host for the loader
     and the SPI flash), then the bootloader for a moment after each restart"""
@@ -233,6 +239,117 @@ def slot_info(radio, n):
     return dict(kv.split("=") for kv in radio.kl_cmd(f"info {n}").split())
 
 
+def test_auto_slot_installs_and_updates_same_identity(tmp_path):
+    radio = Radio()
+    cable = ki.Cable(radio, lambda *a, **k: None)
+    assert cable.handshake(ki.CABLE_HANDSHAKE)
+    path = tmp_path / "module.bin"
+    path.write_bytes(code_named("SURF", 128, 1))
+    entry = {"kind": "module", "id": "org.example.surf", "name": "SURF",
+             "path": str(path), "level": 1}
+    bundle = {"build_id": BUILD_ID.hex(), "library": [entry]}
+    serials = ki.Serials()
+    try:
+        ki.load(cable, bundle, KEY, serials, log=lambda *a, **k: None, verify=True)
+        assert slot_info(radio, 0)["r"] == "0"
+        path.write_bytes(code_named("SURF", 160, 2))
+        ki.load(cable, bundle, KEY, serials, log=lambda *a, **k: None, verify=True)
+        assert slot_info(radio, 0)["r"] == "0"
+        assert slot_info(radio, 1)["r"] == "-1"
+    finally:
+        radio.shutdown()
+
+
+def test_auto_slots_never_overwrite_unknown_or_reserved_slots(tmp_path):
+    class Flash:
+        def read(self, address, count):
+            slot = (address - ki.LIB_BASE) // ki.LIB_SLOT
+            return (b"unknown" + b"\xff" * 57)[:count] if slot == 0 else b"\xff" * count
+
+    path = tmp_path / "module.bin"
+    path.write_bytes(code_named("TEST", 16, 1))
+    entries = [{"kind": "module", "id": f"org.example.{n}", "path": str(path)} for n in range(10)]
+    planned = ki.allocate_slots(Flash(), entries, {"slots": 32, "arena": 11776}, KEY)
+    assert [e["slot"] for e in planned] == list(range(1, 9)) + [16, 17]
+    assert all("slot" not in e for e in entries)
+
+
+def test_auto_slots_full_fail_before_any_install(tmp_path):
+    class Flash:
+        def read(self, address, count):
+            return b"\x00" * count
+
+    path = tmp_path / "module.bin"
+    path.write_bytes(code_named("TEST", 16, 1))
+    with pytest.raises(ki.InstallError, match="no free module slots"):
+        ki.allocate_slots(Flash(), [{"kind": "module", "id": "org.example.test", "path": str(path)}],
+                          {"slots": 32, "arena": 11776}, KEY)
+
+
+def test_auto_slot_rejects_hidden_data_in_erase_range(tmp_path):
+    class Flash:
+        def read(self, address, count):
+            slot = (address - ki.LIB_BASE) // ki.LIB_SLOT
+            data = bytearray(b"\xff" * count)
+            if slot == 0 and count > 64:
+                data[100] = 0
+            return bytes(data)
+
+    path = tmp_path / "module.bin"
+    path.write_bytes(code_named("TEST", 16, 1))
+    result = ki.allocate_slots(Flash(), [{"kind": "module", "id": "org.example.test", "path": str(path)}],
+                               {"slots": 32, "arena": 11776}, KEY)
+    assert result[0]["slot"] == 1
+
+
+def test_auto_update_refuses_to_erase_unrelated_data(tmp_path):
+    marker = ki.auto_marker("org.example.test")
+    old = k6mod.image(code_named("TEST", 16, 1) + marker, 20, 1, KEY, 1, lib=0)
+    class Flash:
+        def read(self, address, count):
+            slot = (address - ki.LIB_BASE) // ki.LIB_SLOT
+            data = bytearray(b"\xff" * count)
+            if slot == 0:
+                data[:min(len(old), count)] = old[:count]
+                if count > 4096:
+                    data[4096] = 0
+            return bytes(data)
+    path = tmp_path / "module.bin"
+    path.write_bytes(code_named("TEST", 5000, 1))
+    with pytest.raises(ki.InstallError, match="unrelated data"):
+        ki.allocate_slots(Flash(), [{"kind": "module", "id": "org.example.test", "path": str(path)}],
+                          {"slots": 32, "arena": 11776}, KEY)
+
+
+def test_module_bundle_cli_packages_slot_independent_binary(tmp_path):
+    source = tmp_path / "mod.bin"
+    source.write_bytes(code_named("SURF", 32, 1))
+    dest = tmp_path / "bundle"
+    assert ki.main(["module-bundle", str(source), "--id", "org.example.surf", "--level", "9",
+                    "-o", str(dest)], log=lambda *a, **k: None) == 0
+    entry = ki.load_bundle(str(dest))["library"][0]
+    assert entry["id"] == "org.example.surf" and entry["level"] == 9
+    assert entry.get("slot") is None
+    assert open(entry["path"], "rb").read() == source.read_bytes()
+
+
+def test_compiled_module_bundle_installs_via_emulated_cable(tmp_path):
+    bundle_dir = tmp_path / "bundle"
+    source = os.path.join(ROOT, "c/k6/mod/morse.c")
+    assert ki.main(["module-bundle", source, "--id", "org.blowfang.k6.morse", "-o", str(bundle_dir)],
+                   log=lambda *a, **k: None) == 0
+    bundle = ki.load_bundle(str(bundle_dir))
+    radio = Radio()
+    cable = ki.Cable(radio, lambda *a, **k: None)
+    assert cable.handshake(ki.CABLE_HANDSHAKE)
+    try:
+        ki.load(cable, bundle, KEY, ki.Serials(), log=lambda *a, **k: None)
+        assert slot_info(radio, 0)["r"] == "0"
+        assert bytes.fromhex(slot_info(radio, 0)["name"]).decode() == "MORSE"
+    finally:
+        radio.shutdown()
+
+
 def test_frames_match_aura():
     # Aura's cps::frame::encode: A6, cmd, addr BE, len BE, data, CRC-16/XMODEM over cmd..data BE
     f = ki.cps_frame(0x44, 0x0102, b"")
@@ -321,6 +438,21 @@ def test_lost_answer_to_the_last_chunk(bundle, keyfile, monkeypatch):
     # the last chunk went twice, then the slot was read back (16 + 3,000 + 8 B: 48 reads), then end
     assert radio.answers == 2 + chunks + 1 + 48 + 1
     radio.shutdown()
+
+
+def test_flash_creates_default_key_and_uses_it(bundle, tmp_path, monkeypatch):
+    radio = Radio()
+    image = (bundle / "aura-voice-explore.bin").read_bytes()
+    try:
+        result, log = run(["flash", str(bundle / "aura-voice-explore.bin")], radio, monkeypatch)
+        assert result == 0, log
+        key_path = tmp_path / ".config/blowfang/k6-mod.key"
+        key = k6mod.read_key(key_path)
+        expected = k6mod.key_image(image, key)
+        assert radio.flashed[:len(expected)] == expected
+        assert key_path.stat().st_mode & 0o777 == 0o600
+    finally:
+        radio.shutdown()
 
 
 def test_flash_over_the_cable(bundle, keyfile, monkeypatch):

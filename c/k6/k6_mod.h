@@ -48,7 +48,7 @@ extern "C" {
 #define KM_HDR 16
 #define KM_TAG 8
 #define KM_ABI 1
-#define KM_LEVEL 9
+#define KM_LEVEL 12
 
 typedef struct k6_api {
   uint16_t abi, level;              /* KM_ABI, KM_LEVEL */
@@ -150,6 +150,23 @@ typedef struct k6_api {
      show '?' for those bytes, so a module that also runs there reads api->level and writes
      plain text instead (same run-time check as level 6). */
   void (*lcd_glyphs)(const uint16_t *cols, int n);
+  /* level 10: FD6818B generic fixed-frame FSK receive. These calls are supported only by
+     the FD6818B build (chip ID 0x4829). RX frames contain eight raw FIFO words (16 bytes);
+     this is a hardware FIFO primitive, not the legacy Blowfang packet modem or a wire-format
+     compatibility promise. Start returns 0 or -1; ready returns 1/0; read returns 0 when a
+     frame was consumed, -1 when unavailable or out is NULL. stop returns the chip to idle. */
+  int (*fsk_rx_start)(void);
+  int (*fsk_rx_ready)(void);
+  int (*fsk_rx_read)(uint16_t *words);
+  void (*fsk_rx_stop)(void);
+  /* level 11 (FD6818B only): send one fixed 16-byte raw FSK FIFO frame. Requires
+     a successful guarded tx_on(); returns 0 when the chip reports completion,
+     -1 if unavailable/not keyed/timeout. The caller owns framing, rate limiting,
+     acknowledgement, and the overall on-air duty-cycle budget. */
+  int (*fsk_tx_send)(const uint16_t *words);
+  /* level 12: append a validated PXK6 card to the non-executable card store.
+     Available only in the SPI-library/full firmware. */
+  int (*card_store)(const uint8_t *record, uint32_t bytes);
 } k6_api_t;
 
 #define KM_GLYPH_COLS 6
@@ -225,10 +242,20 @@ enum { KM_ST_PARTWAY = 0, KM_ST_RAN = 1, KM_ST_REFUSED = 2 };
 
 /* payload: the packet as received (whitened), len 64 or 128. arena: the message store. */
 int km_packet(const uint8_t *payload, int len, void *arena, unsigned arena_bytes);
+/* Cable packets can arrive with little room below Aura's current application stack. */
+int km_packet_on_stack(const uint8_t *payload, int len, void *arena, unsigned arena_bytes);
+/* Last km_packet CRC: calculated CRC in bits 31..16, received CRC in bits 15..0. */
+uint32_t km_crc_diag(void);
 /* After KM_READY: run the module once and return what it returned (-100 if none is ready,
    or on a machine that can't run Thumb code). */
 int km_run(void *arena, const k6_api_t *api);
+/* Run a checked module on a caller-provided, word-aligned stack top. */
+int km_run_on_stack(void *arena, const k6_api_t *api, void *stack_top);
+/* Call a host callback on the suspended caller stack while a module runs on its own stack. */
+void km_call_host_stack(void (*fn)(void *), void *arg);
+void km_call_on_stack(void *stack_top, void (*fn)(void *), void *arg);
 void km_reset(void);                  /* drop a transfer partway */
+void km_cable_begin(void);             /* reset the loader and clear radio packet-yield hook */
 int km_armed(void);                   /* 1 while km_run would run a module */
 const km_status_t *km_status(void);
 /* The report packets, whitened and ready for the chip's FIFO (64 bytes). status: from km_status

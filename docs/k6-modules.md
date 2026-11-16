@@ -83,7 +83,7 @@ The chunks' data, in order, is the image (the last chunk padded with zeros):
 | 4 | code length, u16 little-endian |
 | 6 | entry offset in the code, u16, even |
 | 8 | serial, u32: must be newer than the last module this boot ran |
-| 12 | API level the module needs (1 to 7; a K6 refuses a newer one), flags (0), telemetry parts (0-12, level 4 images; see below), 1 reserved byte |
+| 12 | API level the module needs (1 to 10; a K6 refuses a newer one), flags (0), telemetry parts (0-12, level 4 images; see below), 1 reserved byte |
 | 16 | code: Thumb, position-independent, no writable statics |
 | 16 + code length | SipHash-2-4 tag of bytes 0 .. 15 + code length, u64 little-endian |
 
@@ -120,6 +120,12 @@ Images from 2026-11-06 evening on (`KM_LEVEL` 4) add three calls and two over-ai
 | `key_poll()` | 1 while any key is held, from one GPIO read with all rows driven (a few us; `key_down` scans six rows, about 60 us). The lean images fall back to `key_down` |
 | `cal_read(buf, n)` | the first `n` (up to 64) bytes of the calibration sector, SPI flash 0x10F000; n, or -1 (lean images) |
 | `cal_write(buf, n)` | erases that sector and writes `n` bytes; once per run and never while keyed; n, or -1 |
+
+In the full Aura Blowfang host, the physical power switch is also checked by the module's
+cooperative key and delay callbacks. A confirmed switch-off stops a module at its next callback;
+Aura's main loop then saves channel state, turns RF off and releases the power latch. Modules
+should poll `key_down()` or `key_poll()` in long-running loops. A module that never calls the API
+and gets stuck in its own code cannot be interrupted by the single-core firmware.
 
 **Upload ARQ.** A module sent with magic `0xAE` (`modem.k6 mod --arq`) asks for a reply. When
 the transfer stops (2 s after the last packet heard, and the channel below -90 dBm), the K6
@@ -283,6 +289,18 @@ screen (`draw_mod_screen`) and the paged one (`draw_mod_page`) draw them. The co
 200 B of flash and 8 B of RAM. The emulator (`tests/test_k6_i2s.py`) records each frame's
 glyphs, and `tools/k6_screen.py` draws them.
 
+## API level 10: FD6818B fixed-frame FSK receive
+
+The experimental FD6818B image (chip ID `0x4829`) appends `fsk_rx_start`, `fsk_rx_ready`,
+`fsk_rx_read`, and `fsk_rx_stop` to the module API. A read returns eight raw 16-bit FIFO words
+(16 bytes) from the chip's fixed-frame FSK receiver. This is a low-level receive primitive:
+it does not reproduce the legacy FD6818 packet modem, Blowfang's packet framing, or provide a
+transmit path. Modules must check `api->level >= 10` before using it; non-FD6818B images remain
+at level 9 and return no FSK frames through these calls. The register/FIFO model and framing
+fixtures are in `tests/k6_fd6818b_fsk.py` and `tests/test_k6_fd6818b_fsk.py`; they are software
+contract tests, not captures from a physical radio. `c/k6/mod/fskbcap.c` is a receive-only bench
+probe that reports raw FIFO words so a real capture can settle byte order and frame behavior.
+
 ## The SPI module library
 
 Added 2026-11-09 (Jeff approved it 2026-11-08: modules written to SPI once per install).
@@ -330,6 +348,12 @@ into the shared block first, as an upload does; reading 11.7 KB takes about 16 m
   `c/k6/k6_lib.h`). With `--arq` the report says `ran` with that number as its return. A
   module image never runs straight from an install packet, even on an image without the
   library (km_packet leaves it unarmed).
+- **Remove:** `python3 tools/k6_install.py --port PORT remove-slot N` sends a module-key-signed
+  `K6ERASE` request (the normal checked cable chunk path, with a new signed flag). Firmware only
+  accepts module slots 0-8 and 16-31, confirms the stored header marks a module rather than a page
+  or deck, erases all four 4 KB sectors in the slot and verifies the entire 16 KB reads as `0xFF`.
+  The CLI asks you to type `ERASE`; `--yes` skips that prompt for an explicit caller. This never
+  erases codebooks, calibration, pages, cards, or another slot.
 - **Run:** `python -m modem.k6 ctl OUT.wav --action lib --slot N` (control action 11, the slot
   in byte 4) reads the slot into the shared block, checks the header and the tag again and runs
   it through the same path as an upload (`K6 LIB run slot=N r=CODE_LEN`, then the usual
@@ -337,8 +361,9 @@ into the shared block first, as an upload does; reading 11.7 KB takes about 16 m
   dropped, as by an upload. `--slot 255` only prints the slots, as the boot does:
   `K6 LIB slot=N r=0 code= serial= level= flags= name=` for each used one, then `K6 LIB used=N`
   (`flags=` and `name=` since the release plan).
-- **Rules:** the only SPI writes are an install's, inside 0x110000-0x18FFFF, page and sector
-  aligned, never while the radio transmits (the core's flash calls refuse them). Nothing else of
+- **Rules:** library writes and erases are limited to installs and explicit signed module removals,
+  inside 0x110000-0x18FFFF, page and sector aligned, never while the radio transmits (the core's
+  flash calls refuse them). Nothing else of
   the radio's state goes there: never the message store. A worn or overwritten slot fails its
   tag (`r=-3`) and doesn't run.
 - **Serials:** a run from a slot skips the serial check (the slot was checked when it went in;
@@ -360,11 +385,13 @@ image with the SPI library (`spilib`: pager-only, lr, vlr, vlrh, explore, voice-
 takes them over the programming cable. `tools/k6_install.py` drives it and
 [`docs/manual/install.md`](manual/install.md) is the owner's book.
 
-**Same chunks, same loader, same writes.** The session hands each chunk to `km_packet` exactly
+**Same chunks, same loader, signed install and removal.** The session hands each chunk to `km_packet` exactly
 as the receiver does (a whitened 64-byte L packet, magic `0xAB`), so the tag under the radio's
 key and the serial are checked as for an upload, and an install image goes into its slot through
 the same `lib_install` / `kl_install` (the slot's sectors in 0x110000-0x18FFFF, a page at a time,
-read back). The cable adds no new trust and no new kind of SPI write. An image without
+read back). A module erase is also a signed `KM_F_LIB | KM_F_REMOVE` image whose code is `K6ERASE`
+and whose slot is in byte 15; the radio checks its tag and serial before the restricted library
+erase runs. An image without
 `KM_F_LIB` is checked and dropped, never run: the PC uses that to check its key before it writes
 anything (a two-byte `bx lr` image: `r=3` the key is right, `r=-4` another key, `r=-5` none).
 
@@ -389,7 +416,7 @@ skips them.
 
 | cmd | data | answer |
 | --- | --- | --- |
-| `V` 0x56 info | none | `BLWF`, protocol 1, library slots (32), the shared block's size (u16 LE), the image's 8-byte build ID (voice + EXPLORE; zeros in the others: the pages must end with it) |
+| `V` 0x56 info | none | `BLWF`, protocol 2, library slots (32), the shared block's size (u16 LE), the image's 8-byte build ID (voice + EXPLORE; zeros in the others: the pages must end with it) |
 | `M` 0x4D chunk | a whitened 64-byte L packet | `r` (km_packet, i8), have, count, 0, the install's result (i32 LE: the image's length, or `KL_*`; 0 until the last chunk) |
 | `D` 0x44 read | none; addr = 64-byte block | 64 bytes of the SPI flash at addr x 64 (as Aura's `CMD_READ_FLASH_RAW`): the backup, and reading slots back |
 | `E` 0x45 end | none | empty; then the radio restarts |

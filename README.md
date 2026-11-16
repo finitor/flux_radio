@@ -1,5 +1,11 @@
 # blowfang
 
+**AG7SU K6 project:** an independent Aura and sideloading effort for the Baofeng UV-K6 with the
+FD6818B RF chip. This checkout brings together the Aura port, authenticated module loader, native
+and sideloadable modules, emulator fixtures, and local Git-backed module catalog. It is based on
+[baitisj/blowfang](https://github.com/baitisj/blowfang); focused upstream-ready changes should be
+contributed there when they do not depend on the Aura integration or catalog.
+
 Alternative firmware for radios. The first radio is the Baofeng UV-K6 / K61 (KD32F328 Cortex-M0,
 FD6818 RF chip): Aura, the open Rust firmware, with a sotto voice pager, an IF receiver and
 softmodem, RAM modules loaded over the air (FT8, WSPR, AIS, APRS clock, DMR detect, CW ID, Morse,
@@ -52,6 +58,20 @@ Where the docs say `c/sotto_enc` or `c/sotto_dec`, build them with `make -C sott
 `sotto/c/sotto_enc`.
 
 ## Build and test
+
+### Module store prototype
+
+Browse Git-hosted module repositories and install their format-1 release bundles with the local
+catalog UI:
+
+```sh
+python3 -m pip install -r tools/k6_store_requirements.txt
+python3 tools/k6_store.py add https://github.com/OWNER/K6-MODULE --ref main
+python3 tools/k6_store.py serve
+```
+
+Open `http://127.0.0.1:5055`. See [`docs/module-store.md`](docs/module-store.md) for the CLI,
+README screenshot conventions, and bundle requirements.
 
 ```sh
 make -C sotto/c VARIANT=v3.7 fixed PYTHON=false   # the codec's host decoders the tests use

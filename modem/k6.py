@@ -524,8 +524,13 @@ def main(argv=None):
 
     if a.cmd == "modkey":
         from . import k6mod
-        k6mod.new_key(a.path)
+        status = k6mod.new_key(a.path)
         log(f"wrote {a.path}; build the K6 image with K6_MOD_KEY_FILE={a.path}")
+        if status == "created":
+            log(f"also saved the key at {k6mod.default_key_path()}")
+        elif status == "different":
+            log(f"WARNING: {k6mod.default_key_path()} contains a different key and was not replaced; "
+                "use the new key explicitly for its radio")
         return 0
 
     if a.cmd == "keyimage":

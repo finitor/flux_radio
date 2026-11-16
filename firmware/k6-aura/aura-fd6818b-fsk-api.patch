@@ -1,0 +1,106 @@
+--- a/src/app/pager.rs
++++ b/src/app/pager.rs
+@@ -310,6 +310,11 @@
+         pub clock_get: unsafe extern "C" fn(*mut u32, *mut u32, *mut u32) -> i32,
+         // level 9: a module's own glyphs on its screen (bytes 0x80 + k of a text line)
+         pub lcd_glyphs: unsafe extern "C" fn(*const u16, i32),
++        // level 10: FD6818B fixed-frame FSK receive; eight 16-bit FIFO words per frame.
++        pub fsk_rx_start: unsafe extern "C" fn() -> i32,
++        pub fsk_rx_ready: unsafe extern "C" fn() -> i32,
++        pub fsk_rx_read: unsafe extern "C" fn(*mut u16) -> i32,
++        pub fsk_rx_stop: unsafe extern "C" fn(),
+     }
+     /// c/k6/k6_lib.h kl_flash_t and kl_info_t
+     #[repr(C)]
+@@ -353,7 +358,7 @@
+ /// through MOD_CTX, set only while a module runs.
+ static MOD_API: ffi::K6Api = ffi::K6Api {
+     abi: 1,
+-    level: 9,
++    level: if cfg!(feature = "fd6818b") { 10 } else { 9 },
+     say: mod_say,
+     ticks: mod_ticks,
+     fd_read: mod_fd_read,
+@@ -381,6 +386,10 @@
+     clock_set: mod_clock_set,
+     clock_get: mod_clock_get,
+     lcd_glyphs: mod_lcd_glyphs,
++    fsk_rx_start: mod_fsk_rx_start,
++    fsk_rx_ready: mod_fsk_rx_ready,
++    fsk_rx_read: mod_fsk_rx_read,
++    fsk_rx_stop: mod_fsk_rx_stop,
+ };
+ 
+ // ---- level 8: the radio's UTC clock (Jeff OK'd 2026-11-09; docs/k6-aprs-clock.md) ----
+@@ -616,6 +625,57 @@
+     0
+ }
+ 
++/// Level 10's explicit FD6818B receive path. Keep modules off the raw FD6818 register recipe:
++/// the B chip has a different FSK programming sequence and exposes fixed 16-byte FIFO frames.
++unsafe extern "C" fn mod_fsk_rx_start() -> i32 {
++    #[cfg(feature = "fd6818b")]
++    {
++        let (app, syst) = unsafe { mod_ctx() };
++        app.radio.fd6818.enter_fsk_mode(syst);
++        return 0;
++    }
++    #[cfg(not(feature = "fd6818b"))]
++    -1
++}
++
++unsafe extern "C" fn mod_fsk_rx_ready() -> i32 {
++    #[cfg(feature = "fd6818b")]
++    {
++        let (app, syst) = unsafe { mod_ctx() };
++        return app.radio.fd6818.fsk_rx_ready(syst) as i32;
++    }
++    #[cfg(not(feature = "fd6818b"))]
++    0
++}
++
++unsafe extern "C" fn mod_fsk_rx_read(words: *mut u16) -> i32 {
++    if words.is_null() {
++        return -1;
++    }
++    #[cfg(feature = "fd6818b")]
++    {
++        let (app, syst) = unsafe { mod_ctx() };
++        if !app.radio.fd6818.fsk_rx_ready(syst) {
++            return -1;
++        }
++        let frame = app.radio.fd6818.fsk_receive(syst);
++        for (index, word) in frame.iter().enumerate() {
++            unsafe { words.add(index).write(*word) };
++        }
++        return 0;
++    }
++    #[cfg(not(feature = "fd6818b"))]
++    -1
++}
++
++unsafe extern "C" fn mod_fsk_rx_stop() {
++    #[cfg(feature = "fd6818b")]
++    {
++        let (app, syst) = unsafe { mod_ctx() };
++        app.radio.fd6818.exit_fsk_mode(syst);
++    }
++}
++
+ unsafe extern "C" fn mod_delay_us(mut us: u32) {
+     let (_, syst) = unsafe { mod_ctx() };
+     while us > 0 {
+--- a/src/drivers/fd6818b.rs
++++ b/src/drivers/fd6818b.rs
+@@ -838,6 +838,11 @@
+ 
+     #[allow(dead_code)]
+     pub fn exit_fsk_mode(&mut self, syst: &mut SYST) {
++        // Stop RX before clearing its mode-specific settings. Leaving REG_WORK_MODE at
++        // WORK_MODE_FSK_RX makes subsequent status reads look like fresh FSK frames.
++        self.write_reg(syst, REG_FSK_CONTROL, FSK_CONTROL_BASE);
++        self.write_reg(syst, REG_WORK_MODE, 0x0000);
++        self.write_reg(syst, REG_INT_CLEAR, 0x0000);
+         self.write_reg(syst, REG_TONE_GAIN, 0x0000);
+         self.write_reg(syst, REG_FSK_PREAMBLE, 0x0000);
+     }

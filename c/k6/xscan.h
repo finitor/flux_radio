@@ -26,7 +26,9 @@ extern "C" {
 #endif
 
 #define XS_NSEG 4
+#ifndef XS_HOT
 #define XS_HOT 10
+#endif
 #define XS_BLOCK 32
 #define XS_DESENSE_DB 15   /* a floor read this far under the last is desense (held once) */
 #define XS_DROP_DB 3       /* a floor read goes down at most this far (up at once) */

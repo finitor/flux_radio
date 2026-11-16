@@ -1,0 +1,180 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -7,9 +7,6 @@
+ name = "aura"
+ test = false
+ bench = false
+-
+-[features]
+-fd6818b = []
+ 
+ [dependencies]
+ cortex-m = "0.7"
+@@ -25,6 +22,7 @@
+ profont = "0.7"
+ 
+ [features]
++fd6818b = []
+ # The sotto voice pager as the whole firmware: Aura's drivers and VOICE MSG only, so the
+ # decoder's 66 KB fits (full Aura leaves 7.5 KB). Built by sotto's firmware/k6-aura/build.sh.
+ pager-only = []
+--- a/src/drivers/fd6818b.rs
++++ b/src/drivers/fd6818b.rs
+@@ -1537,6 +1537,15 @@
+         self.read_reg(syst, REG_SOFT_RESET)
+     }
+ 
++    /// Raw register access for the sotto pager, which drives the FSK modem directly.
++    pub(crate) fn reg_write(&mut self, syst: &mut SYST, addr: u8, value: u16) {
++        self.write_reg(syst, addr, value);
++    }
++
++    pub(crate) fn reg_read(&mut self, syst: &mut SYST, addr: u8) -> u16 {
++        self.read_reg(syst, addr)
++    }
++
+     pub fn init(&mut self, syst: &mut SYST) {
+         // soft reset
+         self.write_reg(syst, REG_SOFT_RESET, 0x8000);
+--- a/src/app/pager.rs
++++ b/src/app/pager.rs
+@@ -26,7 +26,11 @@
+ use crate::device::keypad::{KeyEvent, KeyEventKind, KeyId};
+ use crate::device::power::Power as PowerSwitch;
+ use crate::device::radio::{BandLock, Modulation, SubAudio};
+-use crate::drivers::fd6818::AfOutState;
++#[cfg(not(feature = "fd6818b"))]
++use crate::drivers::fd6818 as fd6818;
++#[cfg(feature = "fd6818b")]
++use crate::drivers::fd6818b as fd6818;
++use fd6818::AfOutState;
+ use crate::hal::pwm_audio::{self, PwmAudio};
+ use crate::hal::{arena, delay, uptime};
+ use core::ptr::{addr_of, addr_of_mut, read_volatile, write_volatile};
+@@ -135,7 +139,10 @@
+ 
+ /// The FD6818 (BK4819 family) needs CHIPID 0x4819; the FD6818B (0x4829) has
+ /// other registers.
++#[cfg(not(feature = "fd6818b"))]
+ const FD6818_CHIP_ID: u16 = 0x4819;
++#[cfg(feature = "fd6818b")]
++const FD6818_CHIP_ID: u16 = 0x4829;
+ 
+ /// Pager-only image: the frequency VOICE MSG starts on at power-on, instead of the VFO stock
+ /// Aura saved: 440.850 MHz, in WWARA's packet simplex sub-band (440.800-440.900). `#` still
+@@ -745,10 +752,10 @@
+     disarm(app, syst);
+     app.radio.set_frequency(hz);
+     app.radio.set_tx_frequency(hz);
+-    app.radio.set_power(crate::drivers::fd6818::Power::Low);
++    app.radio.set_power(fd6818::Power::Low);
+     app.radio.set_subaudio_tx(SubAudio::None);
+     app.radio.set_modulation(Modulation::Fm);
+-    app.radio.apply_pa_calibration(&mut app.storage, hz, crate::drivers::fd6818::Power::Low);
++    app.radio.apply_pa_calibration(&mut app.storage, hz, fd6818::Power::Low);
+     // The module transmitter's own band lock, chosen by Jeff (licensee AG7EW) on 2026-11-06:
+     // the US amateur 2 m and 70 cm bands (FCC HAM, 144-148 and 420-450 MHz), whatever the
+     // radio's FLOCK says, since the pager image has no menu to change it. Only for this
+@@ -2088,11 +2095,20 @@
+     app.radio
+         .fd6818
+         .set_af_out(syst, AfOutState::Mute, true, Modulation::Fm);
++    // The FD6818B uses a different FSK register map. Keep Blowfang's legacy
++    // packet modem disabled until its FD6818B-specific sequence is ported.
++    #[cfg(feature = "fd6818b")]
++    return;
+     configure(app, syst);
+     rearm_rx(app, syst);
+ }
+ 
+ fn disarm(app: &mut App, syst: &mut SYST) {
++    #[cfg(feature = "fd6818b")]
++    {
++        let _ = (app, syst);
++        return;
++    }
+     let fd = &mut app.radio.fd6818;
+     fd.reg_write(syst, REG_IRQ_EN, 0);
+     fd.reg_write(syst, REG_FSK_CTRL, CTRL_BASE);
+@@ -2146,7 +2162,7 @@
+ // of an almost-full interrupt into this soft FIFO. take_irq and read_words then see them as if
+ // they came off the chip just now.
+ 
+-static mut Y_FD: *mut crate::drivers::fd6818::Fd6818<'static> = core::ptr::null_mut();
++static mut Y_FD: *mut fd6818::Fd6818<'static> = core::ptr::null_mut();
+ static mut Y_SYST: *mut SYST = core::ptr::null_mut();
+ static mut Y_LAST: u16 = 0;
+ static mut Y_IRQN: u8 = 3;
+@@ -2188,7 +2204,7 @@
+ #[inline(never)]
+ /// The chip's pending interrupt causes, cleared (interrupt reads' order), without a spurious
+ /// almost-full; 0 if none
+-fn chip_irq(fd: &mut crate::drivers::fd6818::Fd6818<'static>, syst: &mut SYST) -> u16 {
++fn chip_irq(fd: &mut fd6818::Fd6818<'static>, syst: &mut SYST) -> u16 {
+     if fd.reg_read(syst, REG_STATUS) & 1 == 0 {
+         return 0;
+     }
+@@ -2210,7 +2226,7 @@
+ }
+ 
+ /// n words off the chip's FIFO into the soft FIFO (raw, before the byte swap)
+-fn soft_pull(fd: &mut crate::drivers::fd6818::Fd6818<'static>, syst: &mut SYST, n: usize) {
++fn soft_pull(fd: &mut fd6818::Fd6818<'static>, syst: &mut SYST, n: usize) {
+     for _ in 0..n {
+         unsafe {
+             if Y_SOFT_N as usize >= SOFT_LEN {
+@@ -2456,6 +2472,11 @@
+ /// playback 3 s after the last packet of an incomplete message.
+ #[inline(never)] // its locals only while it runs, not in main's frame for good
+ pub(super) fn poll(app: &mut App, syst: &mut SYST) {
++    #[cfg(feature = "fd6818b")]
++    {
++        let _ = (app, syst);
++        return;
++    }
+     if app.mode != Mode::Pager || !app.pager.chip_ok {
+         return;
+     }
+@@ -4434,10 +4455,10 @@
+     disarm(app, syst);
+     app.radio.set_frequency(hz);
+     app.radio.set_tx_frequency(hz);
+-    app.radio.set_power(crate::drivers::fd6818::Power::Low);
++    app.radio.set_power(fd6818::Power::Low);
+     app.radio.set_subaudio_tx(SubAudio::None);
+     app.radio.set_modulation(Modulation::Fm);
+-    app.radio.apply_pa_calibration(&mut app.storage, hz, crate::drivers::fd6818::Power::Low);
++    app.radio.apply_pa_calibration(&mut app.storage, hz, fd6818::Power::Low);
+     // the module transmitter's band lock (FCC HAM, Jeff's choice for AG7EW), for this key-up only
+     app.radio.set_tx_allowed(BandLock::Fcc.tx_ranges());
+     let ok = app.radio.enter_tx(syst);
+--- a/src/app/pager/explore.rs
++++ b/src/app/pager/explore.rs
+@@ -31,7 +31,11 @@
+ use crate::hal::arena;
+ use crate::app::App;
+ use crate::device::keypad::{KeyEvent, KeyEventKind, KeyId};
+-use crate::drivers::fd6818::AfOutState;
++#[cfg(not(feature = "fd6818b"))]
++use crate::drivers::fd6818 as fd6818;
++#[cfg(feature = "fd6818b")]
++use crate::drivers::fd6818b as fd6818;
++use fd6818::AfOutState;
+ use crate::device::radio::Modulation;
+ use crate::hal::{pwm_audio, uptime};
+ use crate::ui::TextBuf;
+--- a/src/ui/pager.rs
++++ b/src/ui/pager.rs
+@@ -234,6 +234,12 @@
+     line(lcd, 29, b.as_str());
+ 
+     let mut b: TextBuf<24> = TextBuf::new();
++    #[cfg(feature = "fd6818b")]
++    {
++        let _ = p;
++        out!(b, "FD6818B FSK TBD");
++    }
++    #[cfg(not(feature = "fd6818b"))]
+     if !p.chip_ok {
+         out!(b, "RF chip not FD6818");
+     } else if p.cb < 1 {

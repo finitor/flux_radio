@@ -1,0 +1,14 @@
+--- a/src/cps/mod.rs
++++ b/src/cps/mod.rs
+@@ -613,6 +613,11 @@
+                 cable_send(CMD_CABLE_INFO, f.addr, &d);
+             }
+             CMD_CABLE_CHUNK if f.len == 64 => {
++                // Diagnostic: acknowledge the first complete host frame before entering C.
++                // If the PC sees this but no final response, the hang is in the loader path.
++                if f.addr == 0 {
++                    cable_send(CMD_CABLE_CHUNK, f.addr, b"\x7fCHK");
++                }
+                 let (r, have, count, put) = app.cable_chunk(&f.data[..64]);
+                 let mut d = [r as u8, have, count, 0, 0, 0, 0, 0];
+                 d[4..].copy_from_slice(&put.to_le_bytes());

@@ -1,0 +1,134 @@
+--- a/src/app/pager.rs
++++ b/src/app/pager.rs
+@@ -742,7 +742,14 @@
+ unsafe extern "C" fn mod_key_down() -> i32 {
+     mod_tx_guard();
+     let (app, syst) = unsafe { mod_ctx() };
+-    app.keypad.any_pressed(syst) as i32
++    // V/M and A/B are the radio escape keys: cooperative modules stop on any
++    // key, and these specifically return all the way to Aura's VFO screen.
++    let pressed = app.keypad.pressed_key(syst);
++    let escape = matches!(pressed, Some(KeyId::Vm | KeyId::Ab));
++    if escape {
++        unsafe { core::ptr::write_volatile(core::ptr::addr_of_mut!(MOD_EXIT_TO_AURA), true) };
++    }
++    pressed.is_some() as i32
+ }
+ 
+ unsafe extern "C" fn mod_say(s: *const u8) {
+@@ -2060,6 +2067,18 @@
+     app.sync_watching_to_master(syst);
+ }
+ 
++/// Leave Blowfang's VOICE MSG/EXPLORE modes for Aura's ordinary dual-VFO standby screen.
++pub(super) fn return_to_aura(app: &mut App, syst: &mut SYST) {
++    #[cfg(all(feature = "explore", feature = "spilib"))]
++    { menu().on = false; }
++    #[cfg(feature = "explore")]
++    if explore::on() {
++        explore::leave(app, syst);
++    }
++    rl!("K6 MODE return=AURA");
++    exit(app, syst);
++}
++
+ fn refresh_status(app: &mut App) {
+     unsafe { ffi::sp_status(&mut app.pager.status) };
+ }
+@@ -3088,6 +3107,7 @@
+     let gpio = app.radio.fd6818.reg_read(syst, MOD_GPIO);
+     let t0 = uptime::now();
+     unsafe {
++        MOD_EXIT_TO_AURA = false;
+         *addr_of_mut!(MOD_CTX) = ModCtx {
+             app: app as *mut App,
+             syst: syst as *mut SYST,
+@@ -3122,6 +3142,8 @@
+         c.app = core::ptr::null_mut();
+         c.tlm_cap = 0;
+     }
++    let exit_to_aura = unsafe { core::ptr::read_volatile(core::ptr::addr_of!(MOD_EXIT_TO_AURA)) };
++    unsafe { core::ptr::write_volatile(core::ptr::addr_of_mut!(MOD_EXIT_TO_AURA), false) };
+     // free_ram: the stack never reached since VOICE MSG was entered (painted then)
+     let sfree = free_ram();
+     rl!("K6 MOD ret={} ({:#x}) in {} ms stack_free={} B", ret, ret, ms, sfree);
+@@ -3134,7 +3156,11 @@
+     // and GP0 as it was
+     app.radio.fd6818.reg_write(syst, MOD_GPIO, gpio);
+     app.sync_watching_to_master(syst);
+-    arm(app, syst);
++    if exit_to_aura {
++        return_to_aura(app, syst);
++    } else {
++        arm(app, syst);
++    }
+ }
+ 
+ /// Side key 1 runs the last module again (Jeff, 2026-11-10), in the images with the SPI
+@@ -3148,6 +3174,8 @@
+ /// 1 while the last module (run, or sent to the library) is still in the shared block, the
+ /// store empty meanwhile
+ static mut KEPT: bool = false;
++/// Set when EXIT is pressed while a module polls the cooperative stop-key API.
++static mut MOD_EXIT_TO_AURA: bool = false;
+ /// the library slot that ran last (255: none)
+ #[cfg(feature = "spilib")]
+ static mut LAST_SLOT: u8 = 255;
+@@ -3669,10 +3697,24 @@
+ 
+ #[inline(never)] // its locals only while it runs, not in main's frame for good
+ pub(super) fn dispatch(app: &mut App, syst: &mut SYST, ev: KeyEvent) {
++    // The radio's V/M and A/B keys always leave Blowfang for Aura standby.
++    if matches!(ev.key, KeyId::Vm | KeyId::Ab)
++        && matches!(ev.kind, KeyEventKind::Single | KeyEventKind::Long)
++    {
++        return_to_aura(app, syst);
++        return;
++    }
+     #[cfg(banded)]
+     if help_key(app, ev) {
+         return;
+     }
++    // Hold EXIT anywhere in Blowfang to return to Aura's normal VFO screen.
++    // Modules cannot dispatch key events while running, so the cooperative
++    // module key hook handles EXIT separately above.
++    if ev.key == KeyId::Exit && ev.kind == KeyEventKind::Long {
++        return_to_aura(app, syst);
++        return;
++    }
+     #[cfg(all(feature = "explore", feature = "spilib"))]
+     if menu_key(app, syst, ev) {
+         return;
+--- a/src/device/keypad.rs
++++ b/src/device/keypad.rs
+@@ -233,6 +233,11 @@
+         self.scan(syst).is_some()
+     }
+ 
++    /// The currently pressed physical key, if any, for cooperative module escape handling.
++    pub fn pressed_key(&mut self, syst: &mut SYST) -> Option<KeyId> {
++        self.scan(syst)
++    }
++
+     /// Raw immediate scan for one specific key, bypassing debounce/queueing
+     /// -- for one-off checks outside the normal poll loop (e.g. the
+     /// first-boot format prompt in `main.rs`, before `App` exists).
+--- a/src/app/keys.rs
++++ b/src/app/keys.rs
+@@ -18,6 +18,16 @@
+ 
+ // top-level dispatch
+ pub(super) fn dispatch(app: &mut App, syst: &mut SYST, ev: KeyEvent) {
++    // V/M or A/B is Blowfang's escape to Aura standby, even when Aura's key
++    // lock or another global input mode would otherwise consume the event.
++    if app.mode == Mode::Pager
++        && matches!(ev.key, KeyId::Vm | KeyId::Ab)
++        && matches!(ev.kind, KeyEventKind::Single | KeyEventKind::Long)
++    {
++        pager::return_to_aura(app, syst);
++        return;
++    }
++
+     // Unlocking is handled here, ahead of any per-mode dispatcher, so a
+     // long `*` releases the lock in every mode (e.g. after a side key opened
+     // FM radio while locked). Locking itself stays mode-specific (Standby),

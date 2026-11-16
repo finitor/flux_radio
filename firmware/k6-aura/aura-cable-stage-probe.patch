@@ -1,0 +1,16 @@
+--- a/src/cps/mod.rs
++++ b/src/cps/mod.rs
+@@ -567,5 +567,13 @@ fn cable_send(cmd: u8, addr: u16, data: &[u8]) {
+     }
+ }
+ 
++/// C module-loader progress probe. Uses a separate command so the host installer ignores it
++/// while retaining it in its recent-byte diagnostic if the loader does not return.
++#[cfg(feature = "spilib")]
++#[no_mangle]
++pub extern "C" fn km_cable_diag(stage: u8) {
++    cable_send(CMD_CABLE_INFO, stage as u16, b"KM");
++}
++
+ #[cfg(feature = "spilib")]
+ pub fn run_cable_session<DI: WriteOnlyDataCommand>(

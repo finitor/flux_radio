@@ -78,6 +78,15 @@ on your computer just before flashing it, and it signs every module with it as i
 radio then runs only modules signed with your key, so nobody else can load code into your radio,
 over the cable or over the air.
 
+A direct `k6_install.py flash` of an image with a key placeholder also creates the default key
+if none exists. Generating a key elsewhere, or selecting an existing key with `--key-file` or
+`BLOWFANG_KEY`, populates the default location if it is absent. An existing different default
+key is never overwritten: the tool warns you, and you must keep using the selected key for that
+radio. A missing explicitly selected key is an error during flash or install, not a request to
+create a new one. The installer cannot reliably identify the key inside an already-keyed image and
+will not invent a default key for it. `tools/k6_update.py` and external flashers write images as-is and
+cannot infer which key file was used.
+
 Keep this file. Back it up with your other private files. If you lose it, nothing breaks, but to
 add modules later you'll have to make a new key and reflash (the script does both:
 `python3 tools/k6_install.py key`, then `install` again).
@@ -237,7 +246,16 @@ python3 tools/k6_install.py --port /dev/ttyUSB0 status
 it on again within ten seconds, without holding any keys. Check the cable is pushed all the way
 into the radio. If it still doesn't answer, hold **Side Key 1 and Side Key 2** while you switch
 the radio on: the screen shows `UPDATE`, and the bootloader waits there for as long as it takes.
-Then run `python3 tools/k6_install.py --port ... flash IMAGE --power` and press Enter.
+If the installer times out but the radio is still showing `UPDATE`, or you entered UPDATE with
+the side keys, flash directly without power-cycling again:
+
+```sh
+python3 tools/k6_install.py --port /dev/ttyUSB0 flash IMAGE --already-update
+```
+
+Replace `IMAGE` with the image for the step that failed. For example, the first codebook step uses
+`blowfang-k6-mine/aura-pager-cbi.bin`. Add `--debug-boot` if this still fails; it prints any raw
+bytes received from the bootloader, which helps distinguish a reply-format problem from no reply.
 
 **The radio's screen stays on UPDATE after a flash**, or it restarts over and over, or it shows
 nothing. The flash didn't finish (this happens now and then). It's safe: the bootloader lives in

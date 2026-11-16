@@ -59,3 +59,9 @@ c/common/pager_rx_host
 c/common/fsk_rx_host
 firmware/uv380-openrtx/build/
 firmware/uv380-openrtx/out/
+# Locally generated module repositories contain build artifacts.
+/local-modules/
+/firmware/k6-aura/build/
+/firmware/k6-aura/out/
+/firmware/k6-aura/out-fd6818b/
+/blowfang-k6-mine/
