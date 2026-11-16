@@ -56,7 +56,9 @@ python3 "$HERE/apply-host-module-screen.py"
 python3 "$HERE/apply-boot-app-stack.py"
 python3 "$HERE/apply-cardlink-stack.py"
 python3 "$HERE/apply-cable-stack.py"
-python3 "$HERE/apply-library-erase.py"
+if [ "${K6_MODULE_REMOVE:-0}" = 1 ]; then
+  python3 "$HERE/apply-library-erase.py"
+fi
 grep -q 'FD6818B FSK TBD' "$WORK/src/ui/pager.rs" || {
   echo "FD6818B overlay is missing from $WORK; inspect that checkout before building" >&2
   exit 1
@@ -76,7 +78,9 @@ if [ "$FLASH" -gt 122880 ]; then
 fi
 llvm-objcopy -O binary "$ELF" "$OUT/$IMAGE.bin"
 sha256sum "$OUT/$IMAGE.bin" | tee "$OUT/$IMAGE.bin.sha256"
-python3 "$HERE/build-vfo-module-bundle.py" --out "$OUT/vfo-module-bundle"
+case ",$FEATURES," in
+  *,blowfang-host,*) python3 "$HERE/build-vfo-module-bundle.py" --out "$OUT/vfo-module-bundle" ;;
+esac
 if [ -n "${K6_MOD_KEY_FILE:-}" ]; then
   echo "Built keyed FD6818B image with features: $FEATURES"
 else
