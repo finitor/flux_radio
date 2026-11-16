@@ -59,6 +59,9 @@ python3 "$HERE/apply-cable-stack.py"
 if [ "${K6_MODULE_REMOVE:-0}" = 1 ]; then
   python3 "$HERE/apply-library-erase.py"
 fi
+case ",$FEATURES," in
+  *,blowfang-host,*) python3 "$HERE/apply-blowfang-host.py" ;;
+esac
 grep -q 'FD6818B FSK TBD' "$WORK/src/ui/pager.rs" || {
   echo "FD6818B overlay is missing from $WORK; inspect that checkout before building" >&2
   exit 1

@@ -25,9 +25,9 @@ that project's page. Remove a module by typing `ERASE <slot>` in its confirmatio
 firmware validates the slot type, erases and verifies the full 16 KB slot, and rejects firmware
 pages and help decks. Removal is permanent, and the cable session restarts the radio when it ends.
 
-## Built-in local module repositories
+## Local starter module repositories
 
-Build the original release modules and the compact-host VFO, EXPLORE and CARD LINK packages:
+Build local Git repositories for the current host's SURF, VFO, and CARD LINK starter modules:
 
 ```sh
 python3 tools/k6_make_local_catalog.py
@@ -35,14 +35,12 @@ python3 tools/k6_make_local_catalog.py
 
 The generated Git working directories live under `local-modules/` and are discovered by the
 catalog by default. They are local build artifacts, not committed releases. The generator refuses
-to overwrite an existing directory; move it aside before rebuilding. Source, toolchain, and
-rebuild instructions remain in the main checkout. Each bundle is independently installable.
+to overwrite an existing directory; move it aside before rebuilding. These are starter packages
+for this host, not a certification that every module has been hardware-tested.
 
-These are builds, not a compatibility certification. The original modules have not all been
-ported or tested on the compact FD6818B host; some use hardware features or APIs it lacks, and
-transmitters may contain a preset callsign or frequency. Verify those details before use. GROUNDWAVE
-currently exceeds an 11,776-byte arena once identity metadata is included and will be refused
-on such a radio. A successful build does not mean a module will run or fit its working state.
+Other module repositories can be added as they are developed for the host. The host verifies
+module format and signatures, but it does not sandbox native code. A successful build does not
+mean a module will fit or run correctly on hardware.
 
 ## Slot-independent bundles
 

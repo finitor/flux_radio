@@ -42,8 +42,9 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=ROOT / "local-modules")
     args = parser.parse_args(argv)
-    entries = k6_install.read_modules_list(ROOT / "tools/k6_release_modules.txt")
-    names = [name for _, name in entries] + ["vfo", "explore_scan", "cardlink"]
+    # Keep the local starter catalog aligned with the current FD6818B Aura host.
+    # Other upstream modules can be added when they are ported and validated there.
+    names = ["surf", "vfo", "cardlink"]
     failed = []
     for name in names:
         source = ROOT / "c/k6/mod" / (name + ".c")

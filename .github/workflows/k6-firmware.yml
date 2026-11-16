@@ -1,38 +1,14 @@
-# K6 voice pager: the receive library's host tests, then Aura (Baofeng UV-K6 firmware, Rust)
-# built with the pager patch, with its flash and RAM fit; the .bin is kept as a build artifact.
-# The sotto codec comes from the submodule at sotto/ (c/fixed and the c/sotto_* headers are
-# symlinks into it), so every checkout here takes submodules: true.
-name: K6 pager firmware
-env:
-  # the Arm Toolchain for Embedded release the M0 builds use (docs/k6-compilers.md)
-  ATFE_VERSION: 22.1.0
+name: AG7SU K6 Aura host
 
 on:
-  # Everything in this repository is K6 firmware or its tooling, so every push to main and every
-  # PR runs it (no path filters).
   push:
     branches: [main]
   pull_request:
-  # weekly: the host tests against sotto main, not the pinned submodule (see sotto-canary below)
-  schedule:
-    - cron: "17 9 * * 1"
   workflow_dispatch:
 
 jobs:
-  # The host tests run as four shards side by side (about 2.5 min instead of 7); every PR still runs
-  # every test. pytest-split picks each shard's tests from tests/durations.json so the shards finish
-  # together; a test missing from that file counts as an average one, so a new test needs no edit.
-  # Refresh the file after adding a long test (README, "Iterating quickly").
-  host-tests-shard:
+  build-host:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        shard:
-          - 1
-          - 2
-          - 3
-          - 4
     steps:
       - uses: actions/checkout@v4
         with:
@@ -40,184 +16,20 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install numpy scipy soundfile pytest pytest-xdist pytest-split unicorn capstone
-      - name: clang and lld (the modules' builds and their emulated runs)
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq clang lld llvm
-      # Every M0 compile (the C library, the RAM modules, the tests' module builds) uses the Arm
-      # Toolchain for Embedded's clang (docs/k6-compilers.md): tools/k6_cc/bin/clang sends
-      # --target=thumb... compiles there and host compiles to Ubuntu's clang
-      - name: Arm Toolchain for Embedded (cached)
-        id: atfe-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/atfe
-          key: atfe-${{ env.ATFE_VERSION }}
-      - name: Arm Toolchain for Embedded (download)
-        if: steps.atfe-cache.outputs.cache-hit != 'true'
+      - name: Install toolchains
         run: |
-          mkdir -p ~/atfe
-          curl -sSL "https://github.com/arm/arm-toolchain/releases/download/release-$ATFE_VERSION-ATfE/ATfE-$ATFE_VERSION-Linux-x86_64.tar.xz" \
-            | tar -C ~/atfe -xJ
-      - name: Arm Toolchain for Embedded (on PATH for M0 compiles)
-        run: |
-          echo "K6_ATFE=$HOME/atfe/ATfE-$ATFE_VERSION-Linux-x86_64/bin" >> "$GITHUB_ENV"
-          echo "$GITHUB_WORKSPACE/tools/k6_cc/bin" >> "$GITHUB_PATH"
-          "$HOME/atfe/ATfE-$ATFE_VERSION-Linux-x86_64/bin/clang" --version | head -1
-      # The weekly run (sotto canary): the codec at sotto main instead of the pinned commit, so a
-      # codec change that breaks the K6 shows up before anyone bumps the submodule.
-      - name: sotto main (scheduled runs only)
-        if: github.event_name == 'schedule'
-        run: |
-          git -C sotto fetch -q origin main
-          git -C sotto checkout -q FETCH_HEAD
-          git -C sotto log --oneline -1
-      - name: host libraries the tests call
-        run: |
-          make -C sotto/c VARIANT=v3.7 fixed PYTHON=false
-          make -C c/k6
-          make -C c/common
-      # Each shard: its share of the tests, spread over the runner's cores (-n auto, work stealing), so the
-      # long emulated-M0 sessions (aprsclk, ifpager, ft8wf, ifrx, dmr: 50-90 s each) run side by side.
-      # Add a new test file as one line, in alphabetical order.
-      # WSPR (tests/test_k6_wsprtx.py, tests/test_k6_wspriq.py) is left out of CI because it is slow.
-      # Run it by hand after touching the WSPR modules: python -m pytest -q tests/test_k6_wspr*.py
-      - name: pager, IF modem, FT8 and modules on an emulated M0 (transmit rules, Morse RTX, IF tap, calibration, upload ARQ)
-        run: |
-          python -m pytest -q -n auto --dist worksteal --durations=8 \
-            --splits 4 --group ${{ matrix.shard }} \
-            --splitting-algorithm least_duration \
-            --durations-path tests/durations.json \
-            tests/test_k6.py \
-            tests/test_k6_acars.py \
-            tests/test_k6_air.py \
-            tests/test_k6_air_cases.py \
-            tests/test_k6_alarm.py \
-            tests/test_k6_ais.py \
-            tests/test_k6_aprsclk.py \
-            tests/test_k6_arq.py \
-            tests/test_k6_bench.py \
-            tests/test_k6_cb.py \
-            tests/test_k6_cwid.py \
-            tests/test_k6_cwkey.py \
-            tests/test_k6_dmr.py \
-            tests/test_k6_dmrdec.py \
-            tests/test_k6_dmrsign.py \
-            tests/test_k6_explore.py \
-            tests/test_k6_fesw.py \
-            tests/test_k6_ft8.py \
-            tests/test_k6_ft8tx.py \
-            tests/test_k6_gw.py \
-            tests/test_k6_gw_pc.py \
-            tests/test_k6_harness.py \
-            tests/test_k6_hf.py \
-            tests/test_k6_hiss.py \
-            tests/test_k6_i2s.py \
-            tests/test_k6_ifcal.py \
-            tests/test_k6_ifcap.py \
-            tests/test_k6_ifpager.py \
-            tests/test_k6_ifrx.py \
-            tests/test_k6_insights.py \
-            tests/test_k6_install.py \
-            tests/test_k6_lib.py \
-            tests/test_k6_live.py \
-            tests/test_k6_midi.py \
-            tests/test_k6_mod.py \
-            tests/test_k6_morse.py \
-            tests/test_k6_pager.py \
-            tests/test_k6_pages.py \
-            tests/test_k6_pocsag.py \
-            tests/test_k6_range.py \
-            tests/test_k6_rangetx.py \
-            tests/test_k6_rt.py \
-            tests/test_k6_rxmap.py \
-            tests/test_k6_scan.py \
-            tests/test_k6_sted.py \
-            tests/test_k6_stockfont.py \
-            tests/test_k6_stop.py \
-            tests/test_k6_surf.py \
-            tests/test_k6_sweep.py \
-            tests/test_k6_tonewr.py \
-            tests/test_k6_txrules.py \
-            tests/test_k6_update.py \
-            tests/test_k6_vlr.py \
-            tests/test_k6_xscan.py \
-            tests/test_nwr_watch.py \
-            tests/test_psk31.py
-
-  # One check named host-tests that passes only when every shard passed.
-  host-tests:
-    runs-on: ubuntu-latest
-    needs: host-tests-shard
-    if: always()
-    steps:
-      - name: every shard passed
-        run: test "${{ needs.host-tests-shard.result }}" = success
-
-  aura-pager:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
-      - name: toolchains (clang/lld for the C library, Rust for Aura)
-        run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq clang lld llvm
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq clang lld llvm
           rustup toolchain install stable --profile minimal --target thumbv6m-none-eabi
-      # Every M0 compile (the C library, the RAM modules, the tests' module builds) uses the Arm
-      # Toolchain for Embedded's clang (docs/k6-compilers.md): tools/k6_cc/bin/clang sends
-      # --target=thumb... compiles there and host compiles to Ubuntu's clang
-      - name: Arm Toolchain for Embedded (cached)
-        id: atfe-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/atfe
-          key: atfe-${{ env.ATFE_VERSION }}
-      - name: Arm Toolchain for Embedded (download)
-        if: steps.atfe-cache.outputs.cache-hit != 'true'
-        run: |
-          mkdir -p ~/atfe
-          curl -sSL "https://github.com/arm/arm-toolchain/releases/download/release-$ATFE_VERSION-ATfE/ATfE-$ATFE_VERSION-Linux-x86_64.tar.xz" \
-            | tar -C ~/atfe -xJ
-      - name: Arm Toolchain for Embedded (on PATH for M0 compiles)
-        run: |
-          echo "K6_ATFE=$HOME/atfe/ATfE-$ATFE_VERSION-Linux-x86_64/bin" >> "$GITHUB_ENV"
-          echo "$GITHUB_WORKSPACE/tools/k6_cc/bin" >> "$GITHUB_PATH"
-          "$HOME/atfe/ATfE-$ATFE_VERSION-Linux-x86_64/bin/clang" --version | head -1
-      - name: build ID (the commit the images report as build=)
-        id: bid
-        run: |
-          sha=${{ github.event.pull_request.head.sha || github.sha }}
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "short=$(printf %.7s "$sha")" >> "$GITHUB_OUTPUT"
-      - name: build Aura + pager, check the fit
+      - name: Build host image and starter modules
         env:
-          SOTTO_SHA: ${{ steps.bid.outputs.sha }}
-        run: sh firmware/k6-aura/build.sh
-      - name: size reports
-        if: always()
+          K6_MOD_KEY_FILE: ${{ runner.temp }}/k6-mod.key
         run: |
-          head -3 firmware/k6-aura/out/size-*.txt || true
-          cat firmware/k6-aura/out/build-id.txt firmware/k6-aura/out/*.sha256 || true
-      # the release folder an outside K6 owner installs from with tools/k6_install.py
-      # (docs/manual/install.md): the unkeyed images, EXPLORE's pages, the help deck and the
-      # release's modules, with a manifest of their checksums
-      - name: release bundle
+          python3 -c 'import secrets; print(secrets.token_hex(16))' > "$K6_MOD_KEY_FILE"
+          sh firmware/k6-aura/build-blowfang-host.sh
+      - name: Check output fits the K6
         run: |
-          pip install numpy
-          python3 tools/k6_install.py bundle firmware/k6-aura/out -o firmware/k6-aura/out/blowfang-k6-${{ steps.bid.outputs.short }}
-      - uses: actions/upload-artifact@v4
-        with:
-          name: blowfang-k6-${{ steps.bid.outputs.short }}
-          path: firmware/k6-aura/out/blowfang-k6-${{ steps.bid.outputs.short }}
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: aura-pager-${{ steps.bid.outputs.short }}
-          if-no-files-found: ignore
-          path: |
-            firmware/k6-aura/out/*.bin
-            firmware/k6-aura/out/*.elf
-            firmware/k6-aura/out/size-*.txt
-            firmware/k6-aura/out/build-id.txt
-            firmware/k6-aura/out/frames-*.txt
-            firmware/k6-aura/out/*.sha256
+          cat firmware/k6-aura/out-fd6818b/size.txt
+          test -s firmware/k6-aura/out-fd6818b/aura-fd6818b-blowfang-host.bin
+          test -s firmware/k6-aura/out-fd6818b/vfo-module-bundle/manifest.json
+          test -s firmware/k6-aura/out-fd6818b/cardlink-module-bundle/manifest.json

@@ -1,68 +1,44 @@
-# blowfang
+# AG7SU Blowfang
 
-**AG7SU K6 project:** an independent Aura and sideloading effort for the Baofeng UV-K6 with the
-FD6818B RF chip. This checkout brings together the Aura port, authenticated module loader, native
-and sideloadable modules, emulator fixtures, and local Git-backed module catalog. It is based on
-[baitisj/blowfang](https://github.com/baitisj/blowfang); focused upstream-ready changes should be
-contributed there when they do not depend on the Aura integration or catalog.
+AG7SU Blowfang is a standalone firmware and module project for the Baofeng UV-K6/K61 with the
+FD6818B RF chip. The active target is **normal Aura VFO/channel operation with a Blowfang module
+launcher**, plus the module loader, local Git-backed catalog, and tools to build, simulate, install,
+and manage modules.
 
-Alternative firmware for radios. The first radio is the Baofeng UV-K6 / K61 (KD32F328 Cortex-M0,
-FD6818 RF chip): Aura, the open Rust firmware, with a sotto voice pager, an IF receiver and
-softmodem, RAM modules loaded over the air (FT8, WSPR, AIS, APRS clock, DMR detect, CW ID, Morse,
-band surf, the signal explorer, MIDI, GROUNDWAVE) and the host tools that build, flash and bench
-them.
+This repository is intentionally scoped to that host and its module ecosystem. The experimental
+VOICE MSG / sotto pager, Explore firmware image, and unrelated UV-380/OpenRTX port are outside the
+current target. When one of those efforts is resumed, bring the needed upstream code and changes in
+then. Shared K6 code and fixtures that the host build or module workflow still depends on remain
+here.
+
+## Build the Aura host
+
+The build fetches the pinned Aura source, applies the FD6818B and Blowfang host patches, then builds
+the host image and the bundled starter modules. You need Rust's `thumbv6m-none-eabi` target, clang,
+LLD, LLVM tools, Python 3, and the module signing key used by this radio:
 
 ```sh
-git clone --recurse-submodules https://github.com/baitisj/blowfang
+K6_MOD_KEY_FILE="$HOME/.config/blowfang/k6-mod.key" \
+  sh firmware/k6-aura/build-blowfang-host.sh
 ```
 
-**Have a UV-K6 and want to run this?** Read [`docs/manual/install.md`](docs/manual/install.md):
-one script and the programming cable, no second radio.
+Outputs are written under `firmware/k6-aura/out-fd6818b/`:
 
-## Where things are
+- `aura-fd6818b-blowfang-host.bin` — Aura radio with the **BLOWFANG** launcher entry.
+- `vfo-module-bundle/` — SURF and VFO starter modules.
+- `cardlink-module-bundle/` — optional CARD LINK module.
 
-- `c/k6/`: the K6 C library (pager reassembly and playback, IF receiver, module loader) and its host builds
-- `c/k6/mod/`: the RAM modules, one file each; `docs/k6-modules.md` is the module API (level 8)
-- `firmware/k6-aura/`: the patch on Aura and `build.sh`, which builds the radio images
-- `modem/`: the Python side: K6 packets and FSK (`modem.k6`), modules (`k6mod`), PSK31, APRS, CI-V PTT
-- `sim/k6if/`, `sim/k6digi/`: models of the K6's IF path and digital modes
-- `tools/k6_*`: bench tools (`k6_update.py` flashes, `k6_bench.py` owns the PTT lock and CW ID keeper)
-- `tests/`: host and emulated Cortex-M0 tests; `tests/data/k6/air/` holds on-air logs replayed in CI
-- `docs/k6-*.md`: design notes and bench results, one per subsystem
-- `docs/manual/`: manuals for using things on the radio: `install.md`, the instruction book for
-  putting blowfang on your own K6 over the programming cable (`tools/k6_install.py` does it);
-  `midi-player.md`, the MIDI player
-- `c/common/`: portable C shared by radios (K6 pager packets and FFSK, transmit side)
-- `radios/uv380/`: the TYT MD-UV380 port (STM32F405), built for the radio and for QEMU; `docs/uv380-port.md` is the study and plan
+On the radio, open Aura's launcher and select **BLOWFANG**. **AURA RADIO** returns to normal Aura
+VFO/channel operation; the other rows launch installed modules. V/M or A/B returns from the module
+menu to Aura.
 
-## The sotto codec
+The image must be keyed with the same local key used to sign modules at install time. Keep that key
+private and out of Git. The radio loader verifies signatures but does not sandbox native modules.
 
-The voice codec lives in [baitisj/sotto](https://github.com/baitisj/sotto) and is a git
-submodule at `sotto/`, pinned to one sotto commit. The K6 build compiles sotto's fixed-point
-sources itself with its own flags, so `c/fixed` and the few `c/sotto_*` headers it uses are
-symlinks into the submodule:
+## Install and manage modules
 
-- `c/fixed`
-- `c/sotto.h`
-- `c/sotto_internal.h`
-- `c/sotto_lr_dec.inc`
-- `c/sotto_lr_tables.h`
-- `c/sotto_vlr.h`
-- `c/sotto_vlr_dec.inc`
-- `c/sotto_vlr_tables.c`
-- `c/sotto_vlr_tables.h`
-
-To take a newer sotto: `git -C sotto checkout <commit>`, then commit the `sotto` pointer. The
-weekly CI run also tests against sotto main, so a codec change that breaks the K6 shows up early.
-Where the docs say `c/sotto_enc` or `c/sotto_dec`, build them with `make -C sotto` and run
-`sotto/c/sotto_enc`.
-
-## Build and test
-
-### Module store prototype
-
-Browse Git-hosted module repositories and install their format-1 release bundles with the local
-catalog UI:
+The catalog can display Git-hosted or local module repositories, show README screenshots, and install
+compatible bundles over the programming cable:
 
 ```sh
 python3 -m pip install -r tools/k6_store_requirements.txt
@@ -70,57 +46,29 @@ python3 tools/k6_store.py add https://github.com/OWNER/K6-MODULE --ref main
 python3 tools/k6_store.py serve
 ```
 
-Open `http://127.0.0.1:5055`. See [`docs/module-store.md`](docs/module-store.md) for the CLI,
-README screenshot conventions, and bundle requirements.
+Open <http://127.0.0.1:5055> and choose **My radio** to inspect, install, or remove modules. The
+CLI and bundle format are documented in [`docs/module-store.md`](docs/module-store.md); the cable
+installer is [`tools/k6_install.py`](tools/k6_install.py).
 
-```sh
-make -C sotto/c VARIANT=v3.7 fixed PYTHON=false   # the codec's host decoders the tests use
-make -C c/k6                                       # the K6 library's host builds
-python -m pytest -q -n auto tests/                 # needs numpy scipy soundfile pytest pytest-xdist unicorn capstone (CI adds pytest-split)
-sh firmware/k6-aura/build.sh                       # the radio images (Rust + clang/lld); see its README
-```
+## Working on modules and the host
 
-CI (`.github/workflows/k6-firmware.yml`) runs the same and keeps each image as an artifact.
+- [`firmware/k6-aura/`](firmware/k6-aura/) contains the pinned Aura build, host overlay, and module
+  bundle builders.
+- [`c/k6/k6_mod.c`](c/k6/k6_mod.c), [`c/k6/k6_lib.c`](c/k6/k6_lib.c), and
+  [`docs/k6-modules.md`](docs/k6-modules.md) define the signed module and SPI library contract.
+- [`local-modules/`](local-modules/) is generated locally by `python3 tools/k6_make_local_catalog.py`;
+  these build outputs are ignored by Git.
+- [`sim/k6emu/`](sim/k6emu/) is the host-contract emulator used to iterate on module and library
+  behavior without repeatedly flashing hardware.
+- [`tests/`](tests/) covers the shared loader, catalog, emulator, and module tooling.
 
-### Iterating quickly
+Start with the focused host and emulator notes in [`docs/k6-host-contract-findings.md`](docs/k6-host-contract-findings.md)
+and [`docs/k6-emulator-llm-debug.md`](docs/k6-emulator-llm-debug.md). Hardware testing still means
+testing on the actual FD6818B K6; an emulator pass is not a radio or RF test.
 
-While working on one area, run only its test file; most finish in seconds:
+## Project boundary
 
-```sh
-python -m pytest -q tests/test_k6_air.py tests/test_k6_air_cases.py   # on-air recordings, about 2 s
-python -m pytest -q -n auto tests/test_k6_ifpager.py                  # an emulated-M0 module, about 1 min
-python -m pytest -q -k "not on_m0 and not emulated" tests/test_k6_ifrx.py   # skip the emulated sessions
-```
-
-CI splits the host tests into four shards that run side by side, so a full run takes about
-2.5 minutes. Each shard's share comes from `tests/durations.json` (pytest-split). A new test
-counts as average until that file is refreshed, so after adding a test that takes more than
-about 20 s, refresh it:
-
-```sh
-python -m pytest -q -n auto --store-durations --durations-path tests/durations.json \
-    $(grep -o 'tests/test_[a-z0-9_]*\.py' .github/workflows/k6-firmware.yml)
-```
-
-## History
-
-This repository was split out of baitisj/sotto on 2026-11-09 with `git filter-repo`, keeping
-every commit that touched these files. Pull requests up to #173 are in
-[baitisj/sotto](https://github.com/baitisj/sotto/pulls?q=is%3Apr). Commit IDs changed in the
-split: images flashed before it report sotto commits as their build ID, and
-`docs/sotto-commit-map.txt` maps each old sotto commit to its blowfang commit.
-
-## Never committed here
-
-- K6 bootloader dumps (`boot.bin`)
-- Yaesu firmware or decrypted images
-- module signing keys (`k6-mod.key`)
-- built images (`.bin`, `.elf`, `libsotto_k6.a`): CI keeps them as artifacts
-
-The *Forbidden files* workflow fails a push or PR that adds one.
-
-## Licence
-
-MIT (`LICENSE`), except `firmware/k6-aura/aura-pager.patch`, which is GPL-3.0 like Aura, the
-firmware it patches (`firmware/k6-aura/LICENSE.md`). The Aura images CI builds are GPL-3.0 for the
-same reason. `c/k6/ft8/ft8k_tables.h` is generated from ft8_lib (MIT).
+This is the AG7SU project checkout, not the upstream Blowfang development tree. It keeps the pinned
+Aura integration and the working host/module/store path together so that work can continue here
+without pulling in unrelated radio ports. Upstream K6 components can be brought back selectively
+when a feature needs them.
