@@ -40,6 +40,18 @@ int pxk6_store_count(const pxk6_store_flash_t *f, uint8_t *scratch, size_t scrat
   return count;
 }
 
+int pxk6_store_erase_slot(const pxk6_store_flash_t *f, unsigned slot) {
+  uint32_t base;
+  int erased;
+  if (!f || !f->read || !f->erase || slot >= PXK6_STORE_SLOTS) return -1;
+  base = PXK6_STORE_BASE + slot * PXK6_STORE_SECTOR;
+  erased = erased_sector(f, base);
+  if (erased < 0) return -2;
+  if (!erased && f->erase(base)) return -3;
+  erased = erased_sector(f, base);
+  return erased == 1 ? 0 : -4;
+}
+
 int pxk6_store_put(const pxk6_store_flash_t *f, const uint8_t *record, size_t bytes,
                    uint8_t *scratch, size_t scratch_bytes) {
   unsigned slot;

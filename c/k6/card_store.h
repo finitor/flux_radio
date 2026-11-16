@@ -22,6 +22,8 @@ int pxk6_store_count(const pxk6_store_flash_t *flash, uint8_t *scratch,
    new record is written to one erased sector then read back and checked. */
 int pxk6_store_put(const pxk6_store_flash_t *flash, const uint8_t *record,
                    size_t record_bytes, uint8_t *scratch, size_t scratch_bytes);
+/* Erase one card-store sector. Already-erased sectors are a successful no-op. */
+int pxk6_store_erase_slot(const pxk6_store_flash_t *flash, unsigned slot);
 /* Read the record in a slot, validate it, and return its byte count; negative on error. */
 int pxk6_store_get(const pxk6_store_flash_t *flash, unsigned slot,
                    uint8_t *dst, size_t dst_bytes);

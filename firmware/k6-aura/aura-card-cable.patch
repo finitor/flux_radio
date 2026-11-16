@@ -1,6 +1,6 @@
 --- a/src/cps/mod.rs
 +++ b/src/cps/mod.rs
-@@ -544,6 +544,78 @@
+@@ -544,6 +544,84 @@
  #[cfg(feature = "spilib")]
  const CMD_CABLE_CHUNK: u8 = 0x4D; // 'M'
  
@@ -15,6 +15,8 @@
 +const CMD_CARD_DATA: u8 = 0x63; // 'c'
 +#[cfg(feature = "spilib")]
 +const CMD_CARD_COMMIT: u8 = 0x78; // 'x'
++#[cfg(feature = "spilib")]
++const CMD_CARD_ERASE: u8 = 0x65; // 'e', erase one card-store slot; repeat for replace-all
 +#[cfg(feature = "spilib")]
 +const CARD_BASE: u32 = 0x190000;
 +#[cfg(feature = "spilib")]
@@ -39,6 +41,7 @@
 +    fn pxk6_store_put(flash: *const CardFlash, record: *const u8, record_bytes: usize,
 +                      scratch: *mut u8, scratch_bytes: usize) -> i32;
 +    fn pxk6_store_get(flash: *const CardFlash, slot: u32, dst: *mut u8, dst_bytes: usize) -> i32;
++    fn pxk6_store_erase_slot(flash: *const CardFlash, slot: u32) -> i32;
 +}
 +#[cfg(feature = "spilib")]
 +static mut CARD_NOR: *mut crate::drivers::norflash::NorFlash<'static> = core::ptr::null_mut();
@@ -64,10 +67,13 @@
 +    0
 +}
 +#[cfg(feature = "spilib")]
-+unsafe extern "C" fn card_flash_erase(_addr: u32) -> i32 {
-+    // The append-only card store only programs sectors verified to be all 0xFF.
-+    // Erase is deliberately disabled here; deleting/reclaiming needs a separate command.
-+    -1
++unsafe extern "C" fn card_flash_erase(addr: u32) -> i32 {
++    if !CARD_WRITES_ALLOWED || CARD_NOR.is_null() || addr < CARD_BASE || addr >= CARD_END ||
++        addr % 4096 != 0 || addr + 4096 > CARD_END {
++        return -1;
++    }
++    (*CARD_NOR).erase_sector(addr);
++    0
 +}
 +#[cfg(feature = "spilib")]
 +static CARD_FLASH: CardFlash = CardFlash { read: card_flash_read, program: card_flash_program, erase: card_flash_erase };
@@ -103,7 +109,7 @@
      loop {
          if syst.has_wrapped() {
              idle_ms += 1;
-@@ -631,6 +713,113 @@
+@@ -631,6 +713,124 @@
                  d[4..].copy_from_slice(&put.to_le_bytes());
                  cable_send(CMD_CABLE_CHUNK, f.addr, &d);
              }
@@ -146,6 +152,17 @@
 +                    out[..2].copy_from_slice(&(offset as u16).to_be_bytes());
 +                    unsafe { core::ptr::copy_nonoverlapping(base.add(offset), out.as_mut_ptr().add(2), count); }
 +                    cable_send(CMD_CARD_READ, f.addr, &out[..2 + count]);
++                }
++            }
++            #[cfg(feature = "spilib")]
++            CMD_CARD_ERASE if f.len == 0 && (f.addr as usize) < 112 => {
++                unsafe { CARD_WRITES_ALLOWED = true; }
++                let result = unsafe { pxk6_store_erase_slot(&CARD_FLASH, f.addr as u32) };
++                unsafe { CARD_WRITES_ALLOWED = false; }
++                if result == 0 {
++                    cable_send(CMD_CARD_ERASE, f.addr, &[0]);
++                } else {
++                    cable_send(frame::CMD_ERROR, f.addr, &[frame::ERR_BAD_ADDR]);
 +                }
 +            }
 +            #[cfg(feature = "spilib")]
