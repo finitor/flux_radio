@@ -98,6 +98,7 @@ case ",$FEATURES," in
 esac
 python3 "$HERE/apply-host-feature-trim.py"
 K6_AURA_FEATURES="$FEATURES" K6_SCAN_SERVICE="${K6_SCAN_SERVICE:-1}" K6_FSK_RX_SERVICE="${K6_FSK_RX_SERVICE:-1}" python3 "$HERE/apply-flux-branding.py"
+python3 "$HERE/apply-theme-splash.py"
 grep -q 'FD6818B FSK TBD' "$WORK/src/ui/pager.rs" || {
   echo "FD6818B overlay is missing from $WORK; inspect that checkout before building" >&2
   exit 1
@@ -127,6 +128,7 @@ llvm-size -A "$ELF" > "$OUT/size.txt"
 FLASH=$(awk '$1==".vector_table" || $1==".text" || $1==".rodata" || $1==".gnu.sgstubs" || $1==".k6_id" || $1==".data" {n += $2} END {print n+0}' "$OUT/size.txt")
 for pass in 1 2 3; do
   K6_FLASH_USED_BYTES="$FLASH" K6_AURA_FEATURES="$FEATURES" K6_SCAN_SERVICE="${K6_SCAN_SERVICE:-1}" K6_FSK_RX_SERVICE="${K6_FSK_RX_SERVICE:-1}" python3 "$HERE/apply-flux-branding.py"
+  python3 "$HERE/apply-theme-splash.py"
   if [ -n "$PACK_CFG" ]; then
     (cd "$WORK" && K6_AURA_FEATURES="$FEATURES" K6_SCAN_SERVICE="${K6_SCAN_SERVICE:-1}" K6_FSK_RX_SERVICE="${K6_FSK_RX_SERVICE:-1}" RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-Tlink.x$PACK_CFG" cargo build --release --features "$FEATURES")
   else
