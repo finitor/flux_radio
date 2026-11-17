@@ -101,6 +101,7 @@ class Emu:
         self.cyc = 0.0
         self.spos, self.nread, self.bp = 0.0, 0, [(0.0, 0.0)]
         self.said, self.writes, self.reg = [], {}, {}
+        self.fd_regs = {}
         self.said_cyc = []                           # the clock at each say (its call)
         self.led = []                                # level 7: (ms, on) for each api->led call
         self.lcd = {}                                # level 6: the text on each LCD line
@@ -242,10 +243,11 @@ class Emu:
             ret = int(self.cyc / 9600) & 0xFFFF
         elif name == "fd_read":
             us = self.fd_us
-            ret = (self.rssi() + 174) << 1 if r0 == 0x67 else 0
+            ret = (self.rssi() + 174) << 1 if r0 == 0x67 else self.fd_regs.get(r0, 0)
         elif name == "fd_write":
             us = self.fd_us
             self.writes.setdefault(r0, []).append(r1)
+            self.fd_regs[r0] = r1 & 0xffff
         elif name == "delay_us":
             us = r0
         elif name == "ms":

@@ -22,6 +22,7 @@ int k6_main(const k6_api_t *api) {
   uint8_t *mem=(uint8_t *)api->scratch(&room), *ring, *packed;
   char line[70];
   uint32_t i,j;
+  static const uint32_t pow10[] = {100000,10000,1000,100,10,1};
   if (!mem || room < RSZ+NRAW/8+4) { api->say("ifcap: insufficient scratch"); return -8; }
   ring=(uint8_t *)(((uint32_t)mem+3u)&~3u); packed=ring+RSZ;
   if (rd(GPIOB)&(3u<<2)) { api->say("ifcap: PB1 not input"); return -4; }
@@ -60,11 +61,11 @@ int k6_main(const k6_api_t *api) {
   if (!n) { api->say("ifcap: overrun or timeout"); return -6; }
   /* Capture format: ifcap v1 N=<bits> ticks=<100us> hex rows (LSB first). */
   {
-    char *p=line; const char *q="ifcap v1 bits="; uint32_t x=n, div=10000;
+    char *p=line; const char *q="ifcap v1 bits="; uint32_t x=n, d, k;
     while (*q) *p++=*q++;
-    for (;div;div/=10) { *p++=(char)('0'+(x/div)%10); }
+    for (k=1;k<6;k++) { d=0; while(x>=pow10[k]) {x-=pow10[k];d++;} *p++=(char)('0'+d); }
     q=" ticks="; while (*q) *p++=*q++;
-    x=t1-t0; for(div=100000;div;div/=10) *p++=(char)('0'+(x/div)%10);
+    x=t1-t0; for(k=0;k<6;k++) { d=0; while(x>=pow10[k]) {x-=pow10[k];d++;} *p++=(char)('0'+d); }
     *p=0; api->say(line);
   }
   for (i=0;i<(n+7)/8;i+=24) {
