@@ -31,3 +31,7 @@ Current ELF has `xs_step` 2,740 bytes and `kmx_xs_step` 1,840 bytes, plus their 
 The 2026-11-17 baseline test run had 36 passing, two failing: the expected unresolved symbol whitelist omitted `ex_seen`, and the weak-one-off scenario found a candidate despite weak `W` lines. Fix or characterize those **before** using test results to certify the consolidation.
 
 **Status: design investigation only. No scanner behavior or module ABI modified.**
+
+## Initial implementation checkpoint
+
+`c/k6/xscan_view.h` now defines a provisional **internal** consumer-owned engine view. It is deliberately not exported as a module ABI yet; its `legacy` pointer cannot be dereferenced as a universal `xs_t` beyond the common prefix. `tests/test_k6_scanner_abi.py` compiles both existing consumer layouts and verifies that their common prefix agrees while their tail differs by exactly six 28-byte hot entries. This test passes. No scanner functions have been redirected to the new view; extracting the hot-list loops and post-hot fields is the next step. The legacy module's binary layout remains untouched.
