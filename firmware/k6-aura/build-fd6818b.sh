@@ -92,6 +92,7 @@ case ",$FEATURES," in
   *,blowfang-host,*)
     python3 "$HERE/apply-blowfang-host.py"
     python3 "$HERE/apply-vfo-focus.py"
+    python3 "$HERE/apply-theme-meter.py"
     python3 "$HERE/apply-band-surf-shortcut.py"
     python3 "$HERE/apply-status-callsign.py"
     ;;
