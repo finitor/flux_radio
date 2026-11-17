@@ -48,8 +48,10 @@ def verify_pack(root, spec, *, require_attested=True):
     fw = checked_file(root, firmware['path'], firmware['sha256'])
     if fw.stat().st_size != firmware['bytes']:
         raise PackError('firmware byte count mismatch')
-    if require_attested and not firmware.get('capabilities_verified'):
-        raise PackError('firmware capabilities are not attested; refusing installation')
+    if require_attested:
+        # A mutable lockfile boolean is not proof of a radio/firmware ABI match.
+        # Keep all radio-writing paths disabled until an independent verifier exists.
+        raise PackError('firmware capability attestation is not implemented; refusing installation')
     for mod in lock['modules']:
         if mod['id'] != f'org.blowfang.k6.{mod["name"]}':
             raise PackError(f'module identity mismatch: {mod["name"]}')

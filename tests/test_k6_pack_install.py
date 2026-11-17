@@ -24,9 +24,14 @@ def pack(tmp_path):
 
 def test_unattested_firmware_refused(tmp_path):
     root = pack(tmp_path)
-    with pytest.raises(PackError, match='not attested'):
+    with pytest.raises(PackError, match='not implemented'):
         verify_pack(root, SPEC)
     assert len(verify_pack(root, SPEC, require_attested=False)['modules']) == 5
+    lock = json.loads((root / 'pack.lock.json').read_text())
+    lock['firmware']['capabilities_verified'] = True
+    (root / 'pack.lock.json').write_text(json.dumps(lock))
+    with pytest.raises(PackError, match='not implemented'):
+        verify_pack(root, SPEC)
 
 
 def test_tampered_module_rejected(tmp_path):

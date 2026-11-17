@@ -45,3 +45,9 @@ This is an initial **budget enforcement mechanism**, not proof that two arbitrar
 ## Installer validation checkpoint
 
 `python3 tools/k6_pack_install.py PACK --inspect-unverified` validates the staged pack's firmware hash, every module binary and manifest hash, declared module identities/API levels, and resolves the capability dependency graph again. Without `--inspect-unverified`, an un-attested firmware image is refused. This command **does not flash or install anything**; the existing `k6_install.py` remains the sole radio-writing implementation. Do not manually flip `capabilities_verified` to true: real firmware service gating, a cryptographically bound capability record, and a radio-side compatibility handshake are still required before enabling the guided install transaction.
+
+## Multi-feature matrix
+
+`tools/k6_pack_matrix.py --size-dir DIR --output report.json` consumes **independently linked** `base/size.txt`, `base-scan/size.txt`, `base-aprs/size.txt`, and `base-scan-aprs/size.txt` (from `llvm-size -A`). It fails if Base exceeds 96 KiB, any profile exceeds 120 KiB, or the required Scanner+APRS combination is missing or over budget. Without separately built linked images, it deliberately refuses to claim a successful matrix. Its default invocation does not yet build profiles because Rust API and C archive service gating remain incomplete.
+
+The pack inspector also refuses all radio-writing readiness claims regardless of the mutable `capabilities_verified` lockfile field: that field alone cannot establish firmware ABI compatibility. An independent firmware capability attestation and matching radio-side handshake are required before the installer may be enabled.
