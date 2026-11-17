@@ -5,6 +5,9 @@ import itertools
 import json
 from pathlib import Path
 import subprocess
+import os
+import shutil
+from k6_pack_policy import POLICY, validate, gate_environment
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -39,19 +42,37 @@ def main():
     p.add_argument('--spec', type=Path, default=DEFAULT)
     p.add_argument('--features', nargs='+', default=['scan', 'aprs'])
     p.add_argument('--size-dir', type=Path, help='read PROFILE/size.txt from this directory instead of building')
+    p.add_argument('--build', action='store_true', help='compile all profiles sequentially; no radio writes')
+    p.add_argument('--build-dir', type=Path, default=ROOT / 'firmware/k6-aura/out-fd6818b/profile-matrix')
     p.add_argument('--output', type=Path, help='write JSON report')
     args = p.parse_args()
     spec = json.loads(args.spec.read_text())
+    policy = json.loads(POLICY.read_text())
+    validate(spec, policy)
+    if args.build and args.size_dir:
+        p.error('--build and --size-dir are mutually exclusive')
     results = []
     for names, plan in profiles(spec, args.features):
         label = '-'.join(names)
-        if args.size_dir:
+        if args.build:
+            env = os.environ.copy()
+            env['K6_AURA_FEATURES'] = ','.join(['pager-explore'] + plan['cargo_features'])
+            env['K6_IMAGE_NAME'] = f'aura-matrix-{label}'
+            env.update(gate_environment(plan, policy))
+            print(f'Building {label}: {gate_environment(plan, policy)}', file=sys.stderr, flush=True)
+            subprocess.run(['sh', str(ROOT / 'firmware/k6-aura/build-fd6818b.sh')],
+                           cwd=ROOT, env=env, check=True)
+            source = ROOT / 'firmware/k6-aura/out-fd6818b'
+            dest = args.build_dir / label
+            dest.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source / 'size.txt', dest / 'size.txt')
+            shutil.copy2(source / f'aura-matrix-{label}.bin', dest / 'firmware.bin')
+            (dest / 'plan.json').write_text(json.dumps(plan, indent=2) + '\n')
+            size = dest / 'size.txt'
+        elif args.size_dir:
             size = args.size_dir / label / 'size.txt'
         else:
-            # Each invocation rebuilds the currently shared firmware target. These
-            # are not distinct profiles until C and Rust services are conditionally linked.
-            print(f'{label}: selective linking unavailable; refusing misleading matrix', file=sys.stderr)
-            return 2
+            p.error('pass --build to compile profiles or --size-dir to inspect existing results')
         if not size.is_file():
             p.error(f'missing linked size for {label}: {size}')
         results.append((names, flash_bytes(size.read_text())))

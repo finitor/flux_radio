@@ -48,7 +48,7 @@ This is an initial **budget enforcement mechanism**, not proof that two arbitrar
 
 ## Multi-feature matrix
 
-`tools/k6_pack_matrix.py --size-dir DIR --output report.json` consumes **independently linked** `base/size.txt`, `base-scan/size.txt`, `base-aprs/size.txt`, and `base-scan-aprs/size.txt` (from `llvm-size -A`). It fails if Base exceeds 96 KiB, any profile exceeds 120 KiB, or the required Scanner+APRS combination is missing or over budget. Without separately built linked images, it deliberately refuses to claim a successful matrix. Its default invocation does not yet build profiles because Rust API and C archive service gating remain incomplete.
+`tools/k6_pack_matrix.py --size-dir DIR --output report.json` consumes **independently linked** `base/size.txt`, `base-scan/size.txt`, `base-aprs/size.txt`, and `base-scan-aprs/size.txt` (from `llvm-size -A`). It fails if Base exceeds 96 KiB, any profile exceeds 120 KiB, or the required Scanner+APRS combination is missing or over budget. Without separately built linked images, it deliberately refuses to claim a successful matrix. Use `python3 tools/k6.py matrix --build` to compile all four profiles sequentially. Current gates select compact scanner and FSK RX callbacks, but do not yet prove complete isolation of all legacy services.
 
 The pack inspector also refuses all radio-writing readiness claims regardless of the mutable `capabilities_verified` lockfile field: that field alone cannot establish firmware ABI compatibility. An independent firmware capability attestation and matching radio-side handshake are required before the installer may be enabled.
 

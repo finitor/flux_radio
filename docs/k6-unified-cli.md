@@ -23,3 +23,18 @@ The catalog remains a separate web UI for now. `k6 catalog` launches it, and the
 ## Catalog profile planner
 
 The catalog now has a **Feature packs** page at `/profiles`, which uses the same `k6_feature_packs.resolve` and `k6_pack_policy.validate` functions as the CLI. It previews selected packs, module requirements and actual build environment gates; planned packs are disabled. This initial page is deliberately **read-only**: build jobs, progress streaming, flashing and installation are not yet exposed through the web interface. Never present a preview as evidence of a successfully linked or hardware-tested firmware image.
+
+## Verified four-profile compilation and browser build jobs
+
+Run `python3 tools/k6.py matrix --build --output /path/to/report.json` to compile Base, Base+Scan, Base+APRS and Base+Scan+APRS sequentially. The matrix stores each independently linked image, `size.txt`, and plan under `firmware/k6-aura/out-fd6818b/profile-matrix/<profile>/`, and checks the 96 KiB Base / 120 KiB total ceilings. Do not run concurrent matrix and pack builds: the underlying Aura build uses a shared working directory.
+
+First measured four-profile matrix (FD6818B, local workstation):
+
+| Profile | Linked flash bytes | Budget |
+| --- | ---: | --- |
+| Base | 94,500 | pass |
+| Base+Scan | 98,024 | pass |
+| Base+APRS | 94,900 | pass |
+| Base+Scan+APRS | 98,424 | pass |
+
+The catalog `/profiles` page now offers **Build this profile** after previewing the plan. It starts a single local background subprocess, redirects compiler output to a per-job log, and shows a status page that refreshes every four seconds. Only one browser-started build runs at a time. This is a prototype: jobs are in memory and do not survive web-server restarts, and CLI builds are not coordinated with browser builds. The output is a staged unverified pack, not a flashable, attested release. No serial commands are run by the job manager.

@@ -262,6 +262,9 @@ def create_app(store: ModuleStore | None = None):
     app = Flask(__name__, template_folder=str(TEMPLATES), static_folder=str(TEMPLATES / "static"))
     app.secret_key = os.environ.get("BLOWFANG_STORE_SECRET") or secrets.token_bytes(32)
     catalog = store or ModuleStore()
+    from k6_build_jobs import BuildJobs
+    build_jobs = BuildJobs()
+    app.config["build_jobs"] = build_jobs
     app.config["module_store"] = catalog
 
     def radio_settings() -> dict:
@@ -334,6 +337,28 @@ def create_app(store: ModuleStore | None = None):
             result = {'ok': False, 'error': str(exc)}
         return render_template('profiles.html', choices=choices, result=result,
                                selected=selected), (200 if result['ok'] else 400)
+
+    @app.post("/profiles/build")
+    def build_profile():
+        from k6_feature_packs import DEFAULT
+        spec = json.loads(DEFAULT.read_text())
+        selected = request.form.getlist('pack')
+        if any(name not in spec['packs'] or name == 'base' for name in selected):
+            abort(400)
+        try:
+            job_id = app.config['build_jobs'].start(selected)
+        except (ValueError, OSError) as exc:
+            flash(str(exc), 'error')
+            return redirect(url_for('profiles'))
+        return redirect(url_for('build_status', job_id=job_id))
+
+    @app.get("/profiles/build/<job_id>")
+    def build_status(job_id):
+        try:
+            job = app.config['build_jobs'].get(job_id)
+        except KeyError:
+            abort(404)
+        return render_template('build_status.html', job=job)
 
     @app.get("/radio")
     def radio():

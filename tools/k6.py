@@ -34,6 +34,8 @@ def command(argv):
     inspect.add_argument('--spec', type=Path)
     matrix = sub.add_parser('matrix', help='verify flash budgets of separately linked profiles')
     matrix.add_argument('--size-dir', type=Path)
+    matrix.add_argument('--build', action='store_true')
+    matrix.add_argument('--build-dir', type=Path)
     matrix.add_argument('--output', type=Path)
     catalog = sub.add_parser('catalog', help='launch local module catalog web UI')
     catalog.add_argument('args', nargs=argparse.REMAINDER)
@@ -53,6 +55,8 @@ def command(argv):
     elif args.command == 'matrix':
         cmd = ['k6_pack_matrix.py']
         if args.size_dir: cmd += ['--size-dir', str(args.size_dir)]
+        if args.build: cmd += ['--build']
+        if args.build_dir: cmd += ['--build-dir', str(args.build_dir)]
         if args.output: cmd += ['--output', str(args.output)]
     elif args.command == 'catalog':
         cmd = ['k6_store.py', *(args.args or ['serve'])]
