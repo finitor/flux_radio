@@ -37,6 +37,19 @@ instruction quantum. `--live` opens a Tk window with a live LCD view and keyboar
 emulator does not yet deliver interrupts or model RF/audio behavior. Treat its outputs as a
 development model, not as a replacement for radio testing.
 
+## Remote browser workbench
+
+Use `python3 -m sim.k6ide` for the existing browser workbench. It defaults to
+`0.0.0.0:5056`, so it can be followed from another device at
+`http://<host-LAN-IP>:5056`. The process prints a one-run token; open the printed URL on the host
+or put that token in the URL fragment when opening the host's LAN address remotely. API routes
+require the token. Set `K6IDE_TOKEN` for a chosen persistent token, or pass `--host 127.0.0.1` for
+local-only access. Keep this workbench synchronized with changes to the simulator and app UI.
+
+Use `--spi-image sim/k6emu/runs/k6-spi.bin` to persist virtual SPI between restarts. That ignored
+local file can contain calibration data, so do not add it to Git. The workbench does not open the
+radio programming cable; emulator execution remains separate from hardware and RF validation.
+
 ## Test a library module
 
 `--module-bundle` signs each selected module with the same key used by the firmware and places the
@@ -46,10 +59,10 @@ present, then overlay a new or changed module:
 
 ```sh
 python3 -m sim.k6emu \
-  /home/tyler/dev/blowfang/firmware/k6-aura/out-fd6818b/aura-fd6818b-blowfang-host.bin \
+  /home/tyler/dev/ag7su-blowfang/firmware/k6-aura/out-fd6818b/aura-fd6818b-blowfang-host.bin \
   --live \
   --spi-flash /home/tyler/blowfang-backups/k6-spiflash-emulator.bin \
-  --module-bundle /home/tyler/dev/blowfang/firmware/k6-aura/out-fd6818b/vfo-module-bundle \
+  --module-bundle /home/tyler/dev/ag7su-blowfang/firmware/k6-aura/out-fd6818b/vfo-module-bundle \
   --module-slots 30 \
   --key-file /home/tyler/.config/blowfang/k6-mod.key
 ```
@@ -64,9 +77,9 @@ Install and start the emulator with the current keyed Aura/Blowfang image (from 
 root):
 
 ```sh
-python3 -m pip install -r /home/tyler/dev/blowfang/sim/k6emu/requirements.txt
+python3 -m pip install -r /home/tyler/dev/ag7su-blowfang/sim/k6emu/requirements.txt
 python3 -m sim.k6emu \
-  /home/tyler/dev/blowfang/firmware/k6-aura/out-fd6818b/aura-fd6818b-blowfang-host.bin \
+  /home/tyler/dev/ag7su-blowfang/firmware/k6-aura/out-fd6818b/aura-fd6818b-blowfang-host.bin \
   --live \
   --spi-flash /home/tyler/blowfang-backups/k6-spiflash-emulator.bin \
   --adc 0=2048 --adc 1=3000 \
@@ -106,7 +119,7 @@ EXPLORE/arena screen:
 
 ```sh
 mkdir -p /home/tyler/blowfang-backups
-python3 /home/tyler/dev/blowfang/tools/k6_install.py \
+python3 /home/tyler/dev/ag7su-blowfang/tools/k6_install.py \
   --port /dev/ttyUSB0 backup \
   -o /home/tyler/blowfang-backups/k6-spiflash-emulator.bin
 ```

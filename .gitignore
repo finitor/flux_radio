@@ -62,3 +62,5 @@ c/common/fsk_rx_host
 /firmware/k6-aura/out/
 /firmware/k6-aura/out-fd6818b/
 /blowfang-k6-mine/
+# Local emulator state, including optional SPI data and freeze-debug captures.
+/sim/k6emu/runs/

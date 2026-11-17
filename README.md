@@ -62,6 +62,33 @@ installer is [`tools/k6_install.py`](tools/k6_install.py).
   behavior without repeatedly flashing hardware.
 - [`tests/`](tests/) covers the shared loader, catalog, emulator, and module tooling.
 
+## Radio development workbench
+
+Run the local IDE-style simulator for the K6 host image:
+
+```sh
+python3 -m pip install -r sim/k6emu/requirements.txt -r tools/k6_store_requirements.txt
+python3 -m sim.k6ide
+```
+
+The server binds to `0.0.0.0:5056` by default. On the host, open
+<http://127.0.0.1:5056>; from another device, use `http://<host-LAN-IP>:5056`. Each launch prints
+a one-run access token and a local URL containing it; use that token in the URL fragment on the
+remote browser too. API requests require the token. Set `K6IDE_TOKEN` to reuse a chosen token, or
+pass `--host 127.0.0.1` to keep the server local-only.
+
+The workbench runs the actual K6 firmware image in the emulator, shows its LCD and UART output,
+maps keyboard and on-screen presses to the radio keypad, and offers modeled power/PTT lines. Enter
+a bundle directory and signing key to stage modules in virtual SPI flash. Use
+`--spi-image sim/k6emu/runs/k6-spi.bin` to retain that virtual library between workbench restarts;
+this generated file is ignored by Git and may contain calibration copied into virtual flash. The
+workbench never opens the programming cable.
+
+This is the first radio backend, for UV-K6/K61 boards using the FD6818B RF chip. The interface
+and catalog should become radio-model adapters as other board emulators are added; at this point
+only the K6 execution and peripherals are implemented. Emulator evidence covers firmware behavior
+against modeled peripherals, not RF performance or physical-radio behavior.
+
 Start with the focused host and emulator notes in [`docs/k6-host-contract-findings.md`](docs/k6-host-contract-findings.md)
 and [`docs/k6-emulator-llm-debug.md`](docs/k6-emulator-llm-debug.md). Hardware testing still means
 testing on the actual FD6818B K6; an emulator pass is not a radio or RF test.
