@@ -42,12 +42,13 @@
       <p class="radio-note">Illustrative preview. The editable area is the active VFO marker; status and frequency layouts stay fixed.</p>
     </div>
     <div>
+      <div class="editor-library"><label>Start from a built-in theme <select data-editor-base><option value="">Choose preset</option>{% for key, token in theme_editor_presets.items() %}<option value="{{ token }}" data-theme-id="{{ key }}">{{ "Flux — factory default" if key == "flux" else themes[key].name }}</option>{% endfor %}</select></label><button type="button" data-editor-load-base>Load into editor</button></div>
       <div class="editor-options"><label><input type="checkbox" data-editor-border checked> Top border</label><label><input type="checkbox" data-editor-rail checked> Left rail</label></div>
       <p class="eyebrow">DRAW YOUR 7 × 8 PIXEL MARKER</p>
       <div class="pixel-grid" data-editor-pixels role="group" aria-label="Marker pixels"></div>
       <div class="editor-tabs"><button type="button" data-editor-preset="arrow">Arrow</button><button type="button" data-editor-preset="diamond">Diamond</button><button type="button" data-editor-preset="clear">Clear</button></div>
       <div class="editor-library"><label>Theme name <input data-editor-name maxlength="40" placeholder="My custom theme"></label><button type="button" data-editor-save>Save theme</button><label>Saved themes <select data-editor-library><option value="">Choose saved theme</option></select></label><button type="button" data-editor-delete>Delete saved theme</button></div>
-      <label class="editor-use"><input type="radio" name="theme" data-editor-custom value="{{ selected_theme if selected_theme.startswith('custom-') else 'custom-11-0000000000000000' }}" {% if selected_theme.startswith('custom-') %}checked{% endif %}> Use custom theme in build</label>
+      <label class="editor-use"><input type="radio" name="theme" data-editor-custom value="{{ selected_theme if selected_theme.startswith('custom-') else theme_editor_presets.get(selected_theme, theme_editor_presets['flux']) }}" {% if selected_theme.startswith('custom-') %}checked{% endif %}> Use custom theme in build</label>
       <p class="radio-note" data-editor-message role="status">Saved themes stay in this browser. Copy the theme code to share or build from CLI.</p>
       <div class="editor-library"><label>Share or import theme code <input data-editor-code spellcheck="false" autocomplete="off" aria-label="Theme code"></label><button type="button" data-editor-import>Load code</button></div>
     </div>

@@ -55,3 +55,15 @@ def test_custom_theme_is_buildable_and_rejects_invalid_markers():
                     'custom-11-ffffffffffffffff', 'custom-22-c0f0fcfefcf0c000', 'custom-11-xyz'):
         assert client.post('/profiles/preview', data={'theme': invalid}).status_code == 400
         assert client.post('/profiles/build', data={'theme': invalid}).status_code == 400
+
+
+def test_factory_themes_are_editable_presets():
+    from k6_feature_packs import THEME_EDITOR_PRESETS
+    client = k6_store.create_app().test_client()
+    for key, token in THEME_EDITOR_PRESETS.items():
+        page = client.post('/profiles', data={'theme': key})
+        assert page.status_code == 200
+        assert f'value="{token}" data-theme-id="{key}"'.encode() in page.data
+        assert f'data-editor-custom value="{token}"'.encode() in page.data
+        assert client.post('/profiles/preview', data={'theme': token}).status_code == 200
+    assert 'Flux — factory default'.encode() in client.get('/profiles').data

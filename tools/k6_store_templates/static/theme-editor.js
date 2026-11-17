@@ -87,6 +87,22 @@
     if(!valid(token)) { message.textContent='Invalid theme code. Check the flags and eight pixel rows.'; return; }
     load(token,true); name.value=''; library.value='';
   });
+  const base = q('[data-editor-base]');
+  function loadBase(token, select) {
+    if (!valid(token)) return;
+    load(token, select);
+    name.value = ''; library.value = '';
+    base.value = token;
+  }
+  q('[data-editor-load-base]').addEventListener('click', () => loadBase(base.value, true));
+  document.querySelectorAll('[data-builder-themes] input[name="theme"]').forEach(b => {
+    b.addEventListener('change', () => {
+      if (!b.checked) return;
+      const option = [...base.options].find(o => o.dataset.themeId === b.value);
+      if (option) loadBase(option.value, false);
+    });
+  });
   refresh(); if(valid(radio.value)) load(radio.value,false); else update(false);
+  base.value = radio.value;
 })();
 

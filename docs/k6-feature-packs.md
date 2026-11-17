@@ -105,3 +105,8 @@ eight row bytes, most significant bit first, with the low bit reserved/zero.
 An entirely blank marker without either border is rejected. The immutable code
 is included in the package lock and receipt so editing a saved browser theme
 cannot change a previous build. No arbitrary source code is accepted.
+
+Select a built-in theme card or load it via Start from a built-in theme in the
+editor. Flux — factory default uses the original border and rail, with no
+bitmap marker; Classic and Minimal also have equivalent editable presets.
+The built-in card retains its original build identifier until you edit the design.

@@ -370,12 +370,12 @@ def create_app(store: ModuleStore | None = None):
     @app.get("/profiles")
     @app.post("/profiles")
     def profiles():
-        from k6_feature_packs import THEMES, DEFAULT_THEME
+        from k6_feature_packs import THEMES, DEFAULT_THEME, THEME_EDITOR_PRESETS
         selected = request.form.getlist('pack')
         theme = request.form.get('theme', DEFAULT_THEME)
         choices, result = profile_plan(selected, theme)
         return render_template('profiles.html', choices=choices, result=result,
-                               selected=selected, themes=THEMES, selected_theme=theme), (200 if result['ok'] else 400)
+                               selected=selected, themes=THEMES, selected_theme=theme, theme_editor_presets=THEME_EDITOR_PRESETS), (200 if result['ok'] else 400)
 
     # Preserve the existing form endpoint name for templates and callers.
     app.add_url_rule('/profiles', endpoint='plan_profile', view_func=profiles, methods=['POST'])

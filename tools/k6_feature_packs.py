@@ -10,11 +10,17 @@ DEFAULT = ROOT / 'config/k6-feature-packs.json'
 
 
 THEMES = {
-    'flux': {'name': 'Flux', 'description': 'Signature top border and left rail.'},
+    'flux': {'name': 'Flux', 'description': 'Factory Flux appearance: original frequency layout, top border and left rail.'},
     'classic': {'name': 'Classic', 'description': 'Traditional active VFO arrow.'},
     'minimal': {'name': 'Minimal', 'description': 'Clean left rail, no horizontal border.'},
 }
 DEFAULT_THEME = 'flux'
+# Editable representations of the exact built-in VFO focus decorations.
+THEME_EDITOR_PRESETS = {
+    'flux': 'custom-11-0000000000000000',
+    'classic': 'custom-00-c0f0fcfefcf0c000',
+    'minimal': 'custom-01-0000000000000000',
+}
 
 
 def validate_theme(theme):
