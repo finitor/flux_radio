@@ -6,7 +6,8 @@
 - Keep the K6 browser workbench (`sim/k6ide.py` and `sim/k6ide_templates/`) aligned with changes
   to the emulator and app UI.
 - The workbench should bind to `0.0.0.0:5056` by default so it can be followed from another
-  machine. Preserve its per-run API token requirement for remote access.
+  machine. The user wants no login or token on their trusted home LAN; keep this limited to the
+  private LAN and do not add authentication unless they ask.
 - Keep simulator outputs, virtual SPI images, radio backups, firmware build outputs, and signing
   keys out of Git. Update `.gitignore` when a new generated path is introduced.
 - Commit small, coherent workbench changes as they are completed. Inspect status first and stage

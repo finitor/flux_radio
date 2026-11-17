@@ -2,15 +2,11 @@
 from __future__ import annotations
 
 import argparse
-import hmac
 import json
-import os
-import secrets
 import threading
 import time
 from pathlib import Path
 from typing import Protocol
-from urllib.parse import quote
 
 from sim.k6emu.__main__ import K6Board, overlay_module_bundle
 
@@ -237,24 +233,10 @@ def module_bundle_catalog():
     return bundles
 
 
-def create_app(workbench: RadioAdapter, access_token: str | None = None):
+def create_app(workbench: RadioAdapter):
     from flask import Flask, jsonify, render_template, request
     app = Flask(__name__, template_folder=str(TEMPLATES))
     app.config["workbench"] = workbench
-    app.config["access_token"] = access_token or secrets.token_urlsafe(32)
-
-    @app.before_request
-    def protect_mutations():
-        # Binding to 0.0.0.0 makes the UI reachable off-host. Require a per-run
-        # token for every API request, especially module signing/loading.
-        if request.path.startswith("/api/"):
-            supplied = request.headers.get("Authorization", "")
-            if supplied.startswith("Bearer "):
-                supplied = supplied[7:]
-            if not hmac.compare_digest(supplied, app.config["access_token"]):
-                return jsonify(ok=False, error="missing or invalid workbench token"), 401
-        return None
-
     @app.get("/")
     def index():
         return render_template("index.html", state=workbench.state())
@@ -346,12 +328,10 @@ def main():
     if not args.image.is_file():
         parser.error(f"firmware image not found: {args.image}")
     board = RADIO_MODELS[args.model](args.image, args.spi_image, args.cpi)
-    access_token = os.environ.get("K6IDE_TOKEN") or secrets.token_urlsafe(32)
     print(f"K6 IDE simulator at http://{args.host}:{args.port} (virtual RF only)")
-    print(f"Local workbench URL: http://127.0.0.1:{args.port}/#token={quote(access_token, safe='')}")
-    print(f"Workbench access token: {access_token}")
-    print("For another device, replace 127.0.0.1 with this host's LAN address; Ctrl-C stops the workbench.")
-    create_app(board, access_token).run(host=args.host, port=args.port, threaded=True, debug=False)
+    print(f"On this host: http://127.0.0.1:{args.port}")
+    print("On your LAN, use this host's LAN address; Ctrl-C stops the workbench.")
+    create_app(board).run(host=args.host, port=args.port, threaded=True, debug=False)
 
 
 if __name__ == "__main__":

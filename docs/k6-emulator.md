@@ -41,10 +41,9 @@ development model, not as a replacement for radio testing.
 
 Use `python3 -m sim.k6ide` for the existing browser workbench. It defaults to
 `0.0.0.0:5056`, so it can be followed from another device at
-`http://<host-LAN-IP>:5056`. The process prints a one-run token; open the printed URL on the host
-or put that token in the URL fragment when opening the host's LAN address remotely. API routes
-require the token. Set `K6IDE_TOKEN` for a chosen persistent token, or pass `--host 127.0.0.1` for
-local-only access. Keep this workbench synchronized with changes to the simulator and app UI.
+`http://<host-LAN-IP>:5056`. It has no login or token and is intended for the trusted home LAN;
+do not expose it to the public internet. Keep this workbench synchronized with changes to the
+simulator and app UI.
 
 Use `--spi-image sim/k6emu/runs/k6-spi.bin` to persist virtual SPI between restarts. That ignored
 local file can contain calibration data, so do not add it to Git. The workbench does not open the

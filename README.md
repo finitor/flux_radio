@@ -72,10 +72,8 @@ python3 -m sim.k6ide
 ```
 
 The server binds to `0.0.0.0:5056` by default. On the host, open
-<http://127.0.0.1:5056>; from another device, use `http://<host-LAN-IP>:5056`. Each launch prints
-a one-run access token and a local URL containing it; use that token in the URL fragment on the
-remote browser too. API requests require the token. Set `K6IDE_TOKEN` to reuse a chosen token, or
-pass `--host 127.0.0.1` to keep the server local-only.
+<http://127.0.0.1:5056>; from another device, use `http://<host-LAN-IP>:5056`. It has no login or
+token and is intended for the trusted home LAN; do not expose it to the public internet.
 
 The workbench runs the actual K6 firmware image in the emulator, shows its LCD and UART output,
 maps keyboard and on-screen presses to the radio keypad, and offers modeled power/PTT lines. Enter

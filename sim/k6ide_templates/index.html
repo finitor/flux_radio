@@ -44,10 +44,7 @@
 </div><div class="toast" id="toast"></div>
 <script>
 const toastEl=document.querySelector('#toast');let toastTimer,lastModules='';
-const tokenParams=new URLSearchParams(location.hash.slice(1));let workbenchToken=tokenParams.get('token')||sessionStorage.getItem('k6ide-token');
-if(!workbenchToken)workbenchToken=prompt('Enter the K6 workbench token shown in the server terminal:')||'';
-if(workbenchToken){sessionStorage.setItem('k6ide-token',workbenchToken);history.replaceState(null,'',location.pathname+location.search)}
-async function apiFetch(url,options={}){let headers={...(options.headers||{}),Authorization:`Bearer ${workbenchToken}`};return fetch(url,{...options,headers})}
+async function apiFetch(url,options={}){return fetch(url,options)}
 async function post(url,data){try{let r=await apiFetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});let j=await r.json();if(!r.ok||j.ok===false)throw Error(j.error||'Request failed');notify(j.installed?j.installed.map(x=>`Loaded ${x.name} in slot ${x.slot}`).join(' · '):'Done');await refresh();return j}catch(e){notify(e.message,true);throw e}}
 function notify(s,bad=false){toastEl.textContent=s;toastEl.style.background=bad?'#ffb1a9':'#d7f98e';toastEl.style.display='block';clearTimeout(toastTimer);toastTimer=setTimeout(()=>toastEl.style.display='none',4000)}
 document.querySelectorAll('[data-key]').forEach(b=>{let key=b.dataset.key;for(let [ev,down] of [['pointerdown',true],['pointerup',false],['pointerleave',false],['pointercancel',false]])b.addEventListener(ev,e=>{e.preventDefault();post('/api/key',{key,down}).catch(()=>{})})});
