@@ -29,3 +29,9 @@ Both `xs_step` (2,740 bytes) and `kmx_xs_step` (1,840 bytes) are linked. `xs_ste
 4. Record the flash delta and functionality tests for every candidate; revert any change that increases size or degrades rendering.
 
 **No functionality removed during this audit.**
+
+## Follow-up measurements
+
+- The two linked scanner steps are **the same `c/k6/xscan.c` source compiled twice**, not separate implementations. `tools/k6_build.sh` compiles the full `xscan.o` with default `XS_HOT=10`, `XS_COLS=128`, and a compact `xscan_modhost.o` with `XS_HOT=4`, `XS_COLS=1`, `XS_MODULE_NO_PEEK`, `XS_MODULE_NO_SWEEP_DIAG`, `XS_MODULE_NO_REFINE`, and `kmx_` symbol renaming. The latter is only built when `K6_EXPLORE_HOST=1`. Both can be linked in a host+Explore image because their data layouts differ. **Sharing a single scanner implementation requires reconciling ABI and state layout, not algorithm merging.** The savings ceiling from removing the compact implementation is not just `kmx_xs_step`'s 1,840 bytes; its related linked functions also count. Do not remove it until callers and compatibility are tested.
+- `run_module` had 56 identical non-host stack checks and 55 identical host stack checks in the persistent generated checkout. A new post-patch normalization script reduces them to one of each. **Measured flash savings: 0 bytes** (LLVM already folded the unreachable duplicates); the source is much easier to inspect. Release build passed.
+- A trial display control-flow rewrite (`if/else` to early return) compiled successfully but changed flash by **0 bytes**; reverted. No claim of display savings yet.
