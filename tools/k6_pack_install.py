@@ -75,14 +75,71 @@ def verify_pack(root, spec, *, require_attested=True):
     return lock
 
 
+
+CAPABILITY_FLAGS = {
+    'module-loader': 'module_loader',
+    'explore-scanner-api': 'scanner',
+    'candidate-ranking': 'scanner',
+    'cw-tone-observation': 'scanner',
+    'fd6818-fsk-rx': 'fsk_rx',
+}
+
+
+def compatibility_report(lock, capabilities):
+    """Compare a verified artifact plan with an unauthenticated radio report."""
+    missing = [name for name in lock['capabilities']
+               if capabilities.get(CAPABILITY_FLAGS.get(name, ''), False) is not True]
+    ceiling = capabilities.get('module_api_max', 0)
+    if type(ceiling) is not int or not 1 <= ceiling <= 255:
+        raise PackError('invalid reported module API ceiling')
+    unsupported = [m['name'] for m in lock['modules'] if m['api_level'] > ceiling]
+    return {'capabilities_match': not missing and not unsupported,
+            'missing_capabilities': missing, 'unsupported_modules': unsupported,
+            'reported_api_max': ceiling, 'authenticated': False,
+            'build_identity_verified': False, 'install_ready': False}
+
+
+def radio_preflight(root, spec, port):
+    from k6_install import open_port, open_cable, InstallError
+    from types import SimpleNamespace
+    lock = verify_pack(root, spec, require_attested=False)
+    connection = open_port(SimpleNamespace(port=port))
+    cable = None
+    try:
+        cable = open_cable(connection, lambda *_: None, wait=3.0)
+        if cable is None:
+            raise PackError('no Blowfang cable session')
+        report = compatibility_report(lock, cable.capabilities())
+        report['packs'] = lock['packs']
+        return report
+    except InstallError as exc:
+        raise PackError(str(exc)) from exc
+    finally:
+        try:
+            if cable is not None:
+                cable.end()
+        finally:
+            connection.close()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('pack', type=Path)
     parser.add_argument('--spec', type=Path, default=DEFAULT)
     parser.add_argument('--inspect-unverified', action='store_true', help='inspect only; never install')
+    parser.add_argument('--radio-preflight', action='store_true', help='query compatibility only; no flash writes (ends cable session with restart)')
+    parser.add_argument('--port', help='explicit radio serial port')
     args = parser.parse_args()
+    if args.radio_preflight and (not args.port or args.inspect_unverified):
+        parser.error('--radio-preflight requires --port and cannot be combined with --inspect-unverified')
+    if args.port and not args.radio_preflight:
+        parser.error('--port requires --radio-preflight')
     try:
         spec = json.loads(args.spec.read_text())
+        if args.radio_preflight:
+            report = radio_preflight(args.pack, spec, args.port)
+            print(json.dumps(report, indent=2))
+            return 0 if report['capabilities_match'] else 1
         lock = verify_pack(args.pack, spec, require_attested=not args.inspect_unverified)
         print(json.dumps({'status': 'verified artifacts' if args.inspect_unverified else 'verified lockfile',
                           'install_ready': not args.inspect_unverified,
@@ -94,4 +151,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())

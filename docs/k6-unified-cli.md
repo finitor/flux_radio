@@ -60,3 +60,11 @@ A firmware-side capability protocol is still needed. The generated Aura CPS code
 The reproducible Aura build now applies `firmware/k6-aura/apply-capability-query.py` after the cable stack patch. The Blowfang cable session accepts read-only command `0x49` (`I`) at address 0 with empty payload. It returns 16 bytes: `K6CP` magic (4), version `1` (1), capability flags (1: bit 0 module loader, bit 1 scanner, bit 2 FSK RX), module API ceiling (1), reserved zero (1), and eight reserved-zero identity bytes. The flags reflect **declared build gates**, not measured runtime behavior. The original `0x56` (`V`) INFO response remains unchanged. `Cable.capabilities()` in `tools/k6_install.py` parses the optional response and explicitly returns `authenticated=False` and `build_identity_verified=False`.
 
 This is a protocol prototype, **not** proof of running firmware identity. Old firmware may reject `0x49`; callers must fail closed for install decisions. No installer uses this response to enable writes yet. Firmware-side and host-side protocol tests run without hardware; radio behavior remains untested.
+
+### Connected-radio preflight
+
+```sh
+python3 tools/k6.py preflight path/to/pack --port /dev/ttyUSB0
+```
+
+This checks every staged artifact before connecting, then requests the versioned cable capability record and compares its declared services and module API ceiling to pack/module requirements. A successful comparison returns `capabilities_match: true`, but **always** returns `install_ready: false`, `authenticated: false`, and `build_identity_verified: false`. Missing services or unsupported module API levels produce exit status 1; malformed/unsupported responses or invalid artifacts fail with an error. The port must be supplied explicitly. No firmware or SPI writes are performed, but normal cable-session teardown (`CMD_END`) restarts the radio. Unkeyed builds may report loader code support while refusing all module signatures; this query does not establish key provisioning or operating readiness.

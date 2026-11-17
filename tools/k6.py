@@ -32,6 +32,10 @@ def command(argv):
     inspect = sub.add_parser('inspect', help='check staged feature-pack integrity (no radio writes)')
     inspect.add_argument('pack', type=Path)
     inspect.add_argument('--spec', type=Path)
+    preflight = sub.add_parser('preflight', help='read-only connected-radio compatibility check; restarts radio on session close')
+    preflight.add_argument('pack', type=Path)
+    preflight.add_argument('--port', required=True)
+    preflight.add_argument('--spec', type=Path)
     matrix = sub.add_parser('matrix', help='verify flash budgets of separately linked profiles')
     matrix.add_argument('--size-dir', type=Path)
     matrix.add_argument('--build', action='store_true')
@@ -51,6 +55,9 @@ def command(argv):
         if args.spec: cmd += ['--spec', str(args.spec)]
     elif args.command == 'inspect':
         cmd = ['k6_pack_install.py', str(args.pack), '--inspect-unverified']
+        if args.spec: cmd += ['--spec', str(args.spec)]
+    elif args.command == 'preflight':
+        cmd = ['k6_pack_install.py', str(args.pack), '--radio-preflight', '--port', args.port]
         if args.spec: cmd += ['--spec', str(args.spec)]
     elif args.command == 'matrix':
         cmd = ['k6_pack_matrix.py']

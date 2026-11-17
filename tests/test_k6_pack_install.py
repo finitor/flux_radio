@@ -63,3 +63,45 @@ def test_manifest_hash_conflict_rejected(tmp_path):
     lock_path.write_text(json.dumps(lock))
     with pytest.raises(PackError, match='manifest hash differs'):
         verify_pack(root, SPEC, require_attested=False)
+
+
+def test_compatibility_report_fails_closed_even_if_capabilities_match(tmp_path):
+    from k6_pack_install import compatibility_report
+    root = pack(tmp_path)
+    lock = verify_pack(root, SPEC, require_attested=False)
+    reported = {'module_loader': True, 'scanner': True, 'fsk_rx': True, 'module_api_max': 22,
+                'authenticated': True, 'build_identity_verified': True}
+    report = compatibility_report(lock, reported)
+    assert report['capabilities_match']
+    assert not report['install_ready'] and not report['authenticated']
+    report = compatibility_report(lock, {**reported, 'scanner': False, 'module_api_max': 15})
+    assert not report['capabilities_match']
+    assert 'candidate-ranking' in report['missing_capabilities']
+    assert len(report['unsupported_modules']) == 5
+
+
+def test_radio_preflight_checks_artifacts_before_opening_port(tmp_path, monkeypatch):
+    import k6_install
+    from k6_pack_install import radio_preflight
+    root = pack(tmp_path)
+    (root / 'firmware.bin').write_bytes(b'bad')
+    monkeypatch.setattr(k6_install, 'open_port', lambda *_: pytest.fail('opened port before verification'))
+    with pytest.raises(PackError, match='hash mismatch'):
+        radio_preflight(root, SPEC, '/dev/fake')
+
+
+def test_radio_preflight_closes_session_on_error(tmp_path, monkeypatch):
+    import k6_install
+    from k6_pack_install import radio_preflight
+    from types import SimpleNamespace
+    root = pack(tmp_path)
+    events = []
+    connection = SimpleNamespace(close=lambda: events.append('close'))
+    def capabilities():
+        raise k6_install.InstallError('legacy firmware refuses command')
+    cable = SimpleNamespace(capabilities=capabilities, end=lambda: events.append('end'))
+    monkeypatch.setattr(k6_install, 'open_port', lambda args: connection)
+    monkeypatch.setattr(k6_install, 'open_cable', lambda *args, **kwargs: cable)
+    with pytest.raises(PackError, match='legacy firmware'):
+        radio_preflight(root, SPEC, '/dev/fake')
+    assert events == ['end', 'close']
