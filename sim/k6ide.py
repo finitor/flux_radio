@@ -12,7 +12,9 @@ from sim.k6emu.__main__ import K6Board, overlay_module_bundle
 from sim.k6emu.aprs_signal import ui_frame
 from sim.k6emu.if_signal import pb1_bits
 from sim.k6emu.if_capture import parse_capture
+from sim.k6emu.rx_dma import MEASURED_FREE_RUNNING_HZ
 from sim.k6emu.if_capture import parse_capture
+from sim.k6emu.rx_dma import MEASURED_FREE_RUNNING_HZ
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_IMAGE = ROOT / "firmware/k6-aura/out-fd6818b/aura-fd6818b-blowfang-host.bin"
@@ -76,7 +78,7 @@ class K6Workbench:
 
     def inject_aprs(self, source="AG7SU", destination="APRS", message=">sim test",
                     ssid=7, noise=0.0, gain=1.0, clip=1.0,
-                    emphasis_db=0.0, frequency_offset=0.0, seed=0):
+                    emphasis_db=0.0, frequency_offset=0.0, seed=0, dma_mode="direct"):
         """Arm a simulated IF packet; firmware must enable DMA to consume it."""
         if not (0 <= int(ssid) <= 15 and 0 <= float(noise) <= 2
                 and 0 < float(gain) <= 20 and 0 < float(clip) <= 1
@@ -84,37 +86,38 @@ class K6Workbench:
                 and -500 <= float(frequency_offset) <= 500
                 and len(message) <= 200):
             raise ValueError("APRS signal parameters outside permitted range")
+        if dma_mode not in ("direct", "measured"):
+            raise ValueError("invalid DMA mode")
         frame = ui_frame(source, destination, message.encode("ascii"), int(ssid))
         samples = pb1_bits(frame, noise=float(noise), gain=float(gain),
                           clip=float(clip), emphasis_db=float(emphasis_db),
                           frequency_offset=float(frequency_offset), seed=int(seed))
         with self.lock:
-            self.board.attach_rx_bits(samples)
+            self.board.attach_rx_bits(samples, dma_mode=dma_mode)
             return {"frame_bytes": len(frame), "sample_rate_hz": 85800,
+                    "dma_mode": dma_mode,
                     "note": "armed only; reception requires firmware DMA activity"}
 
-    def import_if_capture(self, log: str, sample_rate: int = 85800):
-        if len(log) > 100_000 or not 1000 <= sample_rate <= 200_000:
+    def import_if_capture(self, log: str, sample_rate: int = 85800, dma_mode="direct"):
+        if (len(log) > 100_000 or not 1000 <= sample_rate <= 200_000
+                or dma_mode not in ("direct", "measured")):
             raise ValueError("capture too large or invalid sample rate")
         samples, metadata = parse_capture(log)
         with self.lock:
-            self.board.attach_rx_bits(samples, sample_rate=sample_rate)
-        return {**metadata, "sample_rate_hz": sample_rate,
+            self.board.attach_rx_bits(samples, sample_rate=sample_rate, dma_mode=dma_mode)
+        return {**metadata, "sample_rate_hz": sample_rate, "dma_mode": dma_mode,
                 "note": "rate supplied by operator, not measured from capture"}
 
     def aprs_rx_status(self):
         with self.lock:
             dma = self.board.rx_dma if self.board else None
             return {"armed": dma is not None,
+                    "dma_mode": getattr(dma, "mode", None),
+                    "signal_rate_hz": getattr(dma, "signal_rate_hz", None),
+                    "dma_rate_hz": dma.sample_rate if dma else None,
                     "transfers": dma.transfers if dma else 0,
                     "exhausted": dma.exhausted if dma else False,
                     "remaining": dma.remaining if dma else 0}
-
-    def import_if_capture(self, log: str) -> dict:
-        samples, meta = parse_capture(log)
-        with self.lock:
-            self.board.attach_rx_bits(samples)
-        return {**meta, "note": "Raw IF replay armed; rate assumed 85800 Hz until calibrated"}
 
     def reboot(self):
         with self.lock:
@@ -344,7 +347,8 @@ def create_app(workbench: RadioAdapter):
         try:
             body = request.get_json(force=True)
             return jsonify(ok=True, **workbench.import_if_capture(
-                str(body["log"]), int(body.get("sample_rate", 85800))))
+                str(body["log"]), int(body.get("sample_rate", 85800)),
+                str(body.get("dma_mode", "direct"))))
         except (ValueError, TypeError, KeyError) as exc:
             return jsonify(ok=False, error=str(exc)), 400
 

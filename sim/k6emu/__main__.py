@@ -14,7 +14,8 @@ import sys
 from collections import Counter, deque
 from pathlib import Path
 from .lcd import SC5260
-from .rx_dma import DMA_BASE, GpioRxDma
+from .rx_dma import DMA_BASE, GpioRxDma, MEASURED_FREE_RUNNING_HZ
+from .if_resample import held_gpio_samples
 
 
 FLASH_BASE = 0x08000000
@@ -254,13 +255,26 @@ class K6Board:
         for key in keys:
             self.press_key(key)
 
-    def attach_rx_bits(self, bits, sample_rate=85800):
-        """Enable simulated PB1 GPIO DMA samples (one bit per IF sample)."""
+    def attach_rx_bits(self, bits, sample_rate=85800, dma_mode="direct"):
+        """Arm GPIO DMA with direct samples or measured-rate held GPIO.
+
+        Measured mode models repeated reads of a GPIO waveform. It does not
+        establish that the actual IF or DMA clocks are calibrated.
+        """
+        if dma_mode not in ("direct", "measured"):
+            raise ValueError("invalid DMA clock mode")
+        if dma_mode == "measured":
+            bits = held_gpio_samples(bits, sample_rate, MEASURED_FREE_RUNNING_HZ)
+            transfer_rate = MEASURED_FREE_RUNNING_HZ
+        else:
+            transfer_rate = sample_rate
         def write_byte(address, value):
             if not RAM_BASE <= address < RAM_BASE + RAM_BYTES:
                 raise ValueError(f"DMA destination outside SRAM: 0x{address:08x}")
             self.uc.mem_write(address, bytes((value,)))
-        self.rx_dma = GpioRxDma(write_byte, bits, sample_rate)
+        self.rx_dma = GpioRxDma(write_byte, bits, transfer_rate)
+        self.rx_dma.mode = dma_mode
+        self.rx_dma.signal_rate_hz = sample_rate
 
     def cpu_registers(self):
         names = [f"R{i}" for i in range(13)] + ["SP", "LR", "PC", "XPSR"]
