@@ -62,9 +62,9 @@ int k6_main(const k6_api_t *api) {
   {
     char *p=line; const char *q="ifcap v1 bits="; uint32_t x=n, div=10000;
     while (*q) *p++=*q++;
-    for (;div;div/=10) { *p++=hex[(x/div)%10]; }
+    for (;div;div/=10) { *p++=(char)('0'+(x/div)%10); }
     q=" ticks="; while (*q) *p++=*q++;
-    x=t1-t0; for(div=100000;div;div/=10) *p++=hex[(x/div)%10];
+    x=t1-t0; for(div=100000;div;div/=10) *p++=(char)('0'+(x/div)%10);
     *p=0; api->say(line);
   }
   for (i=0;i<(n+7)/8;i+=24) {
