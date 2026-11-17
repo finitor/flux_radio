@@ -54,7 +54,6 @@ class K6Workbench:
                 if not self.running or not self.board:
                     time.sleep(.04)
                     continue
-                started = time.perf_counter()
                 try:
                     # Larger Unicorn quanta cut Python/Unicorn call overhead while
                     # keeping virtual-time and peripheral servicing frequent enough
@@ -66,11 +65,10 @@ class K6Workbench:
                 except Exception as exc:  # keep the UI alive and expose emulator errors
                     self.running = False
                     self.error = str(exc)
-                # Leave a short scheduling gap for the web UI without throttling the
-                # emulator to a fraction of the host's available CPU time.
-                elapsed = time.perf_counter() - started
-            if self.running:
-                time.sleep(max(.001, elapsed * .5))
+            # Yield cooperatively without adding a wall-clock delay. The emulator
+            # should use available CPU rather than run at an artificial fraction
+            # of host speed; `sleep(0)` lets Flask/UI threads get scheduled.
+            time.sleep(0)
 
     def reboot(self):
         with self.lock:
