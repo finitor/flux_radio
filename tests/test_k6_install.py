@@ -549,3 +549,22 @@ def test_backup(keyfile, tmp_path, monkeypatch):
     data = out.read_bytes()
     assert len(data) == 0x20000 and data[0xF010] == 0xFE and data.count(0xFF) == len(data) - 1
     radio.shutdown()
+
+
+def test_flash_pack_uses_verified_image_and_bootloader(tmp_path, monkeypatch):
+    import k6_pack_install as packs
+
+    radio = Radio()
+    radio.state = 'boot'
+    image = b'pack firmware' + k6mod.PLACEHOLDER + bytes(1500)
+    monkeypatch.setattr(packs, 'provision_artifacts',
+                        lambda *_: ({'packs': ['base']}, image, BUILD_ID.hex(), KEY))
+    monkeypatch.setattr(ki, 'open_port', lambda _: radio)
+    try:
+        packs.provision_pack(tmp_path, {}, 'test-port', action='flash', mode='update',
+                             log=lambda *args, **kwargs: None)
+        expected = k6mod.key_image(image, KEY)
+        assert radio.flashed[:len(expected)] == expected
+        assert not any(radio.flashed[len(expected):])
+    finally:
+        radio.shutdown()

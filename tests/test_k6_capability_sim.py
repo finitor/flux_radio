@@ -2,6 +2,7 @@
 import json
 import os
 import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -71,7 +72,7 @@ def simulated_radio(tmp_path, monkeypatch):
 
         # Both sides use virtual time even when Unicorn runs slower than the radio.
         monkeypatch.setattr(k6_install, "time", SimpleNamespace(
-            monotonic=port.monotonic, sleep=port.sleep,
+            monotonic=port.monotonic, sleep=port.sleep, time=time.time,
         ))
         return port
     return start
@@ -122,3 +123,56 @@ def test_compiled_scan_aprs_pack_preflight(simulated_radio, tmp_path, monkeypatc
     assert report["key_possession_verified"]
     assert port.closed
     assert bytes(port.board.flash_data) == before
+
+
+def test_compiled_pack_install_and_retry(simulated_radio, tmp_path, monkeypatch):
+    pack_path = os.environ.get("K6_SIM_SCAN_APRS_PACK")
+    if not pack_path:
+        pytest.skip("set K6_SIM_SCAN_APRS_PACK to a built Scan + APRS pack")
+    pack = Path(pack_path)
+    port = simulated_radio((pack / "firmware.bin").read_bytes())
+    key_file = tmp_path / "synthetic.key"
+    key_file.write_text(TEST_KEY.hex())
+    monkeypatch.setattr(k6_install, "open_port", lambda _: port)
+    spec = json.loads(k6_pack_install.DEFAULT.read_text())
+    # Firmware reset is outside the emulator's cable tests. Keep this cable
+    # session open for the second plan, using the same real UART transport.
+    monkeypatch.setattr(Cable, "end", lambda _: None)
+    opened = []
+    real_open = k6_install.open_cable
+    def open_once(*args, **kwargs):
+        if not opened:
+            opened.append(real_open(*args, **kwargs))
+        return opened[0]
+    monkeypatch.setattr(k6_install, "open_cable", open_once)
+    messages = []
+
+    # Interrupt the second upload before any part of it is committed. The
+    # next plan must recognize the first verified module and finish the pack.
+    send_image = Cable.send_image
+    uploads = 0
+
+    def interrupted(cable, image, transfer):
+        nonlocal uploads
+        uploads += 1
+        if uploads == 2:
+            raise OSError("simulated cable disconnect")
+        return send_image(cable, image, transfer)
+
+    with monkeypatch.context() as interruption:
+        interruption.setattr(Cable, "send_image", interrupted)
+        with pytest.raises(OSError, match="simulated cable disconnect"):
+            k6_pack_install.provision_pack(pack, spec, "simulated", key_file,
+                                           action="install", log=messages.append)
+    assert uploads == 2
+    messages.clear()
+    k6_pack_install.provision_pack(pack, spec, "simulated", key_file,
+                                   action="install", log=messages.append)
+    after = bytes(port.board.flash_data)
+    assert sum("already verified" in line for line in messages) == 1
+    assert sum("module" in line and " B" in line for line in messages) == 4
+    messages.clear()
+    k6_pack_install.provision_pack(pack, spec, "simulated", key_file,
+                                   action="install", log=messages.append)
+    assert sum("already verified" in line for line in messages) == 5
+    assert bytes(port.board.flash_data) == after

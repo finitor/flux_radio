@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Radio provisioning · Blowfang</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='store.css') }}">
+  {% if operation.state == 'running' %}<meta http-equiv="refresh" content="2">{% endif %}
+</head>
+<body>
+<header class="topbar"><a class="brand" href="{{ url_for('index') }}">Blowfang</a></header>
+<main class="layout detail-layout">
+  <a href="{{ url_for('build_status', job_id=job_id) }}">Back to firmware pack</a>
+  <section class="panel">
+    <h1>{{ {'flash': 'Flash firmware', 'install': 'Install modules', 'preview': 'Preview module slots'}[operation.action] }}</h1>
+    <p role="status">{{ operation.state|capitalize }}</p>
+    {% if operation.state == 'success' and operation.action == 'flash' %}
+    <p>Once the radio has booted, return to the firmware pack to preview or install its modules.</p>
+    {% endif %}
+    <pre class="install-result">{{ operation.log }}</pre>
+  </section>
+</main>
+</body>
+</html>

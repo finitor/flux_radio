@@ -44,3 +44,39 @@ def test_catalog_build_routes_do_not_touch_radio(tmp_path):
     assert b'RUNNING' in response.data
     assert client.post('/profiles/build', data={'pack': 'unknown'}).status_code == 400
     assert client.get('/profiles/build/nonexistent').status_code == 404
+
+
+def test_catalog_pack_radio_jobs_require_token_and_confirmation(tmp_path):
+    calls = []
+
+    def runner(command, **kwargs):
+        calls.append(command)
+        return FakeProcess()
+
+    app = k6_store.create_app()
+    jobs = BuildJobs(tmp_path, runner=runner)
+    app.config['build_jobs'] = jobs
+    job_id = jobs.start(['scan'])
+    job = jobs._jobs[job_id]
+    job['process'].code = 0
+    output = job['folder'] / 'pack'
+    output.mkdir()
+    (output / 'pack.lock.json').write_text(json.dumps({
+        'firmware': {'bytes': 42, 'sha256': 'test'},
+        'modules': [{'name': 'surf'}],
+    }))
+    client = app.test_client()
+    client.post('/settings', data={'port': '/dev/ttyUSB0'})
+    route = f'/profiles/build/{job_id}/radio'
+    assert client.post(route, data={'action': 'flash', 'confirm': 'yes'}).status_code == 403
+    assert b'Flash firmware' in client.get(f'/profiles/build/{job_id}').data
+    with client.session_transaction() as session:
+        token = session['pack_radio_token']
+    assert client.post(route, data={'action': 'flash', 'token': token}).status_code == 302
+    assert len(calls) == 1
+    response = client.post(route, data={'action': 'flash', 'token': token,
+                                       'confirm': 'yes', 'mode': 'update'})
+    assert calls[-1][-4:] == ['--port', '/dev/ttyUSB0', '--yes', '--already-update']
+    assert b'Flash firmware' in client.get(response.location).data
+    client.post(route, data={'action': 'preview', 'token': token})
+    assert calls[-1][-1] == '--preview'

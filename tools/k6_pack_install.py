@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
-"""Verify a feature-pack lockfile; install modules only with explicit approval.
-
-Firmware flashing is intentionally separate: radio module API/firmware capability
-attestation is not yet implemented, so an unverified pack cannot be installed.
-"""
+"""Verify, flash, and install Blowfang feature packs."""
 import argparse
+from contextlib import contextmanager
 import hashlib
 import json
+import os
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
@@ -105,7 +104,6 @@ def compatibility_report(lock, capabilities, expected_build_id=None):
 
 def radio_preflight(root, spec, port, key_file=None):
     from k6_install import open_port, open_cable, InstallError
-    from types import SimpleNamespace
     lock = verify_pack(root, spec, require_attested=False)
     firmware = Path(root) / lock['firmware']['path']
     try:
@@ -119,28 +117,128 @@ def radio_preflight(root, spec, port, key_file=None):
             raise PackError('placeholder is not a provisioned module key')
     else:
         key = None
-    connection = open_port(SimpleNamespace(port=port))
-    cable = None
-    try:
-        cable = open_cable(connection, lambda *_: None, wait=3.0)
-        if cable is None:
-            raise PackError('no Blowfang cable session')
-        caps = cable.authenticated_capabilities(key) if key is not None else cable.capabilities()
-        report = compatibility_report(lock, caps, expected_build_id)
-        report['key_possession_verified'] = key is not None
-        report['capability_report_authenticated'] = key is not None
-        # A holder of the shared key can impersonate firmware; no secure boot or
-        # hardware measurement is available. Never enable installation here.
-        report['packs'] = lock['packs']
-        return report
-    except InstallError as exc:
-        raise PackError(str(exc)) from exc
-    finally:
+    with pack_port(port):
+        connection = open_port(SimpleNamespace(port=port))
+        cable = None
         try:
-            if cable is not None:
-                cable.end()
+            cable = open_cable(connection, lambda *_: None, wait=3.0)
+            if cable is None:
+                raise PackError('no Blowfang cable session')
+            caps = cable.authenticated_capabilities(key) if key is not None else cable.capabilities()
+            report = compatibility_report(lock, caps, expected_build_id)
+            report['key_possession_verified'] = key is not None
+            report['capability_report_authenticated'] = key is not None
+            # A holder of the shared key can impersonate firmware; no secure boot or
+            # hardware measurement is available. Never enable installation here.
+            report['packs'] = lock['packs']
+            return report
+        except InstallError as exc:
+            raise PackError(str(exc)) from exc
         finally:
-            connection.close()
+            try:
+                if cable is not None:
+                    cable.end()
+            finally:
+                connection.close()
+
+
+@contextmanager
+def pack_port(port):
+    """Serialize pack operations from the CLI and catalog on the same device."""
+    import fcntl
+
+    identity = hashlib.sha256(os.path.realpath(port).encode()).hexdigest()
+    folder = Path.home() / '.cache' / 'blowfang' / 'pack-ports'
+    folder.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with (folder / identity).open('a') as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise PackError(f'another pack operation is using {port}') from exc
+        yield
+
+
+def provision_artifacts(root, spec, key_file):
+    from k6_install import find_key, k6mod
+    from k6_capability_receipt import verify
+    from k6_pack_policy import POLICY, gate_environment, validate
+
+    lock = verify_pack(root, spec, require_attested=False)
+    firmware = Path(root) / lock['firmware']['path']
+    plan = resolve(spec, lock['packs'])
+    policy = json.loads(POLICY.read_text())
+    validate(spec, policy)
+    receipt = json.loads((Path(root) / 'firmware.receipt.json').read_text())
+    verify(receipt, firmware, plan, gate_environment(plan, policy))
+    data = firmware.read_bytes()
+    if hashlib.sha256(data).hexdigest() != lock['firmware']['sha256']:
+        raise PackError('firmware changed during verification')
+    identity = image_build_id(data)
+    key = k6mod.read_key(str(key_file) if key_file else find_key())
+    if key == k6mod.PLACEHOLDER:
+        raise PackError('the module key is a placeholder')
+    return lock, data, identity, key
+
+
+def provision_pack(root, spec, port, key_file=None, *, action, mode='cable', log=print):
+    import k6_install as radio
+
+    if mode not in ('cable', 'update'):
+        raise PackError(f'unknown pack flash mode: {mode}')
+    if action not in ('flash', 'install', 'preview'):
+        raise PackError(f'unknown pack operation: {action}')
+    lock, firmware, identity, key = provision_artifacts(root, spec, key_file)
+    if action == 'flash':
+        from k6_flash_policy import assess
+        if not assess(len(firmware), lock['packs'])['pass']:
+            raise PackError('firmware binary exceeds its profile flash budget')
+        if firmware.count(radio.k6mod.PLACEHOLDER) != 1:
+            raise PackError('flashing requires an unkeyed pack image with one module-key placeholder')
+    entries = []
+    if action != 'flash':
+        for module in lock['modules']:
+            path = Path(root) / module['path']
+            code = path.read_bytes()
+            if hashlib.sha256(code).hexdigest() != module['sha256']:
+                raise PackError(f"module changed during verification: {module['name']}")
+            radio.k6mod.bin_entry(code)
+            entries.append({'path': path, 'code': code, 'id': module['id'], 'name': module['name'],
+                            'kind': 'module', 'level': module['api_level']})
+
+    with pack_port(port):
+        connection = radio.open_port(SimpleNamespace(port=port))
+        cable = None
+        try:
+            if action == 'flash' and mode == 'update':
+                radio.flash(connection, firmware, key, mode, log=log)
+                return
+            cable = radio.open_cable(connection, log, wait=3.0)
+            if cable is None:
+                raise PackError('no Blowfang cable session; enter UPDATE mode for a first flash')
+            caps = cable.authenticated_capabilities(key)
+            if action == 'flash':
+                cable = None  # flash owns the restart and bootloader handshake
+                radio.flash(connection, firmware, key, mode, log=log)
+                return
+            report = compatibility_report(lock, caps, identity)
+            if not report['build_id_match'] or not report['capabilities_match']:
+                raise PackError(f'connected firmware does not match the pack: {json.dumps(report)}')
+
+            allocated = radio.allocate_slots(cable, entries, cable.info(), key)
+            for entry in allocated:
+                operation = 'existing' if entry.get('_update') else 'available'
+                log(f"  {entry['id']} → slot {entry['slot']} ({operation})")
+            if action == 'install':
+                radio.write_entries(cable, allocated, key, radio.Serials(), log=log,
+                                    verify=True, skip_current=True)
+        except radio.InstallError as exc:
+            raise PackError(str(exc)) from exc
+        finally:
+            try:
+                if cable is not None:
+                    cable.end()
+            finally:
+                connection.close()
 
 
 def main():
@@ -169,7 +267,7 @@ def main():
                           'install_ready': not args.inspect_unverified,
                           'packs': lock['packs'], 'modules': [m['name'] for m in lock['modules']],
                           'firmware': lock['firmware']['path']}, indent=2))
-        print('No radio writes performed. Firmware installation and capability attestation are not implemented here.')
+        print('No radio writes performed. Use k6.py flash-pack or install-pack to provision a radio.')
     except (OSError, ValueError, KeyError) as exc:
         parser.error(str(exc))
 

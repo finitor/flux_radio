@@ -527,7 +527,9 @@ def auto_marker(module_id):
 
 def sign(entry, serial, key):
     """A bundle's library entry, signed for its slot"""
-    code = open(entry["path"], "rb").read()
+    code = entry.get("code")
+    if code is None:
+        code = open(entry["path"], "rb").read()
     if entry.get("_auto"):
         code += auto_marker(entry["id"])
     kind = entry["kind"]
@@ -839,13 +841,26 @@ def load(c, bundle, key, serials, log=print, only=None, verify=False, force=Fals
         if entry.get("_auto"):
             action = "update" if entry.get("_update") else "install"
             log(f"  automatic {action}: {entry['id']} -> slot {entry['slot']}")
+    write_entries(c, entries, key, serials, log, verify)
+
+
+def write_entries(c, entries, key, serials, log=print, verify=False, skip_current=False):
+    """Write a fully allocated plan and verify each automatic module."""
     order = {"page": 0, "cards": 1, "module": 2}
     entries.sort(key=lambda e: (order[e["kind"]], e["slot"]))
     t, total = time.monotonic(), 0
     for e in entries:
         img = sign(e, serials.next(), key)
-        r, have, count, put = c.send_image(img, serials.n & 0xFF)
         slot = LIB_BASE + e["slot"] * LIB_SLOT
+        if skip_current and e.get("_update"):
+            installed = c.read(slot, len(img))
+            # Match all signed fields except the upload serial, plus the code.
+            if (installed[:8] == img[:8] and installed[12:-8] == img[12:-8]
+                    and hmac.compare_digest(installed[-8:], struct.pack(
+                        "<Q", k6mod.siphash24(key, installed[:-8])))):
+                log(f"  slot {e['slot']:2d} {e['name']}: already verified")
+                continue
+        r, have, count, put = c.send_image(img, serials.n & 0xFF)
         if r != 3 or put != len(img):
             # the last chunk's answer may have been lost and the chunk sent again (it then
             # starts a transfer of its own): the slot itself says whether the install happened

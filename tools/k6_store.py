@@ -358,7 +358,42 @@ def create_app(store: ModuleStore | None = None):
             job = app.config['build_jobs'].get(job_id)
         except KeyError:
             abort(404)
-        return render_template('build_status.html', job=job)
+        token = session.setdefault('pack_radio_token', secrets.token_urlsafe(32))
+        return render_template('build_status.html', job=job, radio_token=token)
+
+    @app.post("/profiles/build/<job_id>/radio")
+    def provision_profile(job_id):
+        token = session.get('pack_radio_token')
+        if not token or not secrets.compare_digest(token, request.form.get('token', '')):
+            abort(403)
+        action = request.form.get('action')
+        if action not in ('flash', 'install', 'preview'):
+            abort(400)
+        if action != 'preview' and request.form.get('confirm') != 'yes':
+            flash('Confirm the write to the selected radio first.', 'error')
+            return redirect(url_for('build_status', job_id=job_id))
+        settings = radio_settings()
+        if not settings['port']:
+            flash('Set the USB serial port in Device settings first.', 'error')
+            return redirect(url_for('settings_page'))
+        try:
+            radio_id = app.config['build_jobs'].start_radio(
+                job_id, action, settings['port'], settings['key_file'],
+                already_update=action == 'flash' and request.form.get('mode') == 'update')
+        except KeyError:
+            abort(404)
+        except (OSError, ValueError) as exc:
+            flash(str(exc), 'error')
+            return redirect(url_for('build_status', job_id=job_id))
+        return redirect(url_for('profile_radio_status', job_id=job_id, radio_id=radio_id))
+
+    @app.get("/profiles/build/<job_id>/radio/<radio_id>")
+    def profile_radio_status(job_id, radio_id):
+        try:
+            operation = app.config['build_jobs'].get_radio(job_id, radio_id)
+        except KeyError:
+            abort(404)
+        return render_template('pack_radio_status.html', job_id=job_id, operation=operation)
 
     @app.get("/radio")
     def radio():

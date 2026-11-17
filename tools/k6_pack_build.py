@@ -88,6 +88,7 @@ def main():
             image = args.firmware
         else:
             env = os.environ.copy()
+            env.pop('K6_MOD_KEY_FILE', None)
             # Existing firmware build still links some optional services unconditionally.
             # Never imply that this plan has already stripped them from flash.
             env['K6_AURA_FEATURES'] = ','.join(['pager-explore'] + plan['cargo_features'])
@@ -103,9 +104,12 @@ def main():
                     raise ValueError(f'firmware exceeds {budget["policy"]}: {budget["used"]} > {budget["limit"]}')
                 image_build_id(image.read_bytes())  # new linked builds must carry an ID
                 lock = assemble(plan, args.output, image, verified_firmware=False)
+                lock['flash_budget'] = budget
+                (args.output / 'pack.lock.json').write_text(json.dumps(lock, indent=2) + '\n')
                 write_receipt(args.output / 'firmware.receipt.json', args.output / 'firmware.bin', plan, gate_environment(plan, policy))
             image = None
         if args.skip_firmware_build:
+            (args.output / 'firmware.receipt.json').unlink(missing_ok=True)
             lock = assemble(plan, args.output, image, verified_firmware=False)
         print(json.dumps({'lockfile': str(args.output / 'pack.lock.json'),
                           'firmware_bytes': lock['firmware']['bytes'],

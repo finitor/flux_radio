@@ -37,6 +37,17 @@ def command(argv):
     preflight.add_argument('--port', required=True)
     preflight.add_argument('--spec', type=Path)
     preflight.add_argument('--key-file', type=Path, help='authenticate capability report using an existing key')
+    for verb in ('flash-pack', 'install-pack'):
+        pack = sub.add_parser(verb, help='flash pack firmware' if verb == 'flash-pack' else 'install compatible pack modules')
+        pack.add_argument('pack', type=lambda value: Path(value).expanduser().resolve())
+        pack.add_argument('--port', required=True)
+        pack.add_argument('--key-file', type=Path)
+        confirm = pack.add_mutually_exclusive_group(required=True)
+        confirm.add_argument('--yes', action='store_true', help='authorize this radio write')
+        if verb == 'flash-pack':
+            pack.add_argument('--already-update', action='store_true', help='the radio is already showing UPDATE')
+        else:
+            confirm.add_argument('--preview', action='store_true', help='show module destinations without writing')
     matrix = sub.add_parser('matrix', help='verify flash budgets of separately linked profiles')
     matrix.add_argument('--size-dir', type=Path)
     matrix.add_argument('--build', action='store_true')
@@ -50,23 +61,33 @@ def command(argv):
     if args.command == 'plan':
         print(json.dumps(resolve(json.loads(args.spec.read_text()), args.packs), indent=2))
         return 0
+    if args.command in ('flash-pack', 'install-pack'):
+        from k6_pack_install import provision_pack
+        from k6_install import InstallError
+        action = 'flash' if args.command == 'flash-pack' else ('preview' if args.preview else 'install')
+        try:
+            provision_pack(args.pack, json.loads(DEFAULT.read_text()), args.port, args.key_file,
+                           action=action, mode='update' if getattr(args, 'already_update', False) else 'cable')
+        except InstallError as exc:
+            p.error(str(exc))
+        return 0
     if args.command == 'build':
         cmd = ['k6_pack_build.py', *args.packs]
-        if args.output: cmd += ['--output', str(args.output)]
-        if args.spec: cmd += ['--spec', str(args.spec)]
+        if args.output: cmd += ['--output', str(args.output.expanduser().resolve())]
+        if args.spec: cmd += ['--spec', str(args.spec.expanduser().resolve())]
     elif args.command == 'inspect':
-        cmd = ['k6_pack_install.py', str(args.pack), '--inspect-unverified']
-        if args.spec: cmd += ['--spec', str(args.spec)]
+        cmd = ['k6_pack_install.py', str(args.pack.expanduser().resolve()), '--inspect-unverified']
+        if args.spec: cmd += ['--spec', str(args.spec.expanduser().resolve())]
     elif args.command == 'preflight':
-        cmd = ['k6_pack_install.py', str(args.pack), '--radio-preflight', '--port', args.port]
-        if args.key_file: cmd += ['--key-file', str(args.key_file)]
-        if args.spec: cmd += ['--spec', str(args.spec)]
+        cmd = ['k6_pack_install.py', str(args.pack.expanduser().resolve()), '--radio-preflight', '--port', args.port]
+        if args.key_file: cmd += ['--key-file', str(args.key_file.expanduser().resolve())]
+        if args.spec: cmd += ['--spec', str(args.spec.expanduser().resolve())]
     elif args.command == 'matrix':
         cmd = ['k6_pack_matrix.py']
         if args.size_dir: cmd += ['--size-dir', str(args.size_dir)]
         if args.build: cmd += ['--build']
         if args.build_dir: cmd += ['--build-dir', str(args.build_dir)]
-        if args.output: cmd += ['--output', str(args.output)]
+        if args.output: cmd += ['--output', str(args.output.expanduser().resolve())]
     elif args.command == 'catalog':
         cmd = ['k6_store.py', *(args.args or ['serve'])]
     else:

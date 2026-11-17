@@ -39,3 +39,21 @@ def test_unified_cli_routes_without_radio_access(monkeypatch, capsys):
     assert Path(calls[-1][-2]).name == 'k6_store.py' and calls[-1][-1] == 'serve'
     assert k6.main(['radio', '--port', '/dev/ttyUSB0', 'status']) == 0
     assert Path(calls[-1][-4]).name == 'k6_install.py' and calls[-1][-3:] == ['--port', '/dev/ttyUSB0', 'status']
+
+
+def test_pack_radio_cli_dispatch(monkeypatch, tmp_path):
+    import k6_pack_install
+
+    calls = []
+    monkeypatch.setattr(k6_pack_install, 'provision_pack',
+                        lambda *args, **kwargs: calls.append((args, kwargs)))
+    arguments = [str(tmp_path), '--port', '/dev/ttyUSB0']
+    with pytest.raises(SystemExit):
+        k6.main(['flash-pack', *arguments])
+    assert not calls
+    assert k6.main(['flash-pack', *arguments, '--already-update', '--yes']) == 0
+    assert calls[-1][1] == {'action': 'flash', 'mode': 'update'}
+    assert k6.main(['install-pack', *arguments, '--preview']) == 0
+    assert calls[-1][1]['action'] == 'preview'
+    assert k6.main(['install-pack', *arguments, '--yes']) == 0
+    assert calls[-1][1]['action'] == 'install'

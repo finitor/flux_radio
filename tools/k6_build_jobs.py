@@ -1,4 +1,4 @@
-"""Single-worker, local-only firmware build job runner. Never touches a radio."""
+"""Background catalog jobs backed by the unified K6 CLI."""
 import json
 from pathlib import Path
 import subprocess
@@ -17,6 +17,7 @@ class BuildJobs:
         self._lock = threading.Lock()
         self._active = None
         self._jobs = {}
+        self._radio_jobs = {}
 
     def start(self, packs):
         from k6_feature_packs import DEFAULT, resolve
@@ -40,6 +41,35 @@ class BuildJobs:
             self._jobs[job_id] = {'process': process, 'packs': plan['packs'], 'folder': folder,
                                   'command': command}
             return job_id
+
+    def start_radio(self, build_id, action, port, key_file, already_update=False):
+        with self._lock:
+            build = self.get(build_id)
+            if build['state'] != 'success':
+                raise ValueError('build must finish successfully before provisioning')
+            job_id = uuid.uuid4().hex
+            command = [sys.executable, '-u', str(ROOT / 'tools/k6.py'),
+                       'flash-pack' if action == 'flash' else 'install-pack',
+                       build['output'], '--port', port,
+                       '--preview' if action == 'preview' else '--yes']
+            if key_file:
+                command += ['--key-file', key_file]
+            if already_update:
+                command.append('--already-update')
+            log = self.directory / build_id / f'radio-{job_id}.log'
+            with log.open('wb') as stream:
+                process = self.runner(command, cwd=ROOT, stdout=stream, stderr=subprocess.STDOUT,
+                                      stdin=subprocess.DEVNULL)
+            self._radio_jobs[job_id] = (build_id, action, process, log)
+            return job_id
+
+    def get_radio(self, build_id, job_id):
+        owner, action, process, log = self._radio_jobs[job_id]
+        if owner != build_id:
+            raise KeyError(job_id)
+        code = process.poll()
+        return {'action': action, 'state': 'running' if code is None else ('success' if code == 0 else 'failed'),
+                'log': log.read_text(errors='replace')[-16000:]}
 
     def get(self, job_id):
         job = self._jobs.get(job_id)
