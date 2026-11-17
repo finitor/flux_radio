@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tools"))
 SCRIPT = ROOT / "firmware/k6-aura/apply-theme-meter.py"
 APPLY = ROOT / "firmware/k6-aura/apply-theme-meter.py"
 
@@ -104,3 +105,72 @@ def test_invalid_theme_rejected(tmp_path):
     make_fixture(f)
     proc = run_theme("custom-11-0000000000000000-0030", f)
     assert proc.returncode != 0
+
+
+SUFFIX = "f8e0d0c0b0a090" + "88706050403020"
+T3 = f"{BASE}-0030-m{SUFFIX}"
+
+
+def test_meter3_custom_bitmap_draws_lit_segments(tmp_path):
+    import k6_feature_packs as packs
+    assert packs.theme_layout(T3) == (0, 0, 3, 0)
+    rows = packs.theme_meter_bitmap(T3)
+    assert rows == (tuple(bytes.fromhex(SUFFIX[:14])), tuple(bytes.fromhex(SUFFIX[14:])))
+    assert packs.theme_meter_bitmap(T1) is None
+    f = tmp_path / "standby.rs"
+    make_fixture(f)
+    assert run_theme(T3, f).returncode == 0
+    after = f.read_text()
+    assert mod.CUSTOM_START in after and mod.CUSTOM_END in after
+    assert B["ORIG_BLOCK"] not in after
+    assert "level.min(S_METER_SEGS)" in after
+    assert "bar_x + i as i32 * BAR_SEG_PITCH" in after
+    assert "base_y - BAR_MAX_H + 1" in after
+    assert "METER_ROWS_NORM" in after and "METER_ROWS_OVER" in after
+    assert "S_METER_SEGS - BAR_HOLLOW_COUNT" in after
+    assert "Rectangle::new" in after and "PrimitiveStyle::with_fill" in after
+    assert "Image" not in after and "ImageRaw" not in after
+    assert "alloc" not in after and "Vec" not in after
+    assert DBM_LINE in after and SUNIT_LINE in after and MIC_LINE in after
+    assert run_theme(T3, f).returncode == 0
+    assert f.read_text() == after
+
+
+def test_meter3_reset_restores_original(tmp_path):
+    f = tmp_path / "standby.rs"
+    original = make_fixture(f)
+    assert run_theme(T3, f).returncode == 0
+    assert f.read_text() != original
+    assert run_theme("flux", f).returncode == 0
+    assert f.read_text() == original
+
+
+def test_meter3_invalid_tokens_rejected(tmp_path):
+    import k6_feature_packs as packs
+    import pytest as _pytest
+    bad = [
+        f"{BASE}-0030",  # meter 3 without suffix
+        f"{BASE}-0010-m{SUFFIX}",  # suffix with meter != 3
+        f"{BASE}-0030-m{SUFFIX.upper()}",  # uppercase hex
+        f"{BASE}-0030-m{SUFFIX[:-1]}",  # short
+        f"{BASE}-0030-m{SUFFIX}00",  # long
+        f"{BASE}-0030-m" + "f1" + SUFFIX[2:],  # reserved low bits set
+        f"{BASE}-0030-m" + "00" * 7 + SUFFIX[14:],  # zero normal bitmap
+        f"{BASE}-0030-m" + SUFFIX[:14] + "00" * 7,  # zero over bitmap
+    ]
+    for theme in bad:
+        with _pytest.raises(ValueError):
+            packs.validate_theme(theme)
+    f = tmp_path / "standby.rs"
+    make_fixture(f)
+    before = f.read_text()
+    for theme in bad:
+        assert run_theme(theme, f).returncode != 0
+    assert f.read_text() == before
+
+
+def test_meter3_fail_closed_on_ambiguous_anchor(tmp_path):
+    f = tmp_path / "standby.rs"
+    text = make_fixture(f)
+    f.write_text(text + B["FLAT_BLOCK"])
+    assert run_theme(T3, f).returncode != 0

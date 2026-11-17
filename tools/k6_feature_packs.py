@@ -23,8 +23,24 @@ THEME_EDITOR_PRESETS = {
 }
 
 
+_CUSTOM_RE = re.compile(
+    r'custom-[01][01]-[0-9a-f]{16}'
+    r'(?:-[01][0-3][0-2][0-2]|-[01][0-3]3[0-2]-m[0-9a-f]{28})?'
+)
+def _meter_bitmap_rows(suffix_hex):
+    """Parse 28 hex digits into two 7-row tuples; enforce byte-per-row shape."""
+    raw = bytes(int(suffix_hex[i:i + 2], 16) for i in range(0, 28, 2))
+    for byte in raw:
+        if byte & 0x07:
+            raise ValueError("custom meter bitmap must use one byte per row (low three bits 0)")
+    norm, over = tuple(raw[:7]), tuple(raw[7:])
+    if not any(norm) or not any(over):
+        raise ValueError("custom meter bitmap needs at least one nonzero row per bitmap")
+    return (norm, over)
+
+
 def validate_theme(theme):
-    if not isinstance(theme, str) or (theme not in THEMES and not re.fullmatch(r'custom-[01][01]-[0-9a-f]{16}(?:-[01][0-3][0-2][0-2])?', theme)):
+    if not isinstance(theme, str) or (theme not in THEMES and not _CUSTOM_RE.fullmatch(theme)):
         raise ValueError(f'unknown firmware theme: {theme}')
     if theme.startswith("custom-"):
         flags, bitmap = theme.split("-")[1:3]
@@ -32,6 +48,14 @@ def validate_theme(theme):
             raise ValueError("custom theme needs a visible active VFO indicator")
         if any(int(bitmap[i:i+2], 16) & 1 for i in range(0, 16, 2)):
             raise ValueError("custom marker must be seven pixels wide")
+        parts = theme.split("-")
+        has_suffix = len(parts) == 5
+        if has_suffix:
+            if len(parts[3]) != 4 or parts[3][2] != "3" or not parts[4].startswith("m"):
+                raise ValueError("custom meter bitmap suffix requires layout meter digit 3")
+            _meter_bitmap_rows(parts[4][1:])
+        elif len(parts) == 4 and parts[3][2] == "3":
+            raise ValueError("layout meter digit 3 requires -m<28 hex digits> bitmap suffix")
     return theme
 
 
@@ -39,7 +63,16 @@ def theme_layout(theme):
     """Font, horizontal inset, meter style, splash logo; legacy defaults unchanged."""
     validate_theme(theme)
     parts = theme.split("-")
-    return tuple(map(int, parts[3])) if len(parts) == 4 else (0, 0, 0, 0)
+    return tuple(map(int, parts[3])) if len(parts) in (4, 5) else (0, 0, 0, 0)
+
+
+def theme_meter_bitmap(theme):
+    """Two 7-row custom S-meter bitmaps as ((norm rows), (over rows)), else None."""
+    validate_theme(theme)
+    parts = theme.split("-") if isinstance(theme, str) and theme.startswith("custom-") else []
+    if len(parts) != 5:
+        return None
+    return _meter_bitmap_rows(parts[4][1:])
 
 
 def resolve(spec, selected, theme=DEFAULT_THEME):
