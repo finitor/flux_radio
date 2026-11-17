@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 from k6_feature_packs import DEFAULT, resolve
 import k6_install
+from k6_flash_policy import assess, flash_bytes
 
 
 def digest(path):
@@ -87,6 +88,10 @@ def main():
             subprocess.run(['sh', str(ROOT / 'firmware/k6-aura/build-fd6818b.sh')],
                            cwd=ROOT, env=env, check=True)
             image = ROOT / 'firmware/k6-aura/out-fd6818b/aura-fd6818b-pack.bin'
+            size_file = ROOT / 'firmware/k6-aura/out-fd6818b/size.txt'
+            budget = assess(flash_bytes(size_file.read_text()), plan['packs'])
+            if not budget['pass']:
+                raise ValueError(f'firmware exceeds {budget["policy"]}: {budget["used"]} > {budget["limit"]}')
         lock = assemble(plan, args.output, image, verified_firmware=False)
         print(json.dumps({'lockfile': str(args.output / 'pack.lock.json'),
                           'firmware_bytes': lock['firmware']['bytes'],
