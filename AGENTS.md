@@ -13,3 +13,4 @@
 - Commit small, coherent workbench changes as they are completed. Inspect status first and stage
   only files for the current change; preserve unrelated in-progress work.
 - Emulator evidence does not establish physical-radio or RF behavior.
+- For new firmware/module UI work, consult `docs/k6-ui-conventions.md` and keep key semantics, VFO handoff and simulator interactions consistent; document deliberate exceptions.
