@@ -255,13 +255,14 @@ class RadioAdapter(Protocol):
 RADIO_MODELS = {"k6-fd6818b": K6Workbench}
 
 
-def module_bundle_catalog():
+def module_bundle_catalog(include_experimental=False):
     """List checked-in and locally built bundles that the workbench can load."""
     manifests = []
     for parent in (ROOT / "local-modules", ROOT / "firmware/k6-aura/out-fd6818b"):
         if parent.is_dir():
             manifests.extend(parent.glob("*/manifest.json"))
     bundles = []
+    preferred = {"surf", "vfo", "cardlink", "explore_scan", "aprsdfsk"}
     for manifest_path in sorted(manifests):
         try:
             manifest = json.loads(manifest_path.read_text())
@@ -270,6 +271,10 @@ def module_bundle_catalog():
             modules = [entry for entry in manifest.get("library", [])
                        if entry.get("kind") == "module"]
             if not modules:
+                continue
+            # The workbench's default picker is a curated set of current modules.
+            # Historical diagnostics and experiments remain accessible explicitly.
+            if not include_experimental and manifest_path.parent.name not in preferred:
                 continue
             contents = ", ".join(
                 f"{entry.get('name', 'Module')} ({'slot ' + str(entry['slot']) if entry.get('slot') is not None else 'automatic slot'})"
@@ -298,7 +303,8 @@ def create_app(workbench: RadioAdapter):
 
     @app.get("/api/module-bundles")
     def api_module_bundles():
-        return jsonify(bundles=module_bundle_catalog())
+        return jsonify(bundles=module_bundle_catalog(
+            include_experimental=request.args.get("all") == "1"))
 
     @app.get("/api/screen.svg")
     def api_screen():
