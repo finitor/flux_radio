@@ -4,28 +4,76 @@
   "packs": {
     "base": {
       "requires": [],
-      "cargo_features": ["fd6818b", "spilib", "txdog", "blowfang-host"],
-      "capabilities": ["module-loader"],
-      "modules": ["vfo", "cardlink"]
+      "cargo_features": [
+        "fd6818b",
+        "spilib",
+        "txdog",
+        "blowfang-host"
+      ],
+      "capabilities": [
+        "module-loader"
+      ],
+      "modules": [
+        "vfo",
+        "cardlink"
+      ]
     },
     "scan": {
-      "requires": ["base"],
+      "requires": [
+        "base"
+      ],
       "cargo_features": [],
-      "capabilities": ["explore-scanner-api", "candidate-ranking", "cw-tone-observation"],
-      "modules": ["surf", "explore_scan"]
+      "capabilities": [
+        "explore-scanner-api",
+        "candidate-ranking",
+        "cw-tone-observation"
+      ],
+      "modules": [
+        "surf",
+        "explore_scan"
+      ]
     },
     "aprs": {
-      "requires": ["base"],
+      "requires": [
+        "base"
+      ],
       "cargo_features": [],
-      "capabilities": ["fd6818-fsk-rx"],
-      "modules": ["aprsdfsk"]
+      "capabilities": [
+        "fd6818-fsk-rx"
+      ],
+      "modules": [
+        "aprsdfsk"
+      ]
     },
     "sotto": {
-      "requires": ["base"],
+      "requires": [
+        "base"
+      ],
       "cargo_features": [],
-      "capabilities": ["sotto-decoder"],
+      "capabilities": [
+        "sotto-decoder"
+      ],
       "modules": [],
       "status": "planned; requires decoder/build integration and pager module"
     }
+  },
+  "module_requirements": {
+    "vfo": [
+      "module-loader"
+    ],
+    "cardlink": [
+      "module-loader"
+    ],
+    "surf": [
+      "module-loader"
+    ],
+    "explore_scan": [
+      "explore-scanner-api",
+      "candidate-ranking",
+      "cw-tone-observation"
+    ],
+    "aprsdfsk": [
+      "fd6818-fsk-rx"
+    ]
   }
 }

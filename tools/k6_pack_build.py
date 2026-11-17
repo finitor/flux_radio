@@ -20,7 +20,7 @@ def digest(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def assemble(plan, output, firmware, *, module_builder=None):
+def assemble(plan, output, firmware, *, module_builder=None, verified_firmware=False):
     """Stage a deterministic lockfile and module bundles from a prebuilt firmware image."""
     output = Path(output)
     firmware = Path(firmware)
@@ -44,13 +44,16 @@ def assemble(plan, output, firmware, *, module_builder=None):
                 id=f'org.blowfang.k6.{name}', level=None, output=str(folder)), log=lambda *_: None)
         manifest = json.loads((folder / 'manifest.json').read_text())
         module_file = folder / manifest['library'][0]['file']
+        if manifest['library'][0]['level'] > 22:
+            raise ValueError(f'module {name} requires unsupported API level {manifest["library"][0]["level"]}')
         modules.append({'name': name, 'id': manifest['library'][0]['id'],
                         'api_level': manifest['library'][0]['level'],
                         'path': str(module_file.relative_to(output)), 'sha256': digest(module_file),
                         'manifest_sha256': digest(folder / 'manifest.json')})
     lock = {'format': 1, 'target': plan['target'], 'packs': plan['packs'],
             'cargo_features': plan['cargo_features'], 'capabilities': plan['capabilities'],
-            'firmware': {'path': 'firmware.bin', 'sha256': digest(dest), 'bytes': dest.stat().st_size},
+            'firmware': {'path': 'firmware.bin', 'sha256': digest(dest), 'bytes': dest.stat().st_size,
+                         'capabilities_verified': verified_firmware},
             'modules': modules, 'install': {'automatic': False,
                 'note': 'Flash firmware and install modules separately with explicit approval; unkeyed firmware rejects modules.'}}
     (output / 'pack.lock.json').write_text(json.dumps(lock, indent=2) + '\n')
@@ -64,12 +67,16 @@ def main():
     p.add_argument('--spec', type=Path, default=DEFAULT)
     p.add_argument('--skip-firmware-build', action='store_true', help='use an existing firmware image')
     p.add_argument('--firmware', type=Path, help='required with --skip-firmware-build')
+    p.add_argument('--allow-unverified-firmware', action='store_true',
+                   help='explicitly allow staging a prebuilt image without verifying capabilities')
     args = p.parse_args()
     try:
         plan = resolve(json.loads(args.spec.read_text()), args.packs)
         if args.skip_firmware_build:
             if args.firmware is None:
                 p.error('--firmware is required with --skip-firmware-build')
+            if not args.allow_unverified_firmware:
+                p.error('prebuilt firmware capability set is unverified; pass --allow-unverified-firmware to stage only')
             image = args.firmware
         else:
             env = os.environ.copy()
@@ -80,7 +87,7 @@ def main():
             subprocess.run(['sh', str(ROOT / 'firmware/k6-aura/build-fd6818b.sh')],
                            cwd=ROOT, env=env, check=True)
             image = ROOT / 'firmware/k6-aura/out-fd6818b/aura-fd6818b-pack.bin'
-        lock = assemble(plan, args.output, image)
+        lock = assemble(plan, args.output, image, verified_firmware=False)
         print(json.dumps({'lockfile': str(args.output / 'pack.lock.json'),
                           'firmware_bytes': lock['firmware']['bytes'],
                           'modules': [m['name'] for m in lock['modules']],

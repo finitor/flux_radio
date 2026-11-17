@@ -32,9 +32,17 @@ def resolve(spec, selected):
             n for n in resolved if packs[n].get('status', '').startswith('planned')))
     def collect(key):
         return list(dict.fromkeys(item for name in resolved for item in packs[name].get(key, [])))
+    capabilities = collect('capabilities')
+    for module in collect('modules'):
+        required = spec.get('module_requirements', {}).get(module)
+        if required is None:
+            raise ValueError(f'module {module} has no declared firmware requirements')
+        missing = set(required) - set(capabilities)
+        if missing:
+            raise ValueError(f'module {module} missing capabilities: {sorted(missing)}')
     return {'target': spec['target'], 'packs': resolved,
             'cargo_features': collect('cargo_features'),
-            'capabilities': collect('capabilities'), 'modules': collect('modules'),
+            'capabilities': capabilities, 'modules': collect('modules'),
             'module_install': 'explicit post-flash action; no automatic radio writes'}
 
 
