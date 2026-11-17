@@ -44,7 +44,17 @@ unsafe extern "C" fn mod_action_chirp(kind: u8) -> i32 {
 p=root/'app/keys.rs';s=p.read_text()
 anchor='    if matches!(ev.kind, KeyEventKind::Single | KeyEventKind::Long) {\n        app.radio.play_beep(syst);\n    }'
 replacement='''    if matches!(ev.kind, KeyEventKind::Long) && app.settings.action_beep {
-        app.radio.play_action_beep(syst, false);
+        // Standby has an explicit long-action map; report unavailable keys distinctly.
+        // Other modes retain their own dispatchers until their actions are classified.
+        if app.mode == Mode::Standby {
+            let available = match ev.key {
+                KeyId::Asterisk | KeyId::Pound | KeyId::Ab | KeyId::Vm => true,
+                KeyId::Side1 | KeyId::Side2 | KeyId::Band =>
+                    keyfn::from_u8(long_function(app, ev.key)) != keyfn::KeyFunction::None,
+                _ => false,
+            };
+            app.radio.play_action_beep(syst, !available);
+        }
     } else if matches!(ev.kind, KeyEventKind::Single) {
         app.radio.play_beep(syst);
     }'''
