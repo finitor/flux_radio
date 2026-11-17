@@ -86,6 +86,7 @@ def main():
             env['K6_AURA_FEATURES'] = ','.join(['pager-explore'] + plan['cargo_features'])
             env['K6_IMAGE_NAME'] = 'aura-fd6818b-pack'
             env['K6_SCAN_SERVICE'] = '1' if 'scan' in plan['packs'] else '0'
+            env['K6_FSK_RX_SERVICE'] = '1' if 'aprs' in plan['packs'] else '0'
             subprocess.run(['sh', str(ROOT / 'firmware/k6-aura/build-fd6818b.sh')],
                            cwd=ROOT, env=env, check=True)
             image = ROOT / 'firmware/k6-aura/out-fd6818b/aura-fd6818b-pack.bin'

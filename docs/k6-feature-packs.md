@@ -64,3 +64,9 @@ Measured with the same `pager-explore,fd6818b,spilib,txdog,blowfang-host` Cargo 
 | Scanner host enabled | 98,424 bytes | 24,456 bytes |
 
 This saves **3,524 bytes** and passes the 96 KiB Base budget, but is not yet a verified feature-complete Base/Scanner/APRS profile matrix. The images were unkeyed, not flashed, and not hardware tested.
+
+## FD6818B FSK receive service gate
+
+`K6_FSK_RX_SERVICE=0` excludes the real FD6818B FSK RX callbacks from the Rust link and supplies failure-returning API-compatible stubs. The APRS pack selects `K6_FSK_RX_SERVICE=1`; the Base and Scan-only packs select 0. The original hardware radio driver and other FSK/TX paths may still be referenced elsewhere, so this is **callback-level gating**, not yet a complete APRS-only subsystem split.
+
+Measured on the same host, with scanner service disabled: Base with FSK RX disabled **94,500 bytes**; with FSK RX enabled **94,900 bytes** (400 bytes incremental). Both are below the 120 KiB application limit; Base is below its 96 KiB ceiling. The disabled build must explicitly retain `-C link-arg=-Tlink.x` when supplying `RUSTFLAGS`, or Cargo can silently produce an invalid 24-byte image; the build script now preserves that linker argument. These images are not hardware verified or ready for installation.

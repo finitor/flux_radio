@@ -69,6 +69,7 @@ python3 "$HERE/apply-boot-app-stack.py"
 python3 "$HERE/apply-cardlink-stack.py"
 python3 "$HERE/apply-cable-stack.py"
 python3 "$HERE/trim-generated-host.py"
+python3 "$HERE/apply-pack-service-gates.py"
 if [ "${K6_MODULE_REMOVE:-0}" = 1 ]; then
   python3 "$HERE/apply-library-erase.py"
 fi
@@ -92,7 +93,11 @@ K6_EXPLORE_HOST="$K6_EXPLORE_HOST" K6_SCAN_SERVICE="${K6_SCAN_SERVICE:-1}" K6_PK
   K6_OUT="$OUT/c-build" sh "$ROOT/tools/k6_build.sh"
 mkdir -p "$WORK/lib"
 cp "$OUT/c-build/libsotto_k6.a" "$WORK/lib/libsotto_k6.a"
-(cd "$WORK" && cargo build --release --features "$FEATURES")
+if [ "${K6_FSK_RX_SERVICE:-1}" = 0 ]; then
+  (cd "$WORK" && RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-Tlink.x --cfg k6_no_fsk_rx" cargo build --release --features "$FEATURES")
+else
+  (cd "$WORK" && cargo build --release --features "$FEATURES")
+fi
 ELF="$WORK/target/thumbv6m-none-eabi/release/aura"
 llvm-size -A "$ELF" > "$OUT/size.txt"
 FLASH=$(awk '$1==".vector_table" || $1==".text" || $1==".rodata" || $1==".gnu.sgstubs" || $1==".k6_id" || $1==".data" {n += $2} END {print n+0}' "$OUT/size.txt")
