@@ -1,0 +1,48 @@
+{
+  "format": 1,
+  "always_on_capabilities": [
+    "module-loader"
+  ],
+  "services": {
+    "scanner": {
+      "pack": "scan",
+      "capability": "explore-scanner-api",
+      "environment": "K6_SCAN_SERVICE",
+      "enabled": "1",
+      "disabled": "0",
+      "implementation": "host compact scanner selectively linked; legacy Explore may remain"
+    },
+    "candidate-ranking": {
+      "pack": "scan",
+      "capability": "candidate-ranking",
+      "environment": "K6_SCAN_SERVICE",
+      "enabled": "1",
+      "disabled": "0",
+      "implementation": "declared; shared scanner gate does not yet prove complete code removal"
+    },
+    "cw-tone-observation": {
+      "pack": "scan",
+      "capability": "cw-tone-observation",
+      "environment": "K6_SCAN_SERVICE",
+      "enabled": "1",
+      "disabled": "0",
+      "implementation": "declared; shared scanner gate does not yet prove complete code removal"
+    },
+    "fsk-rx": {
+      "pack": "aprs",
+      "capability": "fd6818-fsk-rx",
+      "environment": "K6_FSK_RX_SERVICE",
+      "enabled": "1",
+      "disabled": "0",
+      "implementation": "Rust callbacks selectively linked; underlying radio driver remains"
+    },
+    "sotto-decoder": {
+      "pack": "sotto",
+      "capability": "sotto-decoder",
+      "environment": "K6_SOTTO_SERVICE",
+      "enabled": "1",
+      "disabled": "0",
+      "implementation": "planned; no selective linking implemented"
+    }
+  }
+}

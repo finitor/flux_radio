@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT / 'tools'))
 from k6_feature_packs import DEFAULT, resolve
 import k6_install
 from k6_flash_policy import assess, flash_bytes
+from k6_pack_policy import POLICY, validate, gate_environment
 
 
 def digest(path):
@@ -72,7 +73,10 @@ def main():
                    help='explicitly allow staging a prebuilt image without verifying capabilities')
     args = p.parse_args()
     try:
-        plan = resolve(json.loads(args.spec.read_text()), args.packs)
+        spec = json.loads(args.spec.read_text())
+        policy = json.loads(POLICY.read_text())
+        validate(spec, policy)
+        plan = resolve(spec, args.packs)
         if args.skip_firmware_build:
             if args.firmware is None:
                 p.error('--firmware is required with --skip-firmware-build')
@@ -85,8 +89,7 @@ def main():
             # Never imply that this plan has already stripped them from flash.
             env['K6_AURA_FEATURES'] = ','.join(['pager-explore'] + plan['cargo_features'])
             env['K6_IMAGE_NAME'] = 'aura-fd6818b-pack'
-            env['K6_SCAN_SERVICE'] = '1' if 'scan' in plan['packs'] else '0'
-            env['K6_FSK_RX_SERVICE'] = '1' if 'aprs' in plan['packs'] else '0'
+            env.update(gate_environment(plan, policy))
             subprocess.run(['sh', str(ROOT / 'firmware/k6-aura/build-fd6818b.sh')],
                            cwd=ROOT, env=env, check=True)
             image = ROOT / 'firmware/k6-aura/out-fd6818b/aura-fd6818b-pack.bin'
