@@ -52,6 +52,7 @@ ACK = 0x06
 CABLE_HANDSHAKE = b"PROGRAMBF-K6BLWF"     # blowfang's cable session (cps::run_cable_session)
 AURA_HANDSHAKE = b"PROGRAMBF-K6AURA"      # Aura's CPS session: its first-boot dump, or full Aura
 CMD_INFO, CMD_CHUNK, CMD_READ, CMD_END, CMD_ERROR = 0x56, 0x4D, 0x44, 0x45, 0xEE
+CMD_CAPS = 0x49  # optional Blowfang read-only capability query
 CHUNK_EARLY_ACK = b"\x7fCHK"
 ERR_BAD_CRC = 0x01
 READ_BLOCK = 64
@@ -289,6 +290,20 @@ class Cable(CpsLink):
             raise InstallError(f"the radio's info doesn't look like blowfang's: {d.hex()}")
         return dict(protocol=d[4], slots=d[5], arena=struct.unpack("<H", d[6:8])[0],
                     build_id=d[8:16] if any(d[8:16]) else None)
+
+    def capabilities(self):
+        """Query optional versioned firmware capabilities; never infer them from INFO."""
+        data = self.call(CMD_CAPS)
+        if len(data) != 16 or data[:4] != b'K6CP' or data[4] != 1 or data[7] != 0:
+            raise InstallError('unsupported or malformed firmware capability record')
+        if any(data[8:]):
+            raise InstallError('unknown nonzero reserved firmware identity fields')
+        mask = data[5]
+        if mask & ~7 or not mask & 1:
+            raise InstallError('invalid firmware capability flags')
+        return {'format': 1, 'module_loader': True, 'scanner': bool(mask & 2),
+                'fsk_rx': bool(mask & 4), 'module_api_max': data[6],
+                'authenticated': False, 'build_identity_verified': False}
 
     def send_image(self, img, xfer, window=1):
         """One signed image as L chunks; the last chunk alone (its install erases and programs

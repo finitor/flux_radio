@@ -68,6 +68,7 @@ python3 "$HERE/apply-explore-ui-api.py"
 python3 "$HERE/apply-boot-app-stack.py"
 python3 "$HERE/apply-cardlink-stack.py"
 python3 "$HERE/apply-cable-stack.py"
+python3 "$HERE/apply-capability-query.py"
 python3 "$HERE/trim-generated-host.py"
 python3 "$HERE/apply-pack-service-gates.py"
 if [ "${K6_MODULE_REMOVE:-0}" = 1 ]; then
