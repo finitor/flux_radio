@@ -37,3 +37,23 @@ The browser workbench now exposes **direct** and **measured-rate held-GPIO**
 DMA modes for both synthetic APRS and imported IF logs. The measured mode
 models multiple DMA reads of the same GPIO level; it does not imply calibrated
 RF sampling, bus arbitration, or verified decode. Default remains direct.
+
+## General-purpose IQ stream protocol (host prototype)
+
+`sim/k6emu/iq_stream.py` provides a first transport-independent binary IQ
+framing prototype: magic `K6IQ`, version, flags, sample count, sequence,
+96 MHz end-of-frame timestamp, explicit output rate, interleaved signed
+8-bit I/Q, and CRC32. The simulator can packetize arbitrary IQ samples
+with exact integer timestamp arithmetic. The receiver detects missing or
+out-of-order frames rather than silently claiming continuity. This is
+intentionally **not APRS-specific**: a PC can archive/replay the same frames
+for other narrowband digital modes and experiments.
+
+The format is currently a **host/simulator fixture only**. It does not yet
+run on the K6, nor does it solve the DSP and serial bandwidth constraints.
+At 9.6 k complex samples/s, payload is 19,200 B/s, before the 24-byte
+per-frame overhead. At 64 samples/frame, overhead adds 3,600 B/s, requiring
+228 kbaud at 8N1 even without any UART gaps; 230400 baud is too close to
+saturation for reliable operation. A 128-sample frame cuts framing overhead
+in half, but still requires ~210 kbaud and leaves limited margin. Binary
+transport or lower rates and hardware measurement remain prerequisites.
