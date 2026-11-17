@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -143,9 +144,12 @@ class ModuleStore:
         if not directory.is_dir():
             return entries
         for path in sorted(directory.iterdir()):
-            if not path.is_dir() or not (path / '.git').exists():
+            if not path.is_dir():
                 continue
             source = str(path.resolve())
+            # Local module bundles are useful artifacts in their own right; they don't need
+            # a synthetic .git directory just to appear in the catalog. Git repos continue
+            # to work as before, provided they contain an installable bundle.
             if source in configured_paths or find_bundle(path) is None:
                 continue
             entries.append({'id': slug_for(source + '#'), 'source': source})
@@ -164,12 +168,13 @@ class ModuleStore:
         if local.exists():
             source = str(local.resolve())
             if not local.is_dir():
-                raise ValueError("a local source must be a Git repository directory")
-            try:
-                subprocess.run(["git", "-C", source, "rev-parse", "--is-inside-work-tree"],
-                               check=True, capture_output=True, text=True, timeout=10)
-            except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired) as exc:
-                raise ValueError("a local source must be a Git checkout") from exc
+                raise ValueError("a local source must be a module bundle or Git repository directory")
+            if find_bundle(local) is None:
+                try:
+                    subprocess.run(["git", "-C", source, "rev-parse", "--is-inside-work-tree"],
+                                   check=True, capture_output=True, text=True, timeout=10)
+                except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired) as exc:
+                    raise ValueError("a local source must contain an installable bundle or be a Git checkout") from exc
         elif not source.startswith(("https://", "ssh://", "git@")):
             raise ValueError("source must be an HTTPS/SSH Git URL or an existing directory")
         entries = self.configured_sources()
@@ -250,14 +255,47 @@ class ModuleStore:
 
 def create_app(store: ModuleStore | None = None):
     try:
-        from flask import Flask, abort, flash, redirect, render_template, request, send_from_directory, url_for
+        from flask import Flask, abort, flash, redirect, render_template, request, send_from_directory, session, url_for
     except ImportError as exc:
         raise RuntimeError("Flask is required for the web UI; install tools/k6_store_requirements.txt") from exc
 
     app = Flask(__name__, template_folder=str(TEMPLATES), static_folder=str(TEMPLATES / "static"))
-    app.secret_key = os.environ.get("BLOWFANG_STORE_SECRET", "local-blowfang-store")
+    app.secret_key = os.environ.get("BLOWFANG_STORE_SECRET") or secrets.token_bytes(32)
     catalog = store or ModuleStore()
     app.config["module_store"] = catalog
+
+    def radio_settings() -> dict:
+        return {"port": session.get("radio_port", ""),
+                "key_file": session.get("radio_key_file", "")}
+
+    def cable_command(*args: str) -> list[str]:
+        settings = radio_settings()
+        if not settings["port"]:
+            raise ValueError("Set the USB serial port in Device settings first.")
+        command = [sys.executable, str(ROOT / "tools" / "k6_install.py"), "--port", settings["port"]]
+        if settings["key_file"]:
+            command += ["--key-file", settings["key_file"]]
+        return command + list(args)
+
+    @app.context_processor
+    def inject_radio_settings():
+        return {"radio_settings": radio_settings()}
+
+    @app.get("/settings")
+    def settings_page():
+        return render_template("settings.html", settings=radio_settings())
+
+    @app.post("/settings")
+    def save_settings():
+        port = request.form.get("port", "").strip()
+        key_file = request.form.get("key_file", "").strip()
+        if not port:
+            flash("Enter the serial device path, such as /dev/ttyUSB0.", "error")
+            return render_template("settings.html", settings={"port": port, "key_file": key_file}), 400
+        session["radio_port"] = port
+        session["radio_key_file"] = key_file
+        flash("Radio connection saved for this browser session.", "success")
+        return redirect(url_for("settings_page"))
 
     @app.get("/")
     def index():
@@ -270,19 +308,17 @@ def create_app(store: ModuleStore | None = None):
 
     @app.get("/radio")
     def radio():
-        return render_template("radio.html", inventory=None, port="", key_file="", action_result=None)
+        return render_template("radio.html", inventory=None, action_result=None)
 
     @app.post("/radio")
     def inspect_radio():
-        port = request.form.get("port", "").strip()
-        if not port:
-            flash("Enter the radio's serial port, such as /dev/ttyUSB0.", "error")
-            return render_template("radio.html", inventory=None, port=port,
-                                   key_file=request.form.get("key_file", ""), action_result=None), 400
-        command = [sys.executable, str(ROOT / "tools" / "k6_install.py"), "--port", port, "status"]
-        key_file = request.form.get("key_file", "").strip()
-        if key_file:
-            command[4:4] = ["--key-file", key_file]
+        try:
+            command = cable_command("status")
+        except ValueError as exc:
+            flash(str(exc), "error")
+            return redirect(url_for("settings_page"))
+        settings = radio_settings()
+        port, key_file = settings["port"], settings["key_file"]
         try:
             result = subprocess.run(command, text=True, capture_output=True, timeout=60)
         except subprocess.TimeoutExpired as exc:
@@ -320,25 +356,22 @@ def create_app(store: ModuleStore | None = None):
 
     @app.post("/radio/remove")
     def erase_radio_slot():
-        port = request.form.get("port", "").strip()
-        key_file = request.form.get("key_file", "").strip()
         try:
             slot = int(request.form.get("slot", ""))
         except ValueError:
             abort(400)
         confirmation = request.form.get("confirmation", "").strip()
         if confirmation != f"ERASE {slot}":
-            return render_template("radio.html", inventory=None, port=port, key_file=key_file,
+            return render_template("radio.html", inventory=None,
                                    action_result={"ok": False,
                                                   "output": f"Erase cancelled. Type ERASE {slot} exactly to confirm."}), 400
-        if not port:
-            flash("Enter the radio's serial port before erasing a slot.", "error")
-            return render_template("radio.html", inventory=None, port=port, key_file=key_file,
-                                   action_result=None), 400
-        command = [sys.executable, str(ROOT / "tools" / "k6_install.py"), "--port", port]
-        if key_file:
-            command += ["--key-file", key_file]
-        command += ["remove-slot", str(slot), "--yes"]
+        try:
+            command = cable_command("remove-slot", str(slot), "--yes")
+        except ValueError as exc:
+            flash(str(exc), "error")
+            return redirect(url_for("settings_page"))
+        settings = radio_settings()
+        port, key_file = settings["port"], settings["key_file"]
         try:
             result = subprocess.run(command, text=True, capture_output=True, timeout=180)
         except subprocess.TimeoutExpired as exc:
@@ -388,15 +421,12 @@ def create_app(store: ModuleStore | None = None):
         if not repo.get("bundle"):
             flash("This repository has no installable format-1 module bundle.", "error")
             return redirect(url_for("detail", repo_id=repo_id))
-        port = request.form.get("port", "").strip()
-        if not port:
-            flash("Enter the radio's serial port, such as /dev/ttyUSB0.", "error")
-            return redirect(url_for("detail", repo_id=repo_id))
-        command = [sys.executable, str(ROOT / "tools" / "k6_install.py"), "--port", port]
-        key_file = request.form.get("key_file", "").strip()
-        if key_file:
-            command += ["--key-file", key_file]
-        command += ["load", str(repo["bundle"]["path"])]
+        try:
+            command = cable_command("load", str(repo["bundle"]["path"]))
+        except ValueError as exc:
+            flash(str(exc), "error")
+            return redirect(url_for("settings_page"))
+        port = radio_settings()["port"]
         if request.form.get("verify") == "yes":
             command.append("--verify")
         try:

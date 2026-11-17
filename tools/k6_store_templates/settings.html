@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Device settings · Blowfang Module Store</title>
+  <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+  <link rel="stylesheet" href="{{ url_for('static', filename='store.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="{{ url_for('index') }}"><span class="brand-mark">B</span> Blowfang <span>Module Store</span></a>
+    <nav class="top-actions"><a href="{{ url_for('index') }}">Catalog</a><a href="{{ url_for('radio') }}">My radio</a></nav>
+  </header>
+  <main class="layout detail-layout">
+    <p class="eyebrow">SESSION SETTINGS</p>
+    <div class="detail-title"><div><h1>Device connection</h1><p class="summary">Set the cable and key once. Catalog installs, radio status, and module removal will reuse them for this browser session.</p></div></div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}<section class="messages">{% for category, message in messages %}<p class="{{ category }}">{{ message }}</p>{% endfor %}</section>{% endif %}
+    {% endwith %}
+
+    <section class="panel radio-connect session-settings">
+      <div class="section-heading"><div><p class="eyebrow">K6 PROGRAMMING CABLE</p><h2>Connection defaults</h2></div><span class="badge">Session only</span></div>
+      <form method="post" action="{{ url_for('save_settings') }}" class="settings-form">
+        <label>USB serial device<input name="port" value="{{ settings.port }}" placeholder="/dev/ttyUSB0" required autocomplete="off"><small>Use the current device path, for example /dev/ttyUSB0.</small></label>
+        <label>Module signing key file<input name="key_file" value="{{ settings.key_file }}" placeholder="~/.config/blowfang/k6-mod.key" autocomplete="off"><small>Optional. Leave blank to use the installer's configured default key.</small></label>
+        <button type="submit">Save for this session <span>→</span></button>
+      </form>
+    </section>
+    <section class="panel notice radio-capability"><strong>Key handling:</strong> the browser session stores the key-file path, never the key contents. Closing the browser session clears these settings.</section>
+    <footer><span class="footer-brand"><span class="brand-mark">B</span> BLOWFANG</span><span>Connection preferences stay local to this browser session.</span></footer>
+  </main>
+</body>
+</html>

@@ -10,7 +10,7 @@
 <body>
   <header class="topbar">
     <a class="brand" href="{{ url_for('index') }}"><span class="brand-mark">B</span> Blowfang <span>Module Store</span></a>
-    <nav class="top-actions"><a href="{{ url_for('radio') }}">My radio</a><a class="quiet link-button" href="{{ url_for('index') }}">← All repos</a></nav>
+    <nav class="top-actions"><a href="{{ url_for('radio') }}">My radio</a><a href="{{ url_for('settings_page') }}">Device settings{% if radio_settings.port %} · {{ radio_settings.port }}{% endif %}</a><a class="quiet link-button" href="{{ url_for('index') }}">← All repos</a></nav>
   </header>
   <main class="layout detail-layout">
     <p class="eyebrow">MODULE PROJECT</p>
@@ -27,11 +27,10 @@
             <div class="module-row"><strong>{{ module.name }}</strong><span>{{ module.kind }}</span><span>{% if module.slot is none %}automatic slot{% else %}slot {{ module.slot }}{% endif %}</span>{% if module.level %}<span>API {{ module.level }}</span>{% endif %}</div>
           {% endfor %}
         </div>
+        <p class="radio-note">{% if radio_settings.port %}Install to <strong>{{ radio_settings.port }}</strong>{% if radio_settings.key_file %} · key file <code>{{ radio_settings.key_file }}</code>{% else %} · default key{% endif %}. <a href="{{ url_for('settings_page') }}">Change</a>{% else %}Set the USB device in <a href="{{ url_for('settings_page') }}">Device settings</a> before installing.{% endif %}</p>
         <form method="post" action="{{ url_for('install', repo_id=repo.id) }}" class="install-form">
-          <label>Serial port<input name="port" placeholder="/dev/ttyUSB0" required></label>
-          <label>Module key file <small>(optional if the default key is configured)</small><input name="key_file" placeholder="~/.config/blowfang/k6-mod.key"></label>
           <label class="check"><input type="checkbox" name="verify" value="yes"> Read back installed slots to verify</label>
-          <button type="submit">Install bundle to radio</button>
+          <button type="submit" {% if not radio_settings.port %}disabled{% endif %}>Install bundle to radio</button>
         </form>
         {% if result %}<pre class="install-result {{ 'ok' if result.ok else 'failed' }}">{{ result.output or 'Installer finished without output.' }}</pre>{% endif %}
       </section>

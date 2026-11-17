@@ -10,7 +10,7 @@
 <body>
   <header class="topbar">
     <a class="brand" href="{{ url_for('index') }}"><span class="brand-mark">B</span> Blowfang <span>Module Store</span></a>
-    <nav class="top-actions"><a href="#catalog">Catalog</a><a href="{{ url_for('radio') }}">My radio</a><span class="connection"><i></i> Local catalog</span>
+    <nav class="top-actions"><a href="#catalog">Catalog</a><a href="{{ url_for('radio') }}">My radio</a><a href="{{ url_for('settings_page') }}">Device settings{% if radio_settings.port %} · {{ radio_settings.port }}{% endif %}</a><span class="connection"><i></i> Local catalog</span>
       <form method="post" action="{{ url_for('refresh_all') }}"><button class="quiet" type="submit">↻ <span>Refresh</span></button></form>
     </nav>
   </header>
@@ -36,7 +36,7 @@
     </section>
 
     <form class="add-source" method="post" action="{{ url_for('add_source') }}">
-      <div class="add-icon">↗</div><div class="add-copy"><label for="source">Add a project from Git</label><span>Paste a repository URL or a local checkout.</span></div>
+      <div class="add-icon">↗</div><div class="add-copy"><label for="source">Add a module project</label><span>Paste a Git URL, local checkout, or bundle directory.</span></div>
       <div class="source-fields">
         <input id="source" name="source" placeholder="https://github.com/you/k6-module" required>
         <input name="ref" placeholder="Branch or tag" aria-label="branch or tag">

@@ -19,28 +19,91 @@ def make_repo(path):
     return path
 
 
-def test_discovers_local_repositories_without_config(tmp_path, monkeypatch):
+def test_discovers_local_bundle_and_repository_without_config(tmp_path, monkeypatch):
     monkeypatch.setattr(k6_store, 'ROOT', tmp_path)
     repo = make_repo(tmp_path / 'local-modules' / 'example')
+    bundle = tmp_path / 'local-modules' / 'standalone'
+    bundle.mkdir()
+    (bundle / 'manifest.json').write_text((repo / 'manifest.json').read_text())
+    (bundle / 'README.md').write_text('# Standalone\n\nA local bundle.\n')
     config = tmp_path / 'config.json'
     store = k6_store.ModuleStore(config=config, cache=tmp_path / 'cache')
     entries = store.catalog()
-    assert len(entries) == 1
-    assert entries[0]['path'] == repo
-    assert entries[0]['bundle'] is not None
+    assert [entry['path'] for entry in entries] == [repo, bundle]
+    assert all(entry['bundle'] is not None for entry in entries)
     assert store.by_id(entries[0]['id'])['path'] == repo
+    assert store.by_id(entries[1]['id'])['path'] == bundle
     assert not config.exists()
 
 
-def test_skips_non_repositories_and_invalid_manifests(tmp_path, monkeypatch):
+def test_skips_directories_without_valid_bundles(tmp_path, monkeypatch):
     monkeypatch.setattr(k6_store, 'ROOT', tmp_path)
     root = tmp_path / 'local-modules'
     good = make_repo(root / 'good')
     (root / 'plain').mkdir()
-    (root / 'plain' / 'manifest.json').write_text((good / 'manifest.json').read_text())
     invalid = make_repo(root / 'invalid')
     (invalid / 'manifest.json').write_text('[]')
     assert [e['source'] for e in k6_store.ModuleStore(config=tmp_path / 'config').sources()] == [str(good)]
+
+
+def test_add_accepts_local_bundle_without_git(tmp_path):
+    bundle = tmp_path / 'bundle'
+    bundle.mkdir()
+    (bundle / 'manifest.json').write_text(json.dumps({
+        'format': 1, 'build_id': 'abc', 'library': [], 'sha256': {},
+    }))
+    (bundle / 'README.md').write_text('# Example bundle\n\nA local module.\n')
+    store = k6_store.ModuleStore(config=tmp_path / 'config.json', cache=tmp_path / 'cache')
+    entry = store.add(str(bundle))
+    assert entry['source'] == str(bundle)
+    assert store.by_id(entry['id'])['bundle'] is not None
+
+
+def test_session_radio_settings_are_reused_by_catalog_install(tmp_path, monkeypatch):
+    calls = []
+
+    class Store:
+        def by_id(self, repo_id):
+            assert repo_id == 'demo'
+            return {'id': 'demo', 'title': 'Demo', 'bundle': {'path': tmp_path},
+                    'screenshots': [], 'readme': '', 'readme_file': None,
+                    'source': 'local', 'source_link': None, 'commit': 'local'}
+
+    def run(command, **kwargs):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, 'loaded', '')
+
+    monkeypatch.setattr(k6_store.subprocess, 'run', run)
+    client = k6_store.create_app(Store()).test_client()
+    response = client.post('/settings', data={
+        'port': '/dev/ttyUSB7', 'key_file': '/tmp/radio-module.key',
+    })
+    assert response.status_code == 302
+    page = client.get('/repo/demo')
+    assert b'/dev/ttyUSB7' in page.data
+    assert b'/tmp/radio-module.key' in page.data
+    response = client.post('/repo/demo/install', data={'verify': 'yes'})
+    assert response.status_code == 200
+    command = calls[-1]
+    assert command[command.index('--port') + 1] == '/dev/ttyUSB7'
+    assert command[command.index('--key-file') + 1] == '/tmp/radio-module.key'
+    assert command[-3:] == ['load', str(tmp_path), '--verify']
+
+
+def test_radio_status_reuses_session_settings(tmp_path, monkeypatch):
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, 'K6 CABLE on\n', '')
+
+    monkeypatch.setattr(k6_store.subprocess, 'run', run)
+    client = k6_store.create_app(k6_store.ModuleStore(config=tmp_path / 'config')).test_client()
+    client.post('/settings', data={'port': '/dev/ttyUSB9', 'key_file': ''})
+    response = client.post('/radio')
+    assert response.status_code == 200
+    status_call = next(command for command in calls if command[-1:] == ['status'])
+    assert status_call[-3:] == ['--port', '/dev/ttyUSB9', 'status']
 
 
 def test_manual_source_deduplicated_and_not_written_as_default(tmp_path, monkeypatch):

@@ -13,9 +13,15 @@ python3 tools/k6_store.py serve
 ```
 
 Open <http://127.0.0.1:5055>. The web server binds to localhost by default. The add form also accepts
-an existing local Git checkout. A ref can be a branch or tag; refresh checks out its latest commit.
+an existing local Git checkout or a directory containing a valid format-1 module bundle. A ref can
+be a branch or tag; refresh checks out its latest commit.
 Each source is cached below `~/.cache/blowfang/module-store/repos/`. The catalog list is stored in
 `~/.config/blowfang/module-store.json`.
+
+Use **Device settings** in the top navigation to set the USB serial path and optional module key
+file once for the browser session. Catalog installs, radio status, and module removal reuse those
+values. Only the key-file path is kept in the signed session cookie; the key contents remain in the
+local file.
 
 Select **My radio** in the top navigation to inspect library slots over the programming cable.
 Enter the serial port and choose **Read radio library**. This runs the existing `k6_install.py
@@ -34,9 +40,11 @@ python3 tools/k6_make_local_catalog.py
 ```
 
 The generated Git working directories live under `local-modules/` and are discovered by the
-catalog by default. They are local build artifacts, not committed releases. The generator refuses
-to overwrite an existing directory; move it aside before rebuilding. These are starter packages
-for this host, not a certification that every module has been hardware-tested.
+catalog by default. Standalone module bundle directories under `local-modules/` are also discovered
+directly; they do not need a `.git` directory. These are local build artifacts, not committed
+releases. The generator refuses to overwrite an existing directory; move it aside before rebuilding.
+These are starter packages for this host, not a certification that every module has been
+hardware-tested.
 
 Other module repositories can be added as they are developed for the host. The host verifies
 module format and signatures, but it does not sandbox native code. A successful build does not

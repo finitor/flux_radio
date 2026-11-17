@@ -225,6 +225,13 @@ footer { display: flex; align-items: center; justify-content: space-between; gap
 .radio-form button { min-height: 37px; border: 0; border-radius: 7px; padding: 0 14px; color: #16200e; background: var(--acid); font-size: 11px; font-weight: 750; white-space: nowrap; }
 .radio-form button:hover { background: #d9ff91; }
 .radio-form button span { margin-left: 8px; font-size: 15px; }
+.settings-form { display: grid; grid-template-columns: 1fr 1fr auto; align-items: end; gap: 12px; margin-top: 17px; }
+.settings-form label { display: grid; gap: 6px; color: #c7d0c6; font-size: 11px; font-weight: 600; }
+.settings-form label small { color: var(--subtle); font-size: 9px; font-weight: 400; }
+.settings-form button, .session-action-form button { min-height: 37px; border: 0; border-radius: 7px; padding: 0 14px; color: #16200e; background: var(--acid); font-size: 11px; font-weight: 750; white-space: nowrap; }
+.settings-form button:hover, .session-action-form button:hover { background: #d9ff91; }
+.session-action-form { margin-top: 15px; }
+.install-form > button:disabled { opacity: .45; cursor: not-allowed; }
 .radio-results { margin-top: 38px; }
 .radio-results > .section-heading { margin-bottom: 13px; }
 .radio-results > .section-heading .badge { padding: 7px 9px; border: 1px solid #405035; border-radius: 99px; }
@@ -259,6 +266,8 @@ footer { display: flex; align-items: center; justify-content: space-between; gap
   .source-fields { grid-column: 1 / -1; }
   .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .radio-form { grid-template-columns: 1fr 1fr; }
+  .settings-form { grid-template-columns: 1fr 1fr; }
+  .settings-form button { justify-self: start; grid-column: 1 / -1; }
   .radio-form button { justify-self: start; min-height: 37px; grid-column: 1 / -1; }
 }
 @media (max-width: 620px) {
@@ -280,7 +289,7 @@ footer { display: flex; align-items: center; justify-content: space-between; gap
   .detail-title { display: block; }.detail-title .link-button { margin-top: 13px; }
   .module-row { grid-template-columns: 1fr auto; gap: 7px 10px; }
   .module-row strong { grid-column: 1 / -1; }.install-form { grid-template-columns: 1fr; }
-  .radio-form { grid-template-columns: 1fr; }
+  .radio-form, .settings-form { grid-template-columns: 1fr; }
   .radio-form button { grid-column: auto; }
   .slot-table { min-width: 800px; }
   .screenshot-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

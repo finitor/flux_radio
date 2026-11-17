@@ -10,7 +10,7 @@
 <body>
   <header class="topbar">
     <a class="brand" href="{{ url_for('index') }}"><span class="brand-mark">B</span> Blowfang <span>Module Store</span></a>
-    <nav class="top-actions"><a href="{{ url_for('index') }}">Catalog</a><a href="{{ url_for('radio') }}">My radio</a></nav>
+    <nav class="top-actions"><a href="{{ url_for('index') }}">Catalog</a><a href="{{ url_for('settings_page') }}">Device settings{% if radio_settings.port %} · {{ radio_settings.port }}{% endif %}</a></nav>
   </header>
   <main class="layout detail-layout">
     <p class="eyebrow">DEVICE LIBRARY</p>
@@ -23,11 +23,9 @@
     <section class="panel radio-connect">
       <div class="section-heading"><div><p class="eyebrow">CONNECT OVER THE PROGRAMMING CABLE</p><h2>Read installed slots</h2></div><span class="badge">Local USB serial</span></div>
       <p class="radio-note">Reading status opens and closes a Blowfang cable session. The current firmware restarts the radio when that session ends.</p>
-      <form method="post" action="{{ url_for('inspect_radio') }}" class="radio-form">
-        <label>Serial port<input name="port" value="{{ port }}" placeholder="/dev/ttyUSB0" required></label>
-        <label>Module key file <small>(optional for status)</small><input name="key_file" value="{{ key_file|default('') }}" placeholder="~/.config/blowfang/k6-mod.key"></label>
-        <button type="submit">Read radio library <span>→</span></button>
-      </form>
+      {% if radio_settings.port %}<p class="radio-note">Using <strong>{{ radio_settings.port }}</strong>{% if radio_settings.key_file %} · key file <code>{{ radio_settings.key_file }}</code>{% else %} · default key{% endif %}. <a href="{{ url_for('settings_page') }}">Change connection settings</a></p>
+      <form method="post" action="{{ url_for('inspect_radio') }}" class="session-action-form"><button type="submit">Read radio library <span>→</span></button></form>
+      {% else %}<p class="radio-note">Set the serial device once before connecting.</p><a class="primary-link" href="{{ url_for('settings_page') }}">Set device connection <span>→</span></a>{% endif %}
     </section>
 
     {% if action_result %}<pre class="install-result {{ 'ok' if action_result.ok else 'failed' }}">{{ action_result.output }}</pre>{% if action_result.ok %}<p class="radio-note">The radio restarts when the cable session ends. Read the library again to confirm the updated slot list.</p>{% endif %}{% endif %}
@@ -37,7 +35,7 @@
         <div class="section-heading"><div><p class="eyebrow">INSTALLED ON DEVICE</p><h2>Library contents</h2></div>{% if inventory.ok %}<span class="badge ready">{{ inventory.slots|length }} occupied slots</span>{% else %}<span class="badge error-badge">Read failed</span>{% endif %}</div>
         {% if inventory.ok and inventory.slots %}
           <div class="slot-table-wrap"><table class="slot-table"><thead><tr><th>Slot</th><th>Item</th><th>Type</th><th>Code</th><th>Match in catalog</th><th>Action</th></tr></thead><tbody>
-            {% for item in inventory.slots %}<tr><td class="slot-number">{{ '%02d'|format(item.slot) }}</td><td><strong>{{ item.name or ('Slot ' ~ item.slot) }}</strong><small>serial {{ item.serial }}</small></td><td><span class="type-pill {{ item.kind }}">{{ item.kind }}</span></td><td>{{ item.size }} B</td><td>{% if item.source %}<a class="source-match" href="{{ url_for('detail', repo_id=item.source.id) }}">{{ item.source.title }} <span>↗</span></a>{% elif item.kind == 'module' %}<span class="unmatched">No matching catalog bundle</span>{% else %}<span class="unmatched">Firmware data</span>{% endif %}</td><td>{% if item.kind == 'module' and inventory.protocol >= 2 %}<details class="erase-control"><summary>Remove</summary><form method="post" action="{{ url_for('erase_radio_slot') }}"><input type="hidden" name="port" value="{{ port }}"><input type="hidden" name="key_file" value="{{ key_file|default('') }}"><input type="hidden" name="slot" value="{{ item.slot }}"><label>Type ERASE {{ item.slot }}<input name="confirmation" placeholder="ERASE {{ item.slot }}" required autocomplete="off"></label><button type="submit">Erase slot</button></form></details>{% elif item.kind == 'module' %}<span class="unmatched">Flash protocol 2 to remove</span>{% else %}<span class="unmatched">Protected</span>{% endif %}</td></tr>{% endfor %}
+            {% for item in inventory.slots %}<tr><td class="slot-number">{{ '%02d'|format(item.slot) }}</td><td><strong>{{ item.name or ('Slot ' ~ item.slot) }}</strong><small>serial {{ item.serial }}</small></td><td><span class="type-pill {{ item.kind }}">{{ item.kind }}</span></td><td>{{ item.size }} B</td><td>{% if item.source %}<a class="source-match" href="{{ url_for('detail', repo_id=item.source.id) }}">{{ item.source.title }} <span>↗</span></a>{% elif item.kind == 'module' %}<span class="unmatched">No matching catalog bundle</span>{% else %}<span class="unmatched">Firmware data</span>{% endif %}</td><td>{% if item.kind == 'module' and inventory.protocol >= 2 %}<details class="erase-control"><summary>Remove</summary><form method="post" action="{{ url_for('erase_radio_slot') }}"><input type="hidden" name="slot" value="{{ item.slot }}"><label>Type ERASE {{ item.slot }}<input name="confirmation" placeholder="ERASE {{ item.slot }}" required autocomplete="off"></label><button type="submit">Erase slot</button></form></details>{% elif item.kind == 'module' %}<span class="unmatched">Flash protocol 2 to remove</span>{% else %}<span class="unmatched">Protected</span>{% endif %}</td></tr>{% endfor %}
           </tbody></table></div>
         {% elif inventory.ok %}
           <div class="empty radio-empty"><p class="eyebrow">EMPTY LIBRARY</p><h3>No occupied slots reported</h3><p>Add modules from a compatible project page in the catalog.</p><a class="primary-link" href="{{ url_for('index') }}#catalog">Browse catalog <span>→</span></a></div>
