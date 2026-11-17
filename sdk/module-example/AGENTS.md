@@ -1,0 +1,5 @@
+# Agent guide: Flux module development
+
+Read README.md first. Locate the explicit Flux checkout and inspect its c/k6/k6_mod.h, docs/k6-modules.md and docs/k6-ui-conventions.md. Use the actual header, never invent API functions or duplicate the ABI. Preserve the module ID across releases; change it when forking into a distinct module. Set K6_MODULE_LEVEL to the lowest required level. Keep module code freestanding and position-independent. No writable statics, libc or unbounded loops. Prefer the host API over direct registers. Do not add RF transmission unless explicitly requested; document frequency, identification and cleanup if TX is implemented.
+
+Build with python3 build.py --flux /path/to/flux. Run the host smoke test in README.md and adapt it to new behavior. Use the Flux emulator when supported. Distinguish compile, host, emulator and actual radio results. Never access signing keys, install to a radio, transmit or push without explicit permission. Keep README, module artifacts and tests in sync.

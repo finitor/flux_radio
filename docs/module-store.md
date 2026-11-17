@@ -1,6 +1,6 @@
-# Local module store prototype
+# Flux Module Catalog
 
-The store is a small local catalog, not a service running on the radio. It reads Git repositories,
+The Catalog is a small local application, not a service running on the radio. It reads Git repositories,
 shows the project README and its screenshots, and can send a compatible module bundle to the K6
 through the existing serial cable loader.
 
@@ -9,14 +9,14 @@ through the existing serial cable loader.
 ```sh
 python3 -m pip install -r tools/k6_store_requirements.txt
 python3 tools/k6_store.py add https://github.com/OWNER/K6-MODULE --ref main
-python3 tools/k6_store.py serve
+python3 tools/k6.py catalog
 ```
 
 Open <http://127.0.0.1:5055>. The web server binds to localhost by default. The add form also accepts
 an existing local Git checkout or a directory containing a valid format-1 module bundle. A ref can
 be a branch or tag; refresh checks out its latest commit.
-Each source is cached below `~/.cache/blowfang/module-store/repos/`. The catalog list is stored in
-`~/.config/blowfang/module-store.json`.
+Sources are cached below `~/.cache/flux/module-store/repos/`, and the Catalog list is stored in
+`~/.config/flux/module-store.json`. Existing Blowfang config and cache locations are detected for backward compatibility.
 
 Use **Device settings** in the top navigation to set the USB serial path and optional module key
 file once for the browser session. Catalog installs, radio status, and module removal reuse those
@@ -81,7 +81,7 @@ python3 tools/k6_store.py show module-id
 python3 tools/k6_store.py refresh [module-id]
 python3 tools/k6_store.py remove module-id
 python3 tools/k6_store.py install module-id --port /dev/ttyUSB0 \
-  --key-file ~/.config/blowfang/k6-mod.key --verify
+  --key-file ~/.config/flux/k6-mod.key --verify
 python3 tools/k6_install.py --port /dev/ttyUSB0 remove-slot 30
 ```
 
@@ -112,7 +112,7 @@ module key before sending it. Existing bundles such as the VFO/SURF output can b
 
 ## Current scope
 
-- Catalog sources are manually added Git URLs or local directories; no central server or account is
+- Catalog sources are default or manually added Git URLs or local directories; no central server or account is
   needed.
 - Catalog display metadata comes from README text and images. Module slot/API details come from the
   bundle manifest.
@@ -120,3 +120,31 @@ module key before sending it. Existing bundles such as the VFO/SURF output can b
   installs a checked-in or committed bundle.
 - There is no sandbox for native modules. Only add sources you trust; the radio's module signature
   check authorizes images for the local key but does not constrain what module code can do.
+
+
+## Default GitHub sources
+
+Maintainers edit `config/flux-catalog.json` to ship default sources with Flux:
+
+```json
+{
+  "format": 1,
+  "sources": [
+    {"source": "https://github.com/OWNER/REPO", "ref": "v1.0"}
+  ]
+}
+```
+
+The example URL is a placeholder; the shipped list starts empty until real module
+repositories are published. Omit ref to follow the default branch. Defaults merge
+with manual sources and local bundles without persisting copies into user config.
+CLI removal suppresses a default locally; re-adding its URL and ref restores it.
+Prefer reviewed release tags. Opening the catalog fetches repositories but never
+installs modules or runs their build scripts automatically.
+
+## Flux Module SDK
+
+Copy [sdk/module-example](../sdk/module-example/) into a standalone repository.
+Its README and AGENTS.md provide human and coding-agent guidance, and its build
+script uses the canonical Flux compiler and format-1 bundle generator. The example
+includes a host-side test and a catalog-ready bundle when built.

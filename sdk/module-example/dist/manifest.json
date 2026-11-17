@@ -1,0 +1,17 @@
+{
+  "format": 1,
+  "build": "slot-independent module",
+  "build_id": "0000000000000000",
+  "library": [
+    {
+      "id": "org.flux.example.hello",
+      "kind": "module",
+      "file": "module.bin",
+      "name": "HELLO",
+      "level": 1
+    }
+  ],
+  "sha256": {
+    "module.bin": "9acfbb465adb8be8841c5540efd41759534a7aaf85aebce6ce5042a0d0afd8e1"
+  }
+}

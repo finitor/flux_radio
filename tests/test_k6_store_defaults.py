@@ -130,3 +130,39 @@ def test_repo_file_does_not_expose_git_or_unreferenced_secrets(tmp_path, monkeyp
     assert client.get(f'/repo/{repo_id}/file/picture.png').status_code == 200
     assert client.get(f'/repo/{repo_id}/file/.git/config').status_code == 404
     assert client.get(f'/repo/{repo_id}/file/secret.txt').status_code == 404
+
+
+def test_shipped_defaults_merge_and_can_be_disabled(tmp_path, monkeypatch):
+    monkeypatch.setattr(k6_store, 'ROOT', tmp_path)
+    defaults = tmp_path / 'config' / 'flux-catalog.json'
+    defaults.parent.mkdir()
+    url = 'https://github.com/example/hello'
+    item = {'source': url, 'ref': 'v1'}
+    defaults.write_text(json.dumps({'format': 1, 'sources': [item, item]}))
+    config = tmp_path / 'user.json'
+    store = k6_store.ModuleStore(config=config, cache=tmp_path / 'cache')
+    entry, = store.sources()
+    assert entry['ref'] == 'v1'
+    assert not config.exists()
+    assert store.remove(entry['id'])
+    assert not store.sources()
+    assert not store.remove(entry['id'])
+    monkeypatch.setattr(store, 'sync', lambda *a, **kw: tmp_path)
+    assert store.add(url, 'v1') == entry
+    assert store.sources() == [entry]
+    assert store.remove(entry['id'])
+    assert not store.sources()
+
+
+def test_shipped_default_does_not_duplicate_manual(tmp_path, monkeypatch):
+    monkeypatch.setattr(k6_store, 'ROOT', tmp_path)
+    defaults = tmp_path / 'config' / 'flux-catalog.json'
+    defaults.parent.mkdir()
+    item = {'source': 'https://github.com/example/hello'}
+    defaults.write_text(json.dumps({'format': 1, 'sources': [item]}))
+    store = k6_store.ModuleStore(config=tmp_path / 'user.json')
+    manual = dict(item, id=k6_store.slug_for(item['source'] + '#'))
+    store.save([manual])
+    assert store.sources() == [manual]
+    assert store.remove(manual['id'])
+    assert not store.sources()

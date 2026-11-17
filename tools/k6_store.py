@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Browse Git-hosted Blowfang modules and load compatible bundles over the cable."""
+"""Browse the Flux module catalog and load compatible bundles over the cable."""
 from __future__ import annotations
 
 import argparse
@@ -21,16 +21,18 @@ HTML_IMAGE_RE = re.compile(r"<img\b[^>]*\bsrc=[\"']([^\"']+)[\"']", re.I)
 
 
 def default_config() -> Path:
-    override = os.environ.get("BLOWFANG_STORE_CONFIG")
+    override = os.environ.get("FLUX_STORE_CONFIG") or os.environ.get("BLOWFANG_STORE_CONFIG")
     if override:
         return Path(override).expanduser()
     base = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-    return base / "blowfang" / "module-store.json"
+    legacy = base / "blowfang" / "module-store.json"
+    return legacy if legacy.exists() else base / "flux" / "module-store.json"
 
 
 def default_cache() -> Path:
     base = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
-    return base / "blowfang" / "module-store" / "repos"
+    legacy = base / "blowfang" / "module-store" / "repos"
+    return legacy if legacy.exists() else base / "flux" / "module-store" / "repos"
 
 
 def slug_for(source: str) -> str:
@@ -136,8 +138,42 @@ class ModuleStore:
             raise ValueError(f"{self.config}: 'sources' must be a list")
         return entries
 
+    def disabled_defaults(self) -> list[str]:
+        try:
+            data = json.loads(self.config.read_text())
+        except FileNotFoundError:
+            return []
+        return data.get("disabled_defaults", [])
+
+    def default_sources(self) -> list[dict]:
+        path = ROOT / "config" / "flux-catalog.json"
+        try:
+            data = json.loads(path.read_text())
+        except FileNotFoundError:
+            return []
+        if data.get("format") != 1 or not isinstance(data.get("sources"), list):
+            raise ValueError(f"{path}: invalid default catalog format")
+        entries = []
+        for item in data["sources"]:
+            source = item["source"]
+            ref = item.get("ref", "")
+            if not re.fullmatch(r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?", source):
+                raise ValueError(f"{path}: expected a GitHub HTTPS repository URL")
+            entry = {"id": slug_for(source + "#" + ref), "source": source}
+            if ref:
+                entry["ref"] = ref
+            entries.append(entry)
+        return entries
+
     def sources(self) -> list[dict]:
         entries = self.configured_sources()
+        seen = {(e["source"], e.get("ref", "")) for e in entries}
+        disabled = set(self.disabled_defaults())
+        for entry in self.default_sources():
+            key = (entry["source"], entry.get("ref", ""))
+            if key not in seen and entry["id"] not in disabled:
+                entries.append(entry)
+                seen.add(key)
         configured_paths = {str(Path(e['source']).expanduser().resolve())
                             for e in entries if Path(e.get('source', '')).expanduser().is_dir()}
         directory = ROOT / 'local-modules'
@@ -156,10 +192,11 @@ class ModuleStore:
             configured_paths.add(source)
         return entries
 
-    def save(self, entries: list[dict]) -> None:
+    def save(self, entries: list[dict], disabled: list[str] | None = None) -> None:
         self.config.parent.mkdir(parents=True, exist_ok=True)
         temp = self.config.with_suffix(self.config.suffix + ".tmp")
-        temp.write_text(json.dumps({"format": 1, "sources": entries}, indent=2) + "\n")
+        temp.write_text(json.dumps({"format": 1, "sources": entries,
+                                    "disabled_defaults": self.disabled_defaults() if disabled is None else disabled}, indent=2) + "\n")
         temp.replace(self.config)
 
     def add(self, source: str, ref: str | None = None) -> dict:
@@ -185,15 +222,20 @@ class ModuleStore:
             entry["ref"] = ref
         entries.append(entry)
         self.sync(entry, refresh=True)
-        self.save(entries)
+        self.save(entries, [i for i in self.disabled_defaults() if i != entry["id"]])
         return entry
 
     def remove(self, repo_id: str) -> bool:
         entries = self.configured_sources()
         kept = [e for e in entries if e.get("id") != repo_id]
-        if len(kept) == len(entries):
+        defaults = {e["id"] for e in self.default_sources()}
+        disabled = self.disabled_defaults()
+        is_default = repo_id in defaults and repo_id not in disabled
+        if len(kept) == len(entries) and not is_default:
             return False
-        self.save(kept)
+        if is_default:
+            disabled.append(repo_id)
+        self.save(kept, disabled)
         return True
 
     def location(self, entry: dict) -> Path:
@@ -260,7 +302,7 @@ def create_app(store: ModuleStore | None = None):
         raise RuntimeError("Flask is required for the web UI; install tools/k6_store_requirements.txt") from exc
 
     app = Flask(__name__, template_folder=str(TEMPLATES), static_folder=str(TEMPLATES / "static"))
-    app.secret_key = os.environ.get("BLOWFANG_STORE_SECRET") or secrets.token_bytes(32)
+    app.secret_key = os.environ.get("FLUX_STORE_SECRET") or os.environ.get("BLOWFANG_STORE_SECRET") or secrets.token_bytes(32)
     catalog = store or ModuleStore()
     from k6_build_jobs import BuildJobs
     build_jobs = BuildJobs()
