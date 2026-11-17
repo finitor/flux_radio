@@ -1,3 +1,4 @@
+{% macro factory_meter() %}<g shape-rendering="crispEdges"><text x="2" y="38" font-size="6">-73dBm +20</text>{% for i in range(13) %}{% set h = [i+1,7]|min %}{% if i < 9 %}<rect x="{{ 62+i*5 }}" y="{{ 40-h }}" width="4" height="{{ h }}"/>{% else %}<rect x="{{ 62+i*5+0.5 }}" y="{{ 40-h+0.5 }}" width="3" height="{{ h-1 }}" fill="none" stroke="#172211" stroke-width="1"/>{% endif %}{% endfor %}</g>{% endmacro %}
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Feature packs · Flux</title><link rel="stylesheet" href="{{ url_for('static', filename='store.css') }}"><link rel="stylesheet" href="{{ url_for('static', filename='builder.css') }}"></head>
 <body><header class="topbar"><a class="brand" href="{{ url_for('index') }}"><span class="brand-mark">F</span> Flux <span>Feature packs</span></a><nav class="top-actions"><a href="{{ url_for('index') }}">Catalog</a><a href="{{ url_for('radio') }}">My radio</a><a href="{{ url_for('settings_page') }}">Device settings</a></nav></header>
@@ -16,7 +17,7 @@
 <rect width="128" height="64" fill="#b7c8a1"/><g fill="#172211" font-family="monospace">
 <text x="2" y="6" font-size="6">AG7SU</text><text x="88" y="6" font-size="6">DW</text><rect x="111" y="1" width="13" height="5" fill="none" stroke="#172211" stroke-width=".7"/><rect x="112" y="2" width="10" height="3"/>
 {% if key == 'flux' %}<path d="M0 8H128 M0 9V30" stroke="#172211" stroke-width="1"/>{% elif key == 'classic' %}<path d="M2 9L9 12.5 2 16Z"/>{% else %}<path d="M0 9V30" stroke="#172211" stroke-width="1"/>{% endif %}
-<text x="3" y="23" font-size="6">VFO</text><text x="34" y="23" font-size="14">146.520</text><text x="113" y="17" font-size="7">00</text><text x="3" y="30" font-size="6">FM  LOW  12.5K</text><text x="3" y="39" font-size="6">S</text><path d="M12 34h3v5h-3z M17 34h3v5h-3z M22 34h3v5h-3z M27 34h3v5h-3z"/>
+<text x="3" y="23" font-size="6">VFO</text><text x="34" y="23" font-size="14">146.520</text><text x="113" y="17" font-size="7">00</text><text x="3" y="30" font-size="6">FM  LOW  12.5K</text>{{ factory_meter() }}
 <text x="3" y="55" font-size="6">VFO</text><text x="34" y="55" font-size="14">440.850</text><text x="113" y="49" font-size="7">00</text><text x="3" y="62" font-size="6">FM  LOW  25K</text></g></svg>
 <strong>{{ theme.get('name', key|capitalize) }}</strong>
 <span class="theme-desc">{{ theme.get('description', '') }}</span>
@@ -33,7 +34,7 @@
         <g fill="#172211" font-family="monospace">
           <text x="2" y="6" font-size="6">AG7SU</text><text x="88" y="6" font-size="6">DW</text><rect x="111" y="1" width="13" height="5" fill="none" stroke="#172211" stroke-width=".7"/>
           <text x="12" y="15" font-size="6">RX</text><text x="2" y="23" font-size="6">VFO</text><text x="34" y="24" font-size="14">146.520</text><text x="2" y="30" font-size="6">FM  LOW  12.5K</text>
-          <text x="2" y="38" font-size="6">S</text><rect x="12" y="34" width="18" height="4"/>
+          {{ factory_meter() }}
           <text x="2" y="55" font-size="6">VFO</text><text x="34" y="56" font-size="14">440.850</text><text x="2" y="62" font-size="6">FM  LOW  25K</text>
           <g data-editor-focus shape-rendering="crispEdges"></g>
         </g>

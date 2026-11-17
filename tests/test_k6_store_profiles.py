@@ -67,3 +67,11 @@ def test_factory_themes_are_editable_presets():
         assert f'data-editor-custom value="{token}"'.encode() in page.data
         assert client.post('/profiles/preview', data={'theme': token}).status_code == 200
     assert 'Flux — factory default'.encode() in client.get('/profiles').data
+
+
+def test_factory_meter_preview_matches_segment_geometry():
+    page = k6_store.create_app().test_client().get('/profiles').data
+    assert b'x="62" y="39" width="4" height="1"' in page
+    assert b'x="102" y="33" width="4" height="7"' in page
+    assert b'x="107.5" y="33.5" width="3" height="6" fill="none"' in page
+    assert b'x="122.5" y="33.5" width="3" height="6" fill="none"' in page
