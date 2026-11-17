@@ -44,3 +44,7 @@ The catalog `/profiles` page now offers **Build this profile** after previewing 
 Pack builds and matrix builds now take the same OS-level `flock` lock around the shared Aura build output, including the image-copy and size-verification stages. This prevents two `k6.py build` / `k6.py matrix --build` invocations (including those launched by the catalog) from reading each other's generated images. Builds started directly via the lower-level shell script do not participate in this lock and must not be run concurrently. The catalog's in-memory job queue remains a UI concern; the filesystem lock is the cross-process safety boundary.
 
 Muse Delegate read-only audit `8e2741232680` completed. Its findings on serial handshake identity, module-bundle trust, and rollback need independent verification against the full firmware and pack-install code before enabling any writes. No firmware attestation is claimed by the shared build lock.
+
+### Install preflight trust boundary
+
+`tools/k6_pack_install.py` verifies staged firmware and module SHA-256 hashes, resolved pack requirements, module identity and API level. It now also checks that any module-manifest `sha256` entry agrees with the locked module digest, and rejects modules that unexpectedly claim a firmware-specific build ID. These are **consistency and integrity checks against the supplied lockfile**, not authentication: a malicious actor could replace both payload and lockfile. The installation path remains fail-closed pending independently verifiable firmware identity and on-radio capability negotiation.

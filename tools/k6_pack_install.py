@@ -64,6 +64,12 @@ def verify_pack(root, spec, *, require_attested=True):
         entry = manifest['library'][0]
         if entry['id'] != mod['id'] or entry['level'] != mod['api_level'] or entry['file'] != module_path.name:
             raise PackError(f'module manifest differs from lockfile: {mod["name"]}')
+        hashes = manifest.get('sha256')
+        if hashes is not None:
+            if not isinstance(hashes, dict) or hashes.get(module_path.name) != mod['sha256']:
+                raise PackError(f'module manifest hash differs from lockfile: {mod["name"]}')
+        if manifest.get('build_id', '0000000000000000') != '0000000000000000':
+            raise PackError(f'module bundle unexpectedly bound to firmware build: {mod["name"]}')
         if not 1 <= mod['api_level'] <= 22:
             raise PackError(f'unsupported module API level: {mod["name"]}')
     return lock

@@ -48,3 +48,18 @@ def test_tampered_capabilities_rejected(tmp_path):
     (root / 'pack.lock.json').write_text(json.dumps(lock))
     with pytest.raises(PackError, match='capabilities'):
         verify_pack(root, SPEC, require_attested=False)
+
+
+def test_manifest_hash_conflict_rejected(tmp_path):
+    root = pack(tmp_path)
+    manifest_path = root / 'modules/surf/manifest.json'
+    manifest = json.loads(manifest_path.read_text())
+    manifest['sha256'] = {'module.bin': '0' * 64}
+    manifest_path.write_text(json.dumps(manifest))
+    lock_path = root / 'pack.lock.json'
+    lock = json.loads(lock_path.read_text())
+    import hashlib
+    next(m for m in lock['modules'] if m['name'] == 'surf')['manifest_sha256'] = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    lock_path.write_text(json.dumps(lock))
+    with pytest.raises(PackError, match='manifest hash differs'):
+        verify_pack(root, SPEC, require_attested=False)
