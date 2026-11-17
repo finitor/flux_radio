@@ -7,12 +7,15 @@ from __future__ import annotations
 
 DMA_BASE = 0x40020000
 GPIOB_IDR = 0x48000410
+MEASURED_FREE_RUNNING_HZ = 5_710_000  # gp0dma run 7; approximate, configuration-specific
 
 
 class GpioRxDma:
     def __init__(self, write_byte, samples=(), sample_rate=85800, cpu_hz=96_000_000):
         self.write_byte = write_byte
         self.samples = iter(samples)
+        if sample_rate <= 0 or cpu_hz <= 0:
+            raise ValueError("clock rates must be positive")
         self.sample_rate = sample_rate
         self.cpu_hz = cpu_hz
         self.regs = {}
@@ -21,7 +24,13 @@ class GpioRxDma:
         self.index = 0
         self.phase = 0
         self.transfers = 0
+        self.elapsed_cycles = 0
         self.exhausted = False
+
+    @classmethod
+    def measured_free_running(cls, write_byte, samples=(), cpu_hz=96_000_000):
+        """Use measured unpaced DMA throughput; NOT an APRS sample clock."""
+        return cls(write_byte, samples, MEASURED_FREE_RUNNING_HZ, cpu_hz)
 
     def write(self, address, value):
         offset = address - DMA_BASE
@@ -46,6 +55,9 @@ class GpioRxDma:
         return self.remaining if offset == 0x0c else self.regs.get(offset, 0)
 
     def advance(self, cycles):
+        if cycles < 0:
+            raise ValueError("cycles must be nonnegative")
+        self.elapsed_cycles += cycles
         ccr = self.regs.get(0x08, 0)
         if not ccr & 1 or not self.initial or self.exhausted:
             return
