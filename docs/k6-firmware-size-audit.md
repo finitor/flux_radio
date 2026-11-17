@@ -1,4 +1,43 @@
-# Firmware size audit — display and module host (2026-11-17)
+# FD6818B firmware size audit
+
+## Normal Blowfang Base (2026-11-17)
+
+The normal VFO host at `019093c` links **110,256 bytes**, including 97,192 B of
+text and 12,848 B of read-only data. This is 11,952 B above the 96 KiB Base
+policy and leaves 12,624 B before the physical 120 KiB application limit.
+The build used `fd6818b,spilib,txdog-quiet,lean,blowfang-host` with
+`K6_SCAN_SERVICE=0` and `K6_FSK_RX_SERVICE=0`, matching the Base build plan.
+Use `tools/k6_flash_budget.py` on the freshly linked Base ELF for attribution.
+
+Neither built-in Explore nor the compact scan loop is present in this Base
+ELF. The compact scanner entry points resolve to unavailable stubs. The
+module API still references the Explore frame renderer, header callback, and
+candidate ranking, retaining their code even with the Scan gate off. CW
+services have independent module consumers and need a separate dependency
+audit before gating them.
+
+The experiments below used a private copy of the generated source and built
+against an unmodified control from that same copy (110,248 B, 8 B below the
+production baseline). These are link-size experiments. They have no runtime
+validation and were not applied to the firmware.
+
+| Trial | Flash | Reduction vs. control | Behavior to account for |
+|---|---:|---:|---|
+| Stub Explore frame, header and candidate ranking | 106,888 B | 3,360 B | Keep the module API slot layout and retain real callbacks in Scan builds. |
+| Omit satellite and SSTV startup loads and their Aura CPS commands | 109,328 B | 920 B | Legacy programming clients lose those specific records and commands. |
+| Disable FM and Search through assignable-key dispatch | 109,820 B | 428 B | Existing assignments need a visible unavailable state or replacement. This trial only removes the tested entry paths. |
+| Disable the native APRS beacon action and transmit dispatch | 107,608 B | 2,640 B | This removes native beacon TX while retaining the APRS settings and module AFSK API. The current APRS pack supplies RX. |
+| All four changes | 102,924 B | 7,324 B | 4,620 B above the Base policy with the tradeoffs above. |
+
+The lowest-impact next change is to finish the Scan gate for Explore's
+renderer and ranking. Then profile the shared display/text path and native
+settings/key dispatch. The largest named symbols in scope are inlined
+aggregates, so their symbol sizes alone do not estimate removable bytes.
+
+## Historical Explore/pager image audit (2026-11-17)
+
+The findings below describe the older image. Use the normal-host measurements
+above for current Base decisions.
 
 Baseline: `pager-explore,fd6818b,spilib,txdog` release image, 103,796 / 122,880 flash bytes; 19,084 free. Reproduce with `tools/k6_flash_budget.py` on the release ELF. Estimates below are hypotheses, not additive savings.
 
