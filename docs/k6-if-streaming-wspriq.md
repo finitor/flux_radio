@@ -73,3 +73,20 @@ on-radio efficient multistage decimator, testing its cycle budget and alias
 rejection against this reference, then measuring sustained serial delivery.
 The source is modeled as idealized population counts, not a proven physical
 APRS capture; RF acquisition and successful AX.25 decoding remain open.
+
+## Portable Cortex-M0 fixed-point DSP core (first implementation)
+
+`c/k6/if_iq.h` and `c/k6/if_iq.c` now contain a small, transport-neutral
+streaming mixer. It accepts centered GP0 population counts, advances a
+32-bit phase accumulator at the effective count rate, mixes using a 16-entry
+Q7 cosine table, and emits signed I/Q after a configurable number of counts.
+A native host test compiles the **same C code** and checks output count and
+a synthetic +1200 Hz signal. The Thumb/Cortex-M0 object compiles to about
+144 bytes of code plus constant data in the current build.
+
+**This is not yet a radio module or an APRS-ready decimator.** Its simple
+boxcar aggregation has inadequate anti-alias rejection for arbitrary IF
+signals; a multistage CIC/FIR and scaling/overflow bounds must be designed
+and validated before connecting it to GP0 DMA or exporting real captures.
+The source sample clock also needs measurement and correction. Keeping the
+core separate allows unit testing before exposing it to radio hardware.
