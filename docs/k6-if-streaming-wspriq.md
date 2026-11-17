@@ -90,3 +90,21 @@ signals; a multistage CIC/FIR and scaling/overflow bounds must be designed
 and validated before connecting it to GP0 DMA or exporting real captures.
 The source sample clock also needs measurement and correction. Keeping the
 core separate allows unit testing before exposing it to radio hardware.
+
+## Fixed-point CIC stage
+
+`c/k6/if_cic.[ch]` adds a portable, third-order complex CIC decimator with
+power-of-two factors 1..32, modular 32-bit integrators, three comb stages,
+and divide-free scaling. This is separate from the earlier mixer, allowing
+filter design and benchmarking without touching the production WSPR receiver.
+Host-native tests exercise positive/negative DC gain, output counts, and
+suppression of a synthetic signal that would alias through a simple boxcar.
+The Cortex-M0 build is 292 bytes of text at `-Oz` on this toolchain.
+
+**Limitations:** CIC stopband nulls and passband droop depend on frequency;
+the alias-rejection test is one targeted frequency, not a full filter response
+qualification. An appropriate compensation FIR and multistage rate plan are
+still required for a robust 9.6 kHz stream. The CIC code is compiled for M0,
+but its instruction-cycle cost and integration with GP0 DMA are **not yet
+measured in the emulator or on hardware**. Avoid presenting host execution
+speed as MCU throughput.
