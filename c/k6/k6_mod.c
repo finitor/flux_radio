@@ -78,6 +78,26 @@ uint64_t km_siphash(const uint8_t k[16], const uint8_t *m, unsigned n) {
   return v[0] ^ v[1] ^ v[2] ^ v[3];
 }
 
+/* Fixed-domain cable challenge, never a general-purpose module signing oracle.
+   Input is exactly K6CP v2's 16-byte record plus a 16-byte host nonce. */
+int km_capability_proof(const uint8_t record[16], const uint8_t nonce[16], uint8_t tag[8]) {
+  uint8_t msg[40] = {'K','6','C','A','P','A','U','1'};
+  uint8_t key[16];
+  const volatile uint8_t *kp = key_store;
+  unsigned i, same = 1;
+  uint64_t mac;
+  for (i = 0; i < 16; i++) {
+    key[i] = kp[i];
+    same &= key[i] == (uint8_t)~placeholder_inv[i];
+    msg[8+i] = record[i];
+    msg[24+i] = nonce[i];
+  }
+  if (same) return KM_NO_KEY;
+  mac = km_siphash(key, msg, sizeof msg);
+  for (i = 0; i < 8; i++) tag[i] = (uint8_t)(mac >> (8*i));
+  return 0;
+}
+
 /* the whole image is in: is it a module of ours? */
 static int check(const uint8_t *a, unsigned have_bytes, unsigned dl) {
   unsigned code = a[4] | a[5] << 8, entry = a[6] | a[7] << 8, total = KM_HDR + code + KM_TAG;

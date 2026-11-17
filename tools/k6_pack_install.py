@@ -103,7 +103,7 @@ def compatibility_report(lock, capabilities, expected_build_id=None):
             'build_identity_verified': False, 'install_ready': False}
 
 
-def radio_preflight(root, spec, port):
+def radio_preflight(root, spec, port, key_file=None):
     from k6_install import open_port, open_cable, InstallError
     from types import SimpleNamespace
     lock = verify_pack(root, spec, require_attested=False)
@@ -112,13 +112,25 @@ def radio_preflight(root, spec, port):
         expected_build_id = image_build_id(firmware.read_bytes())
     except ValueError:
         expected_build_id = None  # legacy artifact; cannot match a build ID
+    if key_file is not None:
+        from modem import k6mod
+        key = k6mod.read_key(str(key_file))
+        if key == k6mod.PLACEHOLDER:
+            raise PackError('placeholder is not a provisioned module key')
+    else:
+        key = None
     connection = open_port(SimpleNamespace(port=port))
     cable = None
     try:
         cable = open_cable(connection, lambda *_: None, wait=3.0)
         if cable is None:
             raise PackError('no Blowfang cable session')
-        report = compatibility_report(lock, cable.capabilities(), expected_build_id)
+        caps = cable.authenticated_capabilities(key) if key is not None else cable.capabilities()
+        report = compatibility_report(lock, caps, expected_build_id)
+        report['key_possession_verified'] = key is not None
+        report['capability_report_authenticated'] = key is not None
+        # A holder of the shared key can impersonate firmware; no secure boot or
+        # hardware measurement is available. Never enable installation here.
         report['packs'] = lock['packs']
         return report
     except InstallError as exc:
@@ -138,15 +150,18 @@ def main():
     parser.add_argument('--inspect-unverified', action='store_true', help='inspect only; never install')
     parser.add_argument('--radio-preflight', action='store_true', help='query compatibility only; no flash writes (ends cable session with restart)')
     parser.add_argument('--port', help='explicit radio serial port')
+    parser.add_argument('--key-file', type=Path, help='explicit existing key for fresh read-only capability challenge')
     args = parser.parse_args()
     if args.radio_preflight and (not args.port or args.inspect_unverified):
         parser.error('--radio-preflight requires --port and cannot be combined with --inspect-unverified')
+    if args.key_file and not args.radio_preflight:
+        parser.error('--key-file requires --radio-preflight')
     if args.port and not args.radio_preflight:
         parser.error('--port requires --radio-preflight')
     try:
         spec = json.loads(args.spec.read_text())
         if args.radio_preflight:
-            report = radio_preflight(args.pack, spec, args.port)
+            report = radio_preflight(args.pack, spec, args.port, args.key_file)
             print(json.dumps(report, indent=2))
             return 0 if report['capabilities_match'] and report['build_id_match'] else 1
         lock = verify_pack(args.pack, spec, require_attested=not args.inspect_unverified)

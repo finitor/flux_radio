@@ -15,7 +15,7 @@ if updated_build not in build_text:
     build.write_text(build_text)
 path = work / 'src/cps/mod.rs'
 text = path.read_text()
-marker = '            CMD_CABLE_CAPS if f.addr == 0 && f.len == 0 => {'
+marker = '            CMD_CABLE_CAPS if f.addr == 0 && '
 anchor = '            CMD_CABLE_INFO => {\n'
 if text.count(anchor) != 1:
     raise SystemExit('could not uniquely locate Blowfang cable info dispatcher')
@@ -28,14 +28,25 @@ if scan not in ('0', '1') or fsk not in ('0', '1'):
 mask = 1 | (2 if scan == '1' else 0) | (4 if fsk == '1' else 0)
 insert = f'''            // Read-only capability query: K6CP, format 2, flags, API ceiling, reserved.
             // Version 2 includes the embedded linker build ID (not a runtime measurement).
-            CMD_CABLE_CAPS if f.addr == 0 && f.len == 0 => {{
+            CMD_CABLE_CAPS if f.addr == 0 && (f.len == 0 || f.len == 16) => {{
                 let mut d: [u8; 16] = [b'K', b'6', b'C', b'P', 2, {mask}, 22, 0,
                                    0, 0, 0, 0, 0, 0, 0, 0];
                 extern "C" {{
                     static k6_build_id: [u8; 8];
                 }}
                 d[8..].copy_from_slice(unsafe {{ &*core::ptr::addr_of!(k6_build_id) }});
-                cable_send(CMD_CABLE_CAPS, 0, &d);
+                if f.len == 0 {{
+                    cable_send(CMD_CABLE_CAPS, 0, &d);
+                }} else {{
+                    extern "C" {{
+                        fn km_capability_proof(record: *const u8, nonce: *const u8, tag: *mut u8) -> i32;
+                    }}
+                    let mut reply = [0u8; 25];
+                    reply[..16].copy_from_slice(&d);
+                    let result = unsafe {{ km_capability_proof(d.as_ptr(), f.data.as_ptr(), reply[17..].as_mut_ptr()) }};
+                    reply[16] = result as u8;
+                    cable_send(CMD_CABLE_CAPS, 0, &reply);
+                }}
             }}
 '''
 if marker in text:

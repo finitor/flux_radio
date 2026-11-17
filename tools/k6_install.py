@@ -32,6 +32,8 @@ Needs Python 3.8+, pyserial and numpy (pip install pyserial numpy). SPDX-License
 import argparse
 import datetime
 import hashlib
+import hmac
+import secrets
 import json
 import os
 import shutil
@@ -293,7 +295,10 @@ class Cable(CpsLink):
 
     def capabilities(self):
         """Query optional versioned firmware capabilities; never infer them from INFO."""
-        data = self.call(CMD_CAPS)
+        return self.parse_capabilities(self.call(CMD_CAPS))
+
+    @staticmethod
+    def parse_capabilities(data):
         if len(data) != 16 or data[:4] != b'K6CP' or data[4] not in (1, 2) or data[7] != 0:
             raise InstallError('unsupported or malformed firmware capability record')
         if (data[4] == 1 and any(data[8:])) or (data[4] == 2 and not any(data[8:])):
@@ -304,6 +309,25 @@ class Cable(CpsLink):
         return {'format': data[4], 'build_id': data[8:].hex() if data[4] == 2 else None, 'module_loader': True, 'scanner': bool(mask & 2),
                 'fsk_rx': bool(mask & 4), 'module_api_max': data[6],
                 'authenticated': False, 'build_identity_verified': False}
+
+    def authenticated_capabilities(self, key):
+        """Fresh, domain-separated proof of key possession and reported capability record."""
+        if len(key) != 16 or key == k6mod.PLACEHOLDER:
+            raise InstallError('invalid module key for capability challenge')
+        nonce = secrets.token_bytes(16)
+        reply = self.call(CMD_CAPS, data=nonce)
+        if len(reply) != 25:
+            raise InstallError('malformed or unsupported capability proof')
+        record, status, tag = reply[:16], reply[16], reply[17:]
+        if status != 0:
+            raise InstallError('radio has no provisioned key or refused capability proof')
+        caps = self.parse_capabilities(record)
+        if caps['format'] != 2:
+            raise InstallError('capability proof requires protocol 2')
+        expected = k6mod.siphash24(key, b'K6CAPAU1' + record + nonce).to_bytes(8, 'little')
+        if not hmac.compare_digest(tag, expected):
+            raise InstallError('capability proof did not match the expected module key')
+        return caps  # caller separately records successful authentication
 
     def send_image(self, img, xfer, window=1):
         """One signed image as L chunks; the last chunk alone (its install erases and programs

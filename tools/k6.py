@@ -36,6 +36,7 @@ def command(argv):
     preflight.add_argument('pack', type=Path)
     preflight.add_argument('--port', required=True)
     preflight.add_argument('--spec', type=Path)
+    preflight.add_argument('--key-file', type=Path, help='authenticate capability report using an existing key')
     matrix = sub.add_parser('matrix', help='verify flash budgets of separately linked profiles')
     matrix.add_argument('--size-dir', type=Path)
     matrix.add_argument('--build', action='store_true')
@@ -58,6 +59,7 @@ def command(argv):
         if args.spec: cmd += ['--spec', str(args.spec)]
     elif args.command == 'preflight':
         cmd = ['k6_pack_install.py', str(args.pack), '--radio-preflight', '--port', args.port]
+        if args.key_file: cmd += ['--key-file', str(args.key_file)]
         if args.spec: cmd += ['--spec', str(args.spec)]
     elif args.command == 'matrix':
         cmd = ['k6_pack_matrix.py']
