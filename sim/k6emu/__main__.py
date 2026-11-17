@@ -9,10 +9,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import struct
 import sys
 from collections import Counter, deque
 from pathlib import Path
 from .lcd import SC5260
+from .rx_dma import DMA_BASE, GpioRxDma
 
 
 FLASH_BASE = 0x08000000
@@ -33,9 +35,11 @@ USART1_IRQ_BIT = 1 << 27
 SPI1 = 0x40013000
 SPI2 = 0x40003800
 TIM14 = 0x40002000
+TIM6 = 0x40001000
 TIM17 = 0x40014800
 DMA = 0x40020000
 ADC = 0x40012400
+SYSCFG_CFGR1 = 0x40010000
 FLASH_ACR = 0x40022000
 NVIC_ISER = 0xE000E100
 NVIC_ICER = 0xE000E180
@@ -68,17 +72,59 @@ def overlay_module_bundle(flash_data: bytearray, bundle_path: Path, key_path: Pa
     bundle = k6_install.load_bundle(str(bundle_path))
     key = k6mod.read_key(str(key_path))
     serials = k6_install.Serials()
-    installed = []
-    entries = [entry for entry in bundle["library"]
-               if entry["kind"] == "module"
-               and (selected_slots is None or entry["slot"] in selected_slots)]
+    entries = [dict(entry) for entry in bundle["library"] if entry["kind"] == "module"]
+    fixed_slots = {entry["slot"] for entry in entries if entry.get("slot") is not None}
+    used_auto_slots = set()
+    for entry in entries:
+        if entry.get("slot") is not None:
+            continue
+        module_id = entry.get("id")
+        if not module_id:
+            raise ValueError(f"{entry.get('name', 'module')}: automatic bundle entry has no stable id")
+        marker = k6_install.auto_marker(module_id)
+        if Path(entry["path"]).stat().st_size + len(marker) + 24 > k6_install.LIB_SLOT:
+            raise ValueError(f"{entry.get('name', module_id)} does not fit in a module slot")
+        matches, free = [], []
+        for candidate in k6_install.AUTO_SLOTS:
+            if candidate in fixed_slots or candidate in used_auto_slots:
+                continue
+            address = k6_install.LIB_BASE + candidate * k6_install.LIB_SLOT
+            header = bytes(flash_data[address:address + 16])
+            if header == b"\xff" * 16:
+                if flash_data[address:address + k6_install.LIB_SLOT] == b"\xff" * k6_install.LIB_SLOT:
+                    free.append(candidate)
+                continue
+            if header[:4] != b"K6M" + bytes([k6mod.ABI]) or header[13] != k6mod.LIB_FLAG:
+                continue
+            length = int.from_bytes(header[4:6], "little")
+            total = 16 + length + 8
+            image_at = flash_data[address:address + total]
+            if (length >= 24 and total <= k6_install.LIB_SLOT
+                    and len(image_at) == total
+                    and image_at[-8:] == struct.pack("<Q", k6mod.siphash24(key, image_at[:-8]))
+                    and image_at[-32:-8] == marker):
+                matches.append(candidate)
+        if len(matches) > 1:
+            raise ValueError(f"{module_id}: matching module identity appears in multiple slots")
+        if matches:
+            entry["slot"] = matches[0]
+        elif free:
+            entry["slot"] = free[0]
+        else:
+            raise ValueError(f"no free automatic module slots for {entry.get('name', module_id)}")
+        entry["_auto"] = True
+        used_auto_slots.add(entry["slot"])
+
     if selected_slots is not None:
+        entries = [entry for entry in entries
+                   if entry.get("slot") in selected_slots and not entry.get("_auto")]
         found = {entry["slot"] for entry in entries}
         missing = selected_slots - found
         if missing:
-            raise ValueError(f"bundle has no module for slot(s): {', '.join(map(str, sorted(missing)))}")
+            raise ValueError(f"bundle has no fixed module in slot(s): {', '.join(map(str, sorted(missing)))}")
     if not entries:
         raise ValueError("bundle contains no selected module entries")
+    installed = []
 
     for entry in entries:
         slot = entry["slot"]
@@ -116,6 +162,10 @@ class K6Board:
         # Keep collection enabled by default for CLI users and debugging reports.
         self.collect_mmio = collect_mmio or trace_mmio
         self.regs: dict[int, int] = {}
+        # The bootloader leaves MEM_MODE=2 on this K6. Aura's txdog temporarily remaps SRAM
+        # to address zero (MEM_MODE=3) to install its HardFault/TIM14 vectors.
+        self.regs[SYSCFG_CFGR1] = 2
+        self.memory_alias_mapped = False
         self.gpio_odr = {name: 0 for name in GPIO_BASES.values()}
         self.gpio_odr["A"] = 1 << 2      # NOR flash deselected at reset
         self.gpio_odr["B"] = 1 << 12     # LCD deselected
@@ -149,6 +199,7 @@ class K6Board:
         self.fd_read_index = 0
         self.fd_read_bit = 0
         self.fd_writes: list[tuple[int, int]] = []
+        self.rx_dma = None  # opt-in; no fabricated RF reception by default
         self.adc_inputs = {0: 2048, 1: 2048}
         if adc_inputs:
             self.adc_inputs.update(adc_inputs)
@@ -170,6 +221,7 @@ class K6Board:
         self.recent_mmio: deque[dict[str, int | str]] = deque(maxlen=256)
         self.instructions = 0
         self.cycles = 0.0
+        self.tim6_started_at = 0.0
         self.cpi = cpi
         self.systick_last_read = 0.0
         self.systick_pending = False
@@ -201,6 +253,14 @@ class K6Board:
         self.reset_pc = reset & ~1
         for key in keys:
             self.press_key(key)
+
+    def attach_rx_bits(self, bits, sample_rate=85800):
+        """Enable simulated PB1 GPIO DMA samples (one bit per IF sample)."""
+        def write_byte(address, value):
+            if not RAM_BASE <= address < RAM_BASE + RAM_BYTES:
+                raise ValueError(f"DMA destination outside SRAM: 0x{address:08x}")
+            self.uc.mem_write(address, bytes((value,)))
+        self.rx_dma = GpioRxDma(write_byte, bits, sample_rate)
 
     def cpu_registers(self):
         names = [f"R{i}" for i in range(13)] + ["SP", "LR", "PC", "XPSR"]
@@ -447,11 +507,16 @@ class K6Board:
             return True
         if SPI1 <= address < SPI1 + 0x24 or SPI2 <= address < SPI2 + 0x24:
             return True
-        if TIM14 <= address < TIM14 + 0x54 or TIM17 <= address < TIM17 + 0x54:
+        if (TIM6 <= address < TIM6 + 0x54 or TIM14 <= address < TIM14 + 0x54
+                or TIM17 <= address < TIM17 + 0x54):
+            return True
+        if DMA <= address < DMA + 0x18:
             return True
         if ADC <= address <= ADC + 0x40:
             return True
         if address == FLASH_ACR:
+            return True
+        if address == SYSCFG_CFGR1:
             return True
         if address in (NVIC_ISER, NVIC_ICER, NVIC_ISPR, NVIC_ICPR, NVIC_IABR):
             return True
@@ -465,7 +530,9 @@ class K6Board:
         address = page + offset
         value = self.regs.get(address, 0)
 
-        if address == RCC:
+        if self.rx_dma is not None and DMA <= address < DMA + 0x18:
+            value = self.rx_dma.read(address)
+        elif address == RCC:
             if value & (1 << 16):
                 value |= 1 << 17             # HSE ready follows HSE on
             if value & (1 << 24):
@@ -487,6 +554,13 @@ class K6Board:
             value = self.spi_rx[base].popleft() if self.spi_rx[base] else 0xFF
         elif address == TIM14 + 0x24:
             value = int(self.cycles // 9600) & 0xFFFF
+        elif address == TIM6 + 0x10:       # TIM6 UIF follows its prescaler and auto-reload
+            value &= ~1
+            if self.regs.get(TIM6, 0) & 1:
+                divider = self.regs.get(TIM6 + 0x28, 0) + 1
+                period = divider * (self.regs.get(TIM6 + 0x2C, 0) + 1)
+                if self.cycles - self.tim6_started_at >= period:
+                    value |= 1
         elif address == TIM17 + 0x24:
             value = int(self.cycles // (self.regs.get(TIM17 + 0x28, 0) + 1)) & 0xFFFF
         elif address == ADC + 0x00:
@@ -538,6 +612,26 @@ class K6Board:
             self.systick_last_read = self.cycles
             self.systick_pending = True
             self.regs[address] = 0
+        elif address == TIM6 + 0x10:          # SR write clears UIF in the model
+            self.regs[address] = value & ~1
+            if value & 1 == 0:
+                self.tim6_started_at = self.cycles
+        elif address == TIM6 + 0x14 and value & 1:  # EGR.UG resets the timer counter
+            self.regs[address] = value
+            self.tim6_started_at = self.cycles
+        elif address == SYSCFG_CFGR1:        # MEM_MODE: main/system flash or SRAM at address zero
+            self.regs[address] = value & 0x3
+            if not self.memory_alias_mapped:
+                uc.mem_map(0, 0x1000)
+                self.memory_alias_mapped = True
+            mode = value & 0x3
+            if mode == 3:
+                alias = bytes(uc.mem_read(RAM_BASE, 0x1000))
+            elif mode in (0, 2):
+                alias = bytes(uc.mem_read(FLASH_BASE, 0x1000))
+            else:
+                alias = b"\xff" * 0x1000
+            uc.mem_write(0, alias)
         elif address == USART1 + 0x28:        # TDR
             self.uart_tx.append(value & 0xFF)
             sys.stdout.buffer.write(bytes((value & 0xFF,)))
@@ -632,6 +726,8 @@ class K6Board:
                 break
             self.instructions += n
             self.cycles += n * self.cpi
+            if self.rx_dma is not None:
+                self.rx_dma.advance(n * self.cpi)
             self._apply_due_events()
             self._service_uart_rx_irq()
             self.last_pc = self.uc.reg_read(arm.UC_ARM_REG_PC) & ~1
@@ -701,6 +797,7 @@ class K6Board:
             "lcd_trace_events": len(self.lcd_trace),
             "modules": modules or [],
         }
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(report, indent=2) + "\n")
         print(f"Wrote emulator debug report: {path}", file=sys.stderr)
 
