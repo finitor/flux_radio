@@ -12,6 +12,7 @@ from sim.k6emu.__main__ import K6Board, overlay_module_bundle
 from sim.k6emu.aprs_signal import ui_frame
 from sim.k6emu.if_signal import pb1_bits
 from sim.k6emu.if_capture import parse_capture
+from sim.k6emu.if_capture import parse_capture
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_IMAGE = ROOT / "firmware/k6-aura/out-fd6818b/aura-fd6818b-blowfang-host.bin"
@@ -91,6 +92,15 @@ class K6Workbench:
             self.board.attach_rx_bits(samples)
             return {"frame_bytes": len(frame), "sample_rate_hz": 85800,
                     "note": "armed only; reception requires firmware DMA activity"}
+
+    def import_if_capture(self, log: str, sample_rate: int = 85800):
+        if len(log) > 100_000 or not 1000 <= sample_rate <= 200_000:
+            raise ValueError("capture too large or invalid sample rate")
+        samples, metadata = parse_capture(log)
+        with self.lock:
+            self.board.attach_rx_bits(samples, sample_rate=sample_rate)
+        return {**metadata, "sample_rate_hz": sample_rate,
+                "note": "rate supplied by operator, not measured from capture"}
 
     def aprs_rx_status(self):
         with self.lock:
@@ -328,6 +338,15 @@ def create_app(workbench: RadioAdapter):
     def api_step():
         workbench.step()
         return jsonify(ok=True)
+
+    @app.post("/api/if-capture/import")
+    def api_if_capture_import():
+        try:
+            body = request.get_json(force=True)
+            return jsonify(ok=True, **workbench.import_if_capture(
+                str(body["log"]), int(body.get("sample_rate", 85800))))
+        except (ValueError, TypeError, KeyError) as exc:
+            return jsonify(ok=False, error=str(exc)), 400
 
     @app.get("/api/aprs/rx")
     def api_aprs_rx_status():
