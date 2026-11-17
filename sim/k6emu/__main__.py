@@ -107,10 +107,14 @@ class K6Board:
     def __init__(self, image: Path, *, trace_mmio: bool = False, spi_image: Path | None = None,
                  keys: tuple[str, ...] = (), key_events: tuple[tuple[float, str, bool], ...] = (),
                  gpio_events: tuple[tuple[float, str, int, int], ...] = (),
-                 adc_inputs: dict[int, int] | None = None, cpi: float = 1.5):
+                 adc_inputs: dict[int, int] | None = None, cpi: float = 1.5,
+                 collect_mmio: bool = True):
         unicorn, arm = _unicorn()
         self.ucmod, self.arm = unicorn, arm
         self.trace_mmio = trace_mmio
+        # Interactive UI runs do not consume the per-access diagnostic histories.
+        # Keep collection enabled by default for CLI users and debugging reports.
+        self.collect_mmio = collect_mmio or trace_mmio
         self.regs: dict[int, int] = {}
         self.gpio_odr = {name: 0 for name in GPIO_BASES.values()}
         self.gpio_odr["A"] = 1 << 2      # NOR flash deselected at reset
@@ -522,12 +526,14 @@ class K6Board:
                         self._fd_read_sampled()
                     break
 
-        self._trace("read", address, value, size)
+        if self.collect_mmio:
+            self._trace("read", address, value, size)
         return value
 
     def _write(self, uc, offset, size, value, page):
         address = page + offset
-        self._trace("write", address, value, size)
+        if self.collect_mmio:
+            self._trace("write", address, value, size)
         if address == 0xE000E018:             # writing SysTick VAL clears COUNTFLAG
             self.systick_last_read = self.cycles
             self.systick_pending = True

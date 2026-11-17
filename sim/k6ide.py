@@ -41,7 +41,7 @@ class K6Workbench:
             self.spi_path.parent.mkdir(parents=True, exist_ok=True)
             self.spi_path.write_bytes(self.spi_data)
             seed = self.spi_path
-        self.board = K6Board(self.image, spi_image=seed, cpi=self.cpi)
+        self.board = K6Board(self.image, spi_image=seed, cpi=self.cpi, collect_mmio=False)
         if seed is None:
             self.board.flash_data[:] = self.spi_data
         self.running = True
