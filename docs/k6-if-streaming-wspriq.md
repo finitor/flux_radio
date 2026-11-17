@@ -57,3 +57,19 @@ per-frame overhead. At 64 samples/frame, overhead adds 3,600 B/s, requiring
 saturation for reliable operation. A 128-sample frame cuts framing overhead
 in half, but still requires ~210 kbaud and leaves limited margin. Binary
 transport or lower rates and hardware measurement remain prerequisites.
+
+## Wideband IF-to-IQ reference pipeline
+
+`sim/k6emu/iq_frontend.py` now implements an **offline, decoder-neutral DSP
+reference** using GP0 population counts (64 DMA observations per count),
+IF mixing, a sixth-order low-pass filter, rational resampling to 9.6 kHz,
+int8 quantization, and the generic timestamped IQ frame format. Tests verify
+that a +1200 Hz signal survives mixing and decimation, that an out-of-band
+signal is attenuated, and that the framed output reconstructs with no gaps.
+
+The Python/SciPy reference intentionally uses a convenient filter and is
+**not MCU code**. It supplies a target for the next stage: implementing an
+on-radio efficient multistage decimator, testing its cycle budget and alias
+rejection against this reference, then measuring sustained serial delivery.
+The source is modeled as idealized population counts, not a proven physical
+APRS capture; RF acquisition and successful AX.25 decoding remain open.
