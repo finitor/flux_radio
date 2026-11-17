@@ -32,7 +32,7 @@ def checked_file(root, name, sha):
 
 
 def verify_pack(root, spec, *, require_attested=True):
-    root = Path(root)
+    root = Path(root).resolve()
     lock = json.loads((root / 'pack.lock.json').read_text())
     if lock.get('format') != 1 or lock.get('target') != spec['target']:
         raise PackError('unsupported lockfile or radio target')
