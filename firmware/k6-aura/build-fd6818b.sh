@@ -93,6 +93,7 @@ case ",$FEATURES," in
     python3 "$HERE/apply-status-callsign.py"
     ;;
 esac
+python3 "$HERE/apply-host-feature-trim.py"
 grep -q 'FD6818B FSK TBD' "$WORK/src/ui/pager.rs" || {
   echo "FD6818B overlay is missing from $WORK; inspect that checkout before building" >&2
   exit 1
@@ -105,8 +106,15 @@ K6_EXPLORE_HOST="$K6_EXPLORE_HOST" K6_SCAN_SERVICE="${K6_SCAN_SERVICE:-1}" K6_PK
   K6_OUT="$OUT/c-build" sh "$ROOT/tools/k6_build.sh"
 mkdir -p "$WORK/lib"
 cp "$OUT/c-build/libsotto_k6.a" "$WORK/lib/libsotto_k6.a"
+PACK_CFG=""
 if [ "${K6_FSK_RX_SERVICE:-1}" = 0 ]; then
-  (cd "$WORK" && RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-Tlink.x --cfg k6_no_fsk_rx" cargo build --release --features "$FEATURES")
+  PACK_CFG="$PACK_CFG --cfg k6_no_fsk_rx"
+fi
+if [ "${K6_SCAN_SERVICE:-1}" = 0 ]; then
+  PACK_CFG="$PACK_CFG --cfg k6_no_scan"
+fi
+if [ -n "$PACK_CFG" ]; then
+  (cd "$WORK" && RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-Tlink.x$PACK_CFG" cargo build --release --features "$FEATURES")
 else
   (cd "$WORK" && cargo build --release --features "$FEATURES")
 fi

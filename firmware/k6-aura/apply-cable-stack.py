@@ -114,3 +114,52 @@ pager_text = pager.read_text().replace(
     'ffi::km_packet(pkt.as_ptr(), pkt.len() as i32, arena::base(), arena::ARENA_BYTES as u32)',
 )
 pager.write_text(pager_text)
+
+# The cable session never returns and reuses the SRAM-top stack. Draw while
+# the caller's stack-resident Display is still intact, using the idle arena.
+text = path.read_text()
+old_callback = """    run_cable_session_inner(unsafe { &mut *args.app }, unsafe { &mut *args.syst },
+                            unsafe { &mut *args.display });
+}
+"""
+new_callback = """    run_cable_session_inner(unsafe { &mut *args.app }, unsafe { &mut *args.syst });
+}
+
+#[cfg(feature = "spilib")]
+unsafe extern "C" fn draw_cable_screen_on_arena<'d, DI: WriteOnlyDataCommand + 'static>(
+    raw: *mut core::ffi::c_void,
+) {
+    let display = unsafe { &mut *raw.cast::<Display<'d, DI>>() };
+    crate::screen!(display, |lcd| ui::cps::draw_lines(lcd, "BLOWFANG", "CABLE LOAD..."));
+}
+"""
+if new_callback not in text:
+    assert text.count(old_callback) == 1
+    text = text.replace(old_callback, new_callback, 1)
+    text = text.replace('struct CableSessionArgs<\'d, DI: WriteOnlyDataCommand> {', 'struct CableSessionArgs {', 1)
+    text = text.replace("    display: *mut Display<'d, DI>,\n", "", 1)
+    text = text.replace("raw.cast::<CableSessionArgs<'d, DI>>()", 'raw.cast::<CableSessionArgs>()', 1)
+    text = text.replace('let mut args = CableSessionArgs { app, syst, display };', """static mut ARGS: CableSessionArgs = CableSessionArgs {
+        app: core::ptr::null_mut(), syst: core::ptr::null_mut(),
+    };
+    unsafe { core::ptr::addr_of_mut!(ARGS).write(CableSessionArgs { app, syst }); }""", 1)
+    text = text.replace("""        km_call_on_stack(
+            core::ptr::addr_of!(_stack_start) as *mut u8,""", """        km_call_on_stack(
+            crate::hal::arena::end() as *mut u8,
+            draw_cable_screen_on_arena::<DI>,
+            (display as *mut Display<'_, DI>).cast(),
+        );
+        km_call_on_stack(
+            core::ptr::addr_of!(_stack_start) as *mut u8,""", 1)
+    text = text.replace("(&mut args as *mut CableSessionArgs<'_, DI>).cast()", 'core::ptr::addr_of_mut!(ARGS).cast()', 1)
+    old_inner = """fn run_cable_session_inner<DI: WriteOnlyDataCommand>(
+    app: &mut App,
+    syst: &mut SYST,
+    display: &mut Display<'_, DI>,
+) -> ! {"""
+    assert text.count(old_inner) == 1
+    text = text.replace(old_inner, 'fn run_cable_session_inner(app: &mut App, syst: &mut SYST) -> ! {', 1)
+    old_draw = '    uart::send_byte(ACK);\n    crate::screen!(display, |lcd| ui::cps::draw_lines(lcd, "BLOWFANG", "CABLE LOAD..."));'
+    assert text.count(old_draw) == 1
+    text = text.replace(old_draw, '    uart::send_byte(ACK);', 1)
+    path.write_text(text)

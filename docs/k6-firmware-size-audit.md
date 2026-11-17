@@ -34,6 +34,22 @@ renderer and ranking. Then profile the shared display/text path and native
 settings/key dispatch. The largest named symbols in scope are inlined
 aggregates, so their symbol sizes alone do not estimate removable bytes.
 
+## Implemented host trimming
+
+Scan now owns Explore rendering and ranking and native broadcast FM. The
+normal host retains native frequency Search, including launcher, display,
+key handling and polling. Native APRS beacon transmission, plus satellite
+and SSTV startup loading and Aura programming commands, were removed from
+the host paths. APRS RX and the module AFSK API remain available through
+their existing interfaces. Stored record formats were preserved.
+
+| Profile | Linked flash | Budget status |
+|---|---:|---|
+| Base | 104,748 B | 6,444 B over 96 KiB |
+| Base + Scan | 116,232 B | 6,648 B free |
+| Base + APRS | 105,140 B | 17,740 B free |
+| Base + Scan + APRS | 116,624 B | 6,256 B free |
+
 ## Historical Explore/pager image audit (2026-11-17)
 
 The findings below describe the older image. Use the normal-host measurements

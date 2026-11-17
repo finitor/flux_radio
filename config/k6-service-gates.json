@@ -10,7 +10,7 @@
       "environment": "K6_SCAN_SERVICE",
       "enabled": "1",
       "disabled": "0",
-      "implementation": "host compact scanner selectively linked; legacy Explore may remain"
+      "implementation": "compact scanner, Explore renderer, and broadcast FM are enabled by the Scan pack"
     },
     "candidate-ranking": {
       "pack": "scan",
@@ -18,7 +18,7 @@
       "environment": "K6_SCAN_SERVICE",
       "enabled": "1",
       "disabled": "0",
-      "implementation": "declared; shared scanner gate does not yet prove complete code removal"
+      "implementation": "candidate-ranking callbacks have stable unavailable stubs outside Scan"
     },
     "cw-tone-observation": {
       "pack": "scan",
