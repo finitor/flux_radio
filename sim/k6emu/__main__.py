@@ -172,6 +172,7 @@ class K6Board:
         self.gpio_odr["B"] = 1 << 12     # LCD deselected
         self.gpio_external: dict[tuple[str, int], int] = {}
         self.gpio_external[("A", 15)] = 0  # radio power switch is on
+        self.powered_off = False
         self.uart_rx: deque[int] = deque()
         self.uart_tx = bytearray()
         self.uart_irq_handler = None
@@ -686,6 +687,7 @@ class K6Board:
                 self.lcd_trace.append((self.cycles, dc, cs, value & 0xFF))
                 self.screen.write(dc, cs, value & 0xFF)
         else:
+            previous_power_latch = self.gpio_odr["A"] & (1 << 8)
             for base, name in GPIO_BASES.items():
                 if address == base + 0x14:    # ODR
                     old = self.gpio_odr[name]
@@ -715,12 +717,16 @@ class K6Board:
                     break
             else:
                 self.regs[address] = value & ((1 << (8 * size)) - 1)
+            # Open knob (PA15) and released latch (PA8) remove board power.
+            if previous_power_latch and not self.gpio_odr["A"] & (1 << 8) and self.gpio_external[("A", 15)]:
+                self.powered_off = True
+                uc.emu_stop()
 
     def run(self, count: int, quantum: int = 256):
         """Execute at most `count` Thumb instructions; timers advance between small quanta."""
         if count < 0 or quantum <= 0:
             raise ValueError("count must be nonnegative and quantum positive")
-        if self.fault:
+        if self.fault or self.powered_off:
             return self.last_pc
         arm = self.arm
         remaining = count
@@ -738,6 +744,9 @@ class K6Board:
                 if self.fault is None:
                     self.fault = {"kind": "cpu_error", "message": str(exc),
                                   "registers": self.cpu_registers()}
+                break
+            if self.powered_off:
+                self.last_pc = self.uc.reg_read(arm.UC_ARM_REG_PC) & ~1
                 break
             self.instructions += n
             self.cycles += n * self.cpi
@@ -829,7 +838,7 @@ def main():
     ap.add_argument("--module-slots", metavar="SLOTS",
                     help="comma-separated module slots from --module-bundle; default overlays all modules")
     ap.add_argument("--key-file", type=Path,
-                    help="module signing key for --module-bundle (uses Blowfang default if omitted)")
+                    help="module signing key for --module-bundle (uses the Flux default key if omitted)")
     ap.add_argument("--save-spi", type=Path, help="write the virtual SPI flash after execution")
     ap.add_argument("--press-key", action="append", default=[], metavar="KEY",
                     help="hold a virtual keypad key while the firmware runs; repeatable")

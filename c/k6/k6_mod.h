@@ -36,6 +36,11 @@
 #ifndef K6_MOD_H
 #define K6_MOD_H
 #include <stdint.h>
+
+/* PA15 (POW_DET) goes high when the knob switch opens. */
+static inline int km_power_switch_off(void) {
+  return (*(volatile const uint32_t *)(uintptr_t)0x48000010u & (1u << 15)) != 0;
+}
 #ifdef __cplusplus
 extern "C" {
 #endif

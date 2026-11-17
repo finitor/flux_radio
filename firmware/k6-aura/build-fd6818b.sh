@@ -1,5 +1,5 @@
 #!/bin/sh
-# Build the FD6818B Blowfang module host.
+# Build the Flux firmware for the FD6818B radio.
 # The legacy Blowfang FSK packet modem is disabled until ported and hardware-tested.
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -9,14 +9,14 @@ REV=${AURA_FD6818B_REV:-c3aeb17aec0fd09dccf931b52f6c7d5dbf72e7ac}
 WORK="$HERE/build/aura-fd6818b-port"
 OUT="$HERE/out-fd6818b"
 FEATURES=${K6_AURA_FEATURES:-blowfang-host,fd6818b,lean,spilib,txdog-quiet}
-IMAGE=${K6_IMAGE_NAME:-aura-fd6818b-blowfang-host}
+IMAGE=${K6_IMAGE_NAME:-flux-fd6818b}
 
 case "$FEATURES" in
   *[!a-zA-Z0-9_,-]*) echo "Use a comma-separated list of Cargo features." >&2; exit 1 ;;
 esac
 case ",$FEATURES," in
   *,pager-explore,*|*,pager-only,*|*,voice-explore,*|*,explore,*)
-    echo "Standalone Explore/pager firmware is reference-only. Use the Blowfang host and catalog modules." >&2
+    echo "Standalone Explore/pager firmware is reference-only. Use the Flux host and catalog modules." >&2
     exit 1
     ;;
 esac
@@ -94,6 +94,7 @@ case ",$FEATURES," in
     ;;
 esac
 python3 "$HERE/apply-host-feature-trim.py"
+K6_AURA_FEATURES="$FEATURES" K6_SCAN_SERVICE="${K6_SCAN_SERVICE:-1}" K6_FSK_RX_SERVICE="${K6_FSK_RX_SERVICE:-1}" python3 "$HERE/apply-flux-branding.py"
 grep -q 'FD6818B FSK TBD' "$WORK/src/ui/pager.rs" || {
   echo "FD6818B overlay is missing from $WORK; inspect that checkout before building" >&2
   exit 1
@@ -114,13 +115,32 @@ if [ "${K6_SCAN_SERVICE:-1}" = 0 ]; then
   PACK_CFG="$PACK_CFG --cfg k6_no_scan"
 fi
 if [ -n "$PACK_CFG" ]; then
-  (cd "$WORK" && RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-Tlink.x$PACK_CFG" cargo build --release --features "$FEATURES")
+  (cd "$WORK" && K6_AURA_FEATURES="$FEATURES" K6_SCAN_SERVICE="${K6_SCAN_SERVICE:-1}" K6_FSK_RX_SERVICE="${K6_FSK_RX_SERVICE:-1}" RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-Tlink.x$PACK_CFG" cargo build --release --features "$FEATURES")
 else
-  (cd "$WORK" && cargo build --release --features "$FEATURES")
+  (cd "$WORK" && K6_AURA_FEATURES="$FEATURES" K6_SCAN_SERVICE="${K6_SCAN_SERVICE:-1}" K6_FSK_RX_SERVICE="${K6_FSK_RX_SERVICE:-1}" cargo build --release --features "$FEATURES")
 fi
 ELF="$WORK/target/thumbv6m-none-eabi/release/aura"
 llvm-size -A "$ELF" > "$OUT/size.txt"
 FLASH=$(awk '$1==".vector_table" || $1==".text" || $1==".rodata" || $1==".gnu.sgstubs" || $1==".k6_id" || $1==".data" {n += $2} END {print n+0}' "$OUT/size.txt")
+for pass in 1 2 3; do
+  K6_FLASH_USED_BYTES="$FLASH" K6_AURA_FEATURES="$FEATURES" K6_SCAN_SERVICE="${K6_SCAN_SERVICE:-1}" K6_FSK_RX_SERVICE="${K6_FSK_RX_SERVICE:-1}" python3 "$HERE/apply-flux-branding.py"
+  if [ -n "$PACK_CFG" ]; then
+    (cd "$WORK" && K6_AURA_FEATURES="$FEATURES" K6_SCAN_SERVICE="${K6_SCAN_SERVICE:-1}" K6_FSK_RX_SERVICE="${K6_FSK_RX_SERVICE:-1}" RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-Tlink.x$PACK_CFG" cargo build --release --features "$FEATURES")
+  else
+    (cd "$WORK" && K6_AURA_FEATURES="$FEATURES" K6_SCAN_SERVICE="${K6_SCAN_SERVICE:-1}" K6_FSK_RX_SERVICE="${K6_FSK_RX_SERVICE:-1}" cargo build --release --features "$FEATURES")
+  fi
+  llvm-size -A "$ELF" > "$OUT/size.txt"
+  NEXT_FLASH=$(awk '$1==".vector_table" || $1==".text" || $1==".rodata" || $1==".gnu.sgstubs" || $1==".k6_id" || $1==".data" {n += $2} END {print n+0}' "$OUT/size.txt")
+  if [ "$NEXT_FLASH" -eq "$FLASH" ]; then
+    FLASH="$NEXT_FLASH"
+    break
+  fi
+  FLASH="$NEXT_FLASH"
+  if [ "$pass" -eq 3 ]; then
+    echo "Flux About flash-size metadata did not stabilize after 3 relinks" >&2
+    exit 1
+  fi
+done
 if [ "$FLASH" -gt 122880 ]; then
   echo "image needs $FLASH bytes; KD32F328 application limit is 122880 bytes" >&2
   exit 1

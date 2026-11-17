@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install blowfang on a Baofeng UV-K6 / K61 over the programming cable alone: no second radio.
+"""Install Flux-compatible firmware and modules on a Baofeng UV-K6 / K61 over the programming cable alone: no second radio.
 The instruction book is docs/manual/install.md; this is the tool it walks you through.
 
   python3 tools/k6_install.py install BUNDLE        everything, step by step (a new radio, or an update)
@@ -8,17 +8,17 @@ The instruction book is docs/manual/install.md; this is the tool it walks you th
   python3 tools/k6_install.py load BUNDLE           EXPLORE's pages, the help deck and the modules
   python3 tools/k6_install.py status                what the radio runs and what its library holds
   python3 tools/k6_install.py key                   make your module key (once)
-  python3 tools/k6_install.py bundle OUT -o DIR     a release folder from build.sh's or CI's out/
+  python3 tools/k6_install.py bundle OUT -o DIR     a release folder from the Flux build output or CI
 
 How the pieces get there:
 
 - The core image goes in through the stock bootloader (MCU flash, 1 KB packages). The bootloader
   listens on the cable for about 200 ms after every reset: this tool catches that window when you
-  switch the radio on, or, on a radio already running blowfang, right after the cable session's
-  end command restarts it (no hands).
+  switch the radio on, or, on a radio already running Flux module-host firmware, right after the cable session's end
+  command restarts it (no hands).
 - Everything else (EXPLORE's code pages, the help card deck, the modules) goes into the radio's
-  SPI module library through the image's cable session (cps::run_cable_session in the Aura
-  patch): the same signed chunks the radio takes over the air, checked by the same loader, written
+  SPI module library through the image's cable session (cps::run_cable_session in the upstream
+  firmware patch): the same signed chunks the radio takes over the air, checked by the same loader, written
   by the same library code (slots in 0x110000-0x18FFFF only). The session opens on a handshake
   while the radio is in EXPLORE or the arena, ignores the PTT line (the cable's PC->radio wire),
   never transmits, and ends with a restart.
@@ -76,7 +76,7 @@ KL = {-1: "slot empty", -2: "bad header", -3: "bad tag", -4: "flash refused", -5
       -6: "no such slot", -7: "not a module"}
 
 TIMEOUT = 3.0         # s for an answer before a frame goes again
-DEFAULT_KEYS = ("~/.config/blowfang/k6-mod.key", "~/.config/sotto/k6-mod.key")
+DEFAULT_KEYS = ("~/.config/flux/k6-mod.key", "~/.config/blowfang/k6-mod.key", "~/.config/sotto/k6-mod.key")
 
 
 class InstallError(Exception):
@@ -289,7 +289,7 @@ class Cable(CpsLink):
     def info(self):
         d = self.call(CMD_INFO)
         if d[:4] != b"BLWF":
-            raise InstallError(f"the radio's info doesn't look like blowfang's: {d.hex()}")
+            raise InstallError(f"the radio did not identify as a Flux-compatible module host (INFO: {d.hex()})")
         return dict(protocol=d[4], slots=d[5], arena=struct.unpack("<H", d[6:8])[0],
                     build_id=d[8:16] if any(d[8:16]) else None)
 
@@ -463,7 +463,7 @@ def catch_window(port, window, trace=None):
 # ---- keys, signing, bundles ----
 
 def find_key(path=None, create=False, log=print, create_explicit=False):
-    selected = path or os.environ.get("BLOWFANG_KEY")
+    selected = path or os.environ.get("FLUX_KEY") or os.environ.get("BLOWFANG_KEY")
     if selected:
         p = os.path.expanduser(selected)
     else:
@@ -642,7 +642,7 @@ def cmd_bundle(a, log=print):
     return 0
 
 
-NOTICE = """blowfang for the Baofeng UV-K6 / K61, release {build}
+NOTICE = """Flux firmware for the Baofeng UV-K6 / K61, release {build}
 
 The .bin images are builds of Aura (https://github.com/sophiel-meow/bf-k61-firmware-aura, GPL-3.0)
 with blowfang's patch (firmware/k6-aura/aura-pager.patch, GPL-3.0) and sotto's C library (MIT).
@@ -697,18 +697,22 @@ def backup(link, path, log=print):
 
 
 def have_backup():
-    d = os.path.expanduser("~/blowfang-backups")
+    d = os.path.expanduser("~/flux-backups")
+    if not os.path.isdir(d) and os.path.isdir(os.path.expanduser("~/blowfang-backups")):
+        d = os.path.expanduser("~/blowfang-backups")
     return os.path.isdir(d) and any(f.startswith("k6-spiflash-") for f in os.listdir(d))
 
 
 def default_backup_path():
-    d = os.path.expanduser("~/blowfang-backups")
+    d = os.path.expanduser("~/flux-backups")
+    if not os.path.isdir(d) and os.path.isdir(os.path.expanduser("~/blowfang-backups")):
+        d = os.path.expanduser("~/blowfang-backups")
     os.makedirs(d, exist_ok=True)
     return os.path.join(d, "k6-spiflash-" + datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%MZ") + ".bin")
 
 
 def flash(port, image, key, how, log=print, ask=input, debug_boot=False):
-    """Key the image and flash it. how: "cable" (a blowfang radio: end the cable session, catch
+    """Key the image and flash it. how: "cable" (a Flux radio: end the cable session, catch
     the window after its restart, no hands), "power" (catch a power-on), or "update" (the radio
     is already showing UPDATE, so start with the bootloader's flash protocol)."""
     data, keyed = keyed_image(image, key)
@@ -928,7 +932,7 @@ def cmd_install(a, bundle, port, key, log=print, ask=input):
     log("1. Looking for the radio on the cable (have it on, in EXPLORE or the arena)...")
     c = None if a.fresh else open_cable(port, log, wait=6.0)
     if c:
-        log("   It runs blowfang already: an update, no hands needed.")
+        log("   It runs Flux-compatible firmware already: an update, no hands needed.")
         need = codebooks(c)
         if a.backup or not (a.no_backup or have_backup()):
             path = a.backup or default_backup_path()
@@ -937,7 +941,7 @@ def cmd_install(a, bundle, port, key, log=print, ask=input):
         elif a.no_backup:
             log("2. No backup (--no-backup)")
         else:
-            log("2. A backup is there already (~/blowfang-backups): not backing up again")
+            log("2. An existing SPI backup was found: not backing up again")
         if need:
             raise InstallError("the radio lacks " + " and ".join(w for w, _ in need) +
                                ": run install with --fresh (it flashes the codebook installers)")
@@ -947,7 +951,7 @@ def cmd_install(a, bundle, port, key, log=print, ask=input):
         if a.fresh:
             log("   --fresh: installing as on a new radio (codebook installers first, three power-ons).")
         else:
-            log("   No blowfang cable session: treating it as a new radio (stock, or another firmware).")
+            log("   No Flux cable session: treating it as a new radio (stock, or another firmware).")
         imgs = bundle.get("codebook_images", {})
         for k in ("cbi", "vlri"):
             if k not in imgs:
@@ -985,17 +989,17 @@ def main(argv=None, log=None, ask=input):
     log = log or (lambda *x, **k: print(*x, **k, flush=True))
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--port", help="the K6 programming cable's serial port (default: the only USB serial port)")
-    ap.add_argument("--key-file", help="your module key (default: $BLOWFANG_KEY, ~/.config/blowfang/k6-mod.key, "
+    ap.add_argument("--key-file", help="your module key (default: $FLUX_KEY or legacy $BLOWFANG_KEY, ~/.config/flux/k6-mod.key, "
                                        "or ~/.config/sotto/k6-mod.key)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     i = sub.add_parser("install", help="everything, step by step")
     i.add_argument("bundle")
-    i.add_argument("--backup", help="where the SPI flash backup goes (default ~/blowfang-backups/...)")
+    i.add_argument("--backup", help="where the SPI flash backup goes (default ~/flux-backups/...)")
     i.add_argument("--no-backup", action="store_true", help="an update: skip the backup (it is skipped "
-                                                           "anyway once ~/blowfang-backups holds one)")
+                                                           "anyway once ~/flux-backups holds one)")
     i.add_argument("--verify", action="store_true", help="read every library slot back after writing it")
     i.add_argument("--yes", action="store_true", help="don't ask before replacing the stock firmware")
-    i.add_argument("--fresh", action="store_true", help="install as on a new radio even if it runs blowfang "
+    i.add_argument("--fresh", action="store_true", help="install as on a new radio even if Flux modules are already installed "
                                                        "(flashes the codebook installers again)")
     b = sub.add_parser("backup", help="the whole 2 MB SPI flash to a file")
     b.add_argument("-o", "--output")
@@ -1003,7 +1007,7 @@ def main(argv=None, log=None, ask=input):
     f.add_argument("image")
     fg = f.add_mutually_exclusive_group()
     fg.add_argument("--power", action="store_true", help="catch the bootloader as you switch the radio on, "
-                                                         "even if it runs blowfang")
+                                                         "even if Flux is already installed")
     fg.add_argument("--already-update", action="store_true", help="flash directly when the radio is already "
                                                                    "showing UPDATE")
     f.add_argument("--debug-boot", action="store_true", help="show raw bootloader reply bytes on timeouts")
@@ -1051,7 +1055,7 @@ def main(argv=None, log=None, ask=input):
                 c = open_cable(port, log, wait=4.0)
                 link = c or CpsLink(port, log)
                 if not c and not link.handshake(AURA_HANDSHAKE, wait=4.0):
-                    raise InstallError("the radio answers neither blowfang's cable session nor Aura's: have it on, "
+                    raise InstallError("the radio answers neither Flux's cable session nor its original programming session: have it on, "
                                        "in EXPLORE or the arena (or at Aura's FORMAT FLASH? screen)")
                 backup(link, path, log)
                 link.end()
@@ -1066,7 +1070,7 @@ def main(argv=None, log=None, ask=input):
                 return 0
             c = open_cable(port, log, wait=20.0)
             if not c:
-                raise InstallError("no cable session: have the radio on a blowfang image, in EXPLORE or the arena")
+                raise InstallError("no cable session: have the radio on a Flux image, in EXPLORE or the arena")
             if a.cmd == "load":
                 only = {int(s) for s in a.only.split(",")} if a.only else None
                 try:
@@ -1098,7 +1102,7 @@ def main(argv=None, log=None, ask=input):
                 log(f"  slot {a.slot} erased; the radio is restarting")
             else:
                 info = c.info()
-                log(f"blowfang cable session {info['protocol']}, build ID "
+                log(f"Flux cable session {info['protocol']}, build ID "
                     f"{info['build_id'].hex() if info['build_id'] else '(not the voice + EXPLORE image)'}")
                 for what, img in codebooks(c):
                     log(f"missing: {what} (the {img} image installs it)")

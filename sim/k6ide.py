@@ -17,7 +17,9 @@ from sim.k6emu.if_capture import parse_capture
 from sim.k6emu.rx_dma import MEASURED_FREE_RUNNING_HZ
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_IMAGE = ROOT / "firmware/k6-aura/out-fd6818b/aura-fd6818b-blowfang-host.bin"
+DEFAULT_IMAGE = ROOT / "firmware/k6-aura/out-fd6818b/flux-fd6818b.bin"
+if not DEFAULT_IMAGE.is_file():
+    DEFAULT_IMAGE = ROOT / "firmware/k6-aura/out-fd6818b/aura-fd6818b-blowfang-host.bin"
 TEMPLATES = ROOT / "sim/k6ide_templates"
 KEYS = ("MENU", "UP", "DOWN", "EXIT", "VM", "AB", "BAND", "SIDE1", "SIDE2",
         "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "#")
@@ -57,24 +59,20 @@ class K6Workbench:
     def _run(self):
         while True:
             with self.lock:
-                if not self.running or not self.board:
-                    time.sleep(.04)
-                    continue
-                try:
-                    # Larger Unicorn quanta cut Python/Unicorn call overhead while
-                    # keeping virtual-time and peripheral servicing frequent enough
-                    # for the live workbench.
-                    self.board.run(18_000, 4096)
-                    if self.board.fault:
+                active = self.running and self.board is not None
+                if active:
+                    try:
+                        # Keep virtual time and peripheral servicing frequent.
+                        self.board.run(18_000, 4096)
+                        if self.board.powered_off:
+                            self.running = False
+                        elif self.board.fault:
+                            self.running = False
+                            self.error = f"Firmware fault: {self.board.fault.get('kind')}"
+                    except Exception as exc:
                         self.running = False
-                        self.error = f"Firmware fault: {self.board.fault.get('kind')}"
-                except Exception as exc:  # keep the UI alive and expose emulator errors
-                    self.running = False
-                    self.error = str(exc)
-            # Yield cooperatively without adding a wall-clock delay. The emulator
-            # should use available CPU rather than run at an artificial fraction
-            # of host speed; `sleep(0)` lets Flask/UI threads get scheduled.
-            time.sleep(0)
+                        self.error = str(exc)
+            time.sleep(.001 if active else .04)
 
     def inject_aprs(self, source="AG7SU", destination="APRS", message=">sim test",
                     ssid=7, noise=0.0, gain=1.0, clip=1.0,
@@ -123,10 +121,13 @@ class K6Workbench:
         with self.lock:
             if self.board:
                 self.spi_data[:] = self.board.flash_data
-            self._boot()
+            if not self.board or not self.board.gpio_external[("A", 15)]:
+                self._boot()
 
     def set_running(self, running: bool):
         with self.lock:
+            if running and self.board.powered_off:
+                raise RuntimeError("turn on the radio power switch first")
             if running and self.board and self.board.fault:
                 raise RuntimeError("target faulted; reboot before resuming")
             self.running = bool(running)
@@ -150,7 +151,13 @@ class K6Workbench:
     def switch(self, name: str, on: bool):
         with self.lock:
             if name == "power":
-                self.board.set_gpio("A", 15, 0 if on else 1)
+                if on and self.board.powered_off:
+                    self.spi_data[:] = self.board.flash_data
+                    self._boot()
+                else:
+                    self.board.set_gpio("A", 15, 0 if on else 1)
+                    if not on and not self.board.powered_off and not self.error:
+                        self.running = True
             elif name == "ptt":
                 self.board.set_gpio("A", 10, 0 if on else 1)
             else:
@@ -190,7 +197,8 @@ class K6Workbench:
             self.spi_data[:] = self.board.flash_data
             if self.spi_path:
                 self.spi_path.write_bytes(self.spi_data)
-            self._boot()  # the firmware scans the module table at startup
+            if not self.board.gpio_external[("A", 15)]:
+                self._boot()  # the firmware scans the module table at startup
             return installed
 
     def unload(self, slots: list[int]):
@@ -208,13 +216,15 @@ class K6Workbench:
             self.spi_data[:] = self.board.flash_data
             if self.spi_path:
                 self.spi_path.write_bytes(self.spi_data)
-            self._boot()
+            if not self.board.gpio_external[("A", 15)]:
+                self._boot()
 
     def state(self):
         with self.lock:
             b = self.board
             return {"model": "Baofeng UV-K6 / FD6818B", "image": str(self.image),
                     "running": self.running, "error": self.error,
+                    "powered_off": b.powered_off, "power_switch_on": not b.gpio_external[("A", 15)],
                     "instructions": b.instructions if b else 0,
                     "virtual_ms": round(b.cycles / 96_000, 1) if b else 0,
                     "pc": f"0x{b.last_pc:08x}" if b else "—",
@@ -223,6 +233,8 @@ class K6Workbench:
 
     def screen_svg(self):
         with self.lock:
+            if self.board.powered_off:
+                return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 64"><rect width="128" height="64" fill="#dddcc8"/></svg>'
             ram, reverse = self.board.screen.snapshot()
         pixels = []
         for y in range(64):
@@ -404,7 +416,7 @@ def create_app(workbench: RadioAdapter):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description="Flux radio simulator workbench")
     parser.add_argument("--model", choices=RADIO_MODELS, default="k6-fd6818b",
                         help="radio emulator backend (currently K6 FD6818B)")
     parser.add_argument("--image", type=Path, default=DEFAULT_IMAGE)
@@ -417,7 +429,7 @@ def main():
     if not args.image.is_file():
         parser.error(f"firmware image not found: {args.image}")
     board = RADIO_MODELS[args.model](args.image, args.spi_image, args.cpi)
-    print(f"K6 IDE simulator at http://{args.host}:{args.port} (virtual RF only)")
+    print(f"Flux radio simulator at http://{args.host}:{args.port} (virtual RF only)")
     print(f"On this host: http://127.0.0.1:{args.port}")
     print("On your LAN, use this host's LAN address; Ctrl-C stops the workbench.")
     create_app(board).run(host=args.host, port=args.port, threaded=True, debug=False)

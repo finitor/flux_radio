@@ -941,6 +941,32 @@ def test_aprsdfsk_reads_the_bench_captures_on_the_emulated_m0(slow):
     assert e.writes[0x5E][0] == 0x0204 and 0x00E9 in e.writes[0x58] and 0x10F0 in e.writes[0x59]
 
 
+@need_clang
+def test_aprsdfsk_receives_generated_position_audio():
+    pytest.importorskip("unicorn")
+    import k6_live_emu as le
+    from modem import k6mod
+    from sim.k6emu.aprs_slicer import audio_to_following_fsk
+
+    frame = aprs.frame("AG7SU-7", "APRS", "!4538.00N/12222.00W>sim")
+    audio = aprs.afsk(aprs.hdlc_bits([frame], pre_flags=40), fs=48000)
+    sliced = audio_to_following_fsk(audio, 48000)
+    # The plain-FSK sync words can occur with either polarity. The bench
+    # harness models idle before the packet and FIFO servicing after it.
+    stream = np.r_[np.zeros(2880, dtype=np.int8), sliced, np.zeros(9600, dtype=np.int8)]
+    times = follow_times(stream)
+    source = os.path.join(K6, "mod", "aprsdfsk.c")
+    code, entry = le.build("x", [("RUN_MS", "2200u")], source)
+    full, _ = k6mod.build(source)
+    Chip = modem_chip(le, lambda r58: stream, 4800)
+    Chip.long5d, Chip.early_done, Chip.ring, Chip.times = True, True, True, times
+    radio = Chip(code, entry, np.zeros(16, np.uint8), 0, FDMA, 1.5, max_s=3.2, level=8,
+                 scratch=11776 - 24 - len(full))
+    assert radio.run() is not None, radio.said
+    received = [line.split()[1] for line in radio.said if line.startswith("f ")]
+    assert received == ["AG7SU-7"], radio.said
+
+
 # ---- the same clock behind the chip's own FSK modem (c/k6/mod/aprsfsk.c) ----
 @need_clang
 @pytest.mark.parametrize("name,spur,again_ms", [

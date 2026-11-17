@@ -90,12 +90,12 @@ def main():
             env = os.environ.copy()
             env.pop('K6_MOD_KEY_FILE', None)
             env['K6_AURA_FEATURES'] = ','.join(plan['cargo_features'])
-            env['K6_IMAGE_NAME'] = 'aura-fd6818b-pack'
+            env['K6_IMAGE_NAME'] = 'flux-fd6818b-pack'
             env.update(gate_environment(plan, policy))
             with exclusive_build():
                 subprocess.run(['sh', str(ROOT / 'firmware/k6-aura/build-fd6818b.sh')],
                                cwd=ROOT, env=env, check=True)
-                image = ROOT / 'firmware/k6-aura/out-fd6818b/aura-fd6818b-pack.bin'
+                image = ROOT / 'firmware/k6-aura/out-fd6818b/flux-fd6818b-pack.bin'
                 size_file = ROOT / 'firmware/k6-aura/out-fd6818b/size.txt'
                 budget = assess(flash_bytes(size_file.read_text()), plan['packs'])
                 if not budget['pass']:

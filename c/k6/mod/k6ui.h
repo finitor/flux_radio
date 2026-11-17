@@ -203,6 +203,7 @@ UI_FN int ui_key(ui_t *u) {
   int k;
   uint32_t t;
   if (!u->on) return 0;
+  if (km_power_switch_off()) return 'X';
   t = u->api->ms();
   if (t - u->t_key < 10) return 0;
   u->t_key = t;
@@ -227,7 +228,7 @@ UI_FN int ui_key(ui_t *u) {
 UI_FN void ui_release(ui_t *u) {
   int i, n;
   if (!u->on) return;
-  for (i = 0, n = 0; i < 300 && n < 3; i++) {
+  for (i = 0, n = 0; i < 300 && n < 3 && !km_power_switch_off(); i++) {
     n = u->api->key_poll() ? 0 : n + 1;
     u->api->delay_us(10000);
   }

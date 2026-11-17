@@ -60,7 +60,7 @@ def main():
         if args.build:
             env = os.environ.copy()
             env['K6_AURA_FEATURES'] = ','.join(plan['cargo_features'])
-            env['K6_IMAGE_NAME'] = f'aura-matrix-{label}'
+            env['K6_IMAGE_NAME'] = f'flux-matrix-{label}'
             env.update(gate_environment(plan, policy))
             print(f'Building {label}: {gate_environment(plan, policy)}', file=sys.stderr, flush=True)
             with exclusive_build():
@@ -70,7 +70,7 @@ def main():
                 dest = args.build_dir / label
                 dest.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source / 'size.txt', dest / 'size.txt')
-                shutil.copy2(source / f'aura-matrix-{label}.bin', dest / 'firmware.bin')
+                shutil.copy2(source / f'flux-matrix-{label}.bin', dest / 'firmware.bin')
                 image_build_id((dest / 'firmware.bin').read_bytes())
             (dest / 'plan.json').write_text(json.dumps(plan, indent=2) + '\n')
             write_receipt(dest / 'firmware.receipt.json', dest / 'firmware.bin', plan, gate_environment(plan, policy))

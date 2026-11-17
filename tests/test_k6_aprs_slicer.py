@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 from modem import aprs
-from sim.k6emu.aprs_slicer import audio_to_plain_fsk
+from sim.k6emu.aprs_slicer import audio_to_following_fsk, audio_to_plain_fsk
 
 
 def test_slicer_preserves_tone_crossing_statistics():
@@ -23,3 +23,11 @@ def test_audio_to_slicer_to_ax25_frame():
     line = aprs.dfsk_line(sliced)
     decoded = [x[3] for x in aprs.hdlc_spans(line) if x[2]]
     assert frame in decoded, [aprs.describe(f) for f in decoded]
+
+
+def test_following_slicer_recovers_position_frame():
+    frame = aprs.frame("AG7SU-7", "APRS", "!4538.00N/12222.00W>sim")
+    audio = aprs.afsk(aprs.hdlc_bits([frame], pre_flags=40), fs=48000)
+    samples = audio_to_following_fsk(audio, 48000)
+    line = aprs.dfsk_line(np.r_[samples, np.zeros(40, dtype=np.int8)])
+    assert [f for _, _, ok, f in aprs.hdlc_spans(line) if ok] == [frame]

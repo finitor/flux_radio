@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Blowfang Module Store</title>
+  <title>Flux Catalog</title>
   <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
   <link rel="stylesheet" href="{{ url_for('static', filename='store.css') }}">
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="{{ url_for('index') }}"><span class="brand-mark">B</span> Blowfang <span>Module Store</span></a>
+    <a class="brand" href="{{ url_for('index') }}"><span class="brand-mark">F</span> Flux <span>Catalog</span></a>
     <nav class="top-actions"><a href="{{ url_for('profiles') }}">Feature packs</a> <a href="#catalog">Catalog</a><a href="{{ url_for('radio') }}">My radio</a><a href="{{ url_for('settings_page') }}">Device settings{% if radio_settings.port %} · {{ radio_settings.port }}{% endif %}</a><span class="connection"><i></i> Local catalog</span>
       <form method="post" action="{{ url_for('refresh_all') }}"><button class="quiet" type="submit">↻ <span>Refresh</span></button></form>
     </nav>
@@ -23,7 +23,7 @@
         <a class="primary-link" href="#catalog">Browse modules <span>↓</span></a>
       </div>
       <aside class="radio-preview" aria-label="Illustrative K6 module screen">
-        <div class="preview-top"><span><i class="radio-dot"></i> BLOWFANG / MODULE VIEW</span><span>01</span></div>
+        <div class="preview-top"><span><i class="radio-dot"></i> FLUX / MODULE VIEW</span><span>01</span></div>
         <div class="preview-screen">
           <div class="preview-line"><span>VFO A</span><span>FM</span></div>
           <strong>146<span>.</span>520</strong>
@@ -74,7 +74,7 @@
     {% else %}
       <section class="empty"><div class="empty-art"><span>＋</span><i></i><i></i><i></i></div><p class="eyebrow">A SHELF WITH ROOM TO GROW</p><h3>Start with a project you trust</h3><p>Add a Git repository above. We’ll use its README for the description and screenshots, and its bundle manifest for install details.</p><code>python3 tools/k6_store.py add https://github.com/you/k6-module</code></section>
     {% endif %}
-    <footer><span class="footer-brand"><span class="brand-mark">B</span> BLOWFANG</span><span>Built for the curious operator. Install over your programming cable.</span></footer>
+    <footer><span class="footer-brand"><span class="brand-mark">F</span> FLUX</span><span>Built for the curious operator. Install over your programming cable.</span></footer>
   </main>
   <script src="{{ url_for('static', filename='store.js') }}" defer></script>
 </body>

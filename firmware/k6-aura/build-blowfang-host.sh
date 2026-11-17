@@ -1,5 +1,5 @@
 #!/bin/sh
-# Build Aura's normal VFO/channel radio with the small sideloaded-module launcher.
+# Build Flux radio firmware for FD6818B with the native module catalog.
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
 if [ -z "${K6_MOD_KEY_FILE:-}" ]; then
@@ -13,7 +13,7 @@ export K6_MOD_KEY_FILE
 # Keep the transmitter watchdog enabled while omitting only its boot-time debug line;
 # the compact radio image is close to the MCU flash limit.
 K6_AURA_FEATURES=blowfang-host,fd6818b,lean,spilib,txdog-quiet \
-K6_IMAGE_NAME=aura-fd6818b-blowfang-host \
+K6_IMAGE_NAME=flux-fd6818b \
 K6_MODULE_REMOVE=1 \
   sh "$HERE/build-fd6818b.sh"
 python3 "$HERE/build-cardlink-module.py" --out "$HERE/out-fd6818b/cardlink-module-bundle"

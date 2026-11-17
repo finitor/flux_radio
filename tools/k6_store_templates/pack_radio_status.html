@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Radio provisioning · Blowfang</title>
+  <title>Radio provisioning · Flux</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='store.css') }}">
   {% if operation.state == 'running' %}<meta http-equiv="refresh" content="2">{% endif %}
 </head>
 <body>
-<header class="topbar"><a class="brand" href="{{ url_for('index') }}">Blowfang</a></header>
+<header class="topbar"><a class="brand" href="{{ url_for('index') }}">Flux</a></header>
 <main class="layout detail-layout">
   <a href="{{ url_for('build_status', job_id=job_id) }}">Back to firmware pack</a>
   <section class="panel">

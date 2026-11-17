@@ -20,13 +20,14 @@ def edit(rel: str, edits: list[tuple[str, str]]) -> None:
 edit("app/launcher.rs", [
     ("    Pager,\n}", "    #[cfg(not(feature = \"blowfang-host\"))]\n    Pager,\n    #[cfg(feature = \"blowfang-host\")]\n    Blowfang,\n}"),
     ("    LauncherEntry::Pager,\n];", "    #[cfg(not(feature = \"blowfang-host\"))]\n    LauncherEntry::Pager,\n    #[cfg(feature = \"blowfang-host\")]\n    LauncherEntry::Blowfang,\n];"),
-    ("            LauncherEntry::Pager => \"VOICE MSG\",", "            #[cfg(not(feature = \"blowfang-host\"))]\n            LauncherEntry::Pager => \"VOICE MSG\",\n            #[cfg(feature = \"blowfang-host\")]\n            LauncherEntry::Blowfang => \"BLOWFANG\","),
+    ("            LauncherEntry::Pager => \"VOICE MSG\",", "            #[cfg(not(feature = \"blowfang-host\"))]\n            LauncherEntry::Pager => \"VOICE MSG\",\n            #[cfg(feature = \"blowfang-host\")]\n            LauncherEntry::Blowfang => \"CATALOG\","),
     ("            LauncherEntry::Pager => true,", "            #[cfg(not(feature = \"blowfang-host\"))]\n            LauncherEntry::Pager => true,\n            #[cfg(feature = \"blowfang-host\")]\n            LauncherEntry::Blowfang => true,"),
     ("            LauncherEntry::Pager => Mode::Pager,", "            #[cfg(not(feature = \"blowfang-host\"))]\n            LauncherEntry::Pager => Mode::Pager,\n            #[cfg(feature = \"blowfang-host\")]\n            LauncherEntry::Blowfang => Mode::Pager,"),
 ])
 
 launcher_path = root / "app/launcher.rs"
 launcher_text = launcher_path.read_text()
+launcher_text = launcher_text.replace('            #[cfg(feature = "blowfang-host")]\n            LauncherEntry::Blowfang => "BLOWFANG",\n', '')
 items = '''pub const LAUNCHER_ITEMS: &[LauncherEntry] = &[
     LauncherEntry::Settings,
     LauncherEntry::ChannelMgr,
@@ -46,6 +47,8 @@ host_items = '''#[cfg(feature = "blowfang-host")]
 pub const LAUNCHER_ITEMS: &[LauncherEntry] = &[
     LauncherEntry::Settings,
     LauncherEntry::ChannelMgr,
+    #[cfg(not(k6_no_scan))]
+    LauncherEntry::FmRadio,
     LauncherEntry::Blowfang,
 ];
 
@@ -245,8 +248,16 @@ edit("ui/pager.rs", [
      '#[cfg(all(feature = "spilib", any(feature = "explore", feature = "blowfang-host")))]\npub fn draw_menu'),
     ('    out!(b, "MODULES {}/{}", sel + 1, rows);',
      '    #[cfg(feature = "explore")]\n    out!(b, "MODULES {}/{}", sel + 1, rows);\n'
-     '    #[cfg(all(feature = "blowfang-host", not(feature = "explore")))]\n    out!(b, "BLOWFANG {}/{}", sel + 1, rows);'),
+     '    #[cfg(all(feature = "blowfang-host", not(feature = "explore")))]\n    out!(b, "CATALOG {}/{}", sel + 1, rows);'),
 ])
+
+pager_ui_path = root / "ui/pager.rs"
+pager_ui_text = pager_ui_path.read_text()
+pager_ui_text = pager_ui_text.replace(
+    '    #[cfg(all(feature = "blowfang-host", not(feature = "explore")))]\n    out!(b, "BLOWFANG {}/{}", sel + 1, rows);\n',
+    '',
+)
+pager_ui_path.write_text(pager_ui_text)
 
 edit("ui/mod.rs", [
     ('        #[cfg(all(feature = "explore", feature = "spilib"))]\n        let menu = app::pager::menu_state().0;\n'

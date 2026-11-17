@@ -33,7 +33,10 @@ AX.25 frame** when passed through `modem.aprs.dfsk_line`: that test is kept as
 a strict expected failure. This is a useful negative result, not a decoder
 success. The FD6818 plain-FSK receiver follows zero crossings and its sample
 intervals vary with the tone, whereas a uniform 4800 Hz sampler quantizes
-those intervals differently. Next investigate a transition-following slicer
-with calibrated timestamp/phase behavior and then feed its output to the
-existing emulated Cortex-M0 `aprsdfsk` harness. Do not substitute generated
-HDLC bits directly and claim IF-to-decoder validation.
+those intervals differently. The transition-following model now classifies Bell 202 half-cycles by
+their zero-crossing intervals. A clean synthetic position beacon passes
+through that model and the plain-FSK FIFO harness to the compiled Cortex-M0
+`aprsdfsk` module. The Python test checks exact frame bytes, and the
+module test checks the received source address. This fixture starts with
+Bell 202 audio. The browser's one-bit IF injector still exercises the DMA
+capture path, and position synchronization is not exercised by either test.

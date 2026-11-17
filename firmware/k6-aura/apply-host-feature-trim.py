@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Keep native Search and gate FM and Explore services on the normal host."""
+"""Remove native Search and gate FM and Explore services on the normal host."""
 import re
 from pathlib import Path
 
@@ -65,7 +65,7 @@ def keys(text):
         "        Mode::Search => search::dispatch(app, syst, ev),",
         "                        LauncherEntry::Search => search::enter(app, syst),",
     ):
-        text = guard(text, line)
+        text = guard(text, line, "not(feature = \"blowfang-host\")")
     for line in (
         "        Mode::Fm => fm::dispatch(app, syst, ev),",
         "                        LauncherEntry::FmRadio => fm::enter(app, syst),",
@@ -78,12 +78,11 @@ def keys(text):
 
 def launcher(text):
     for indent, suffix in (
-        ("    ", "Search,"),
         ("            ", 'LauncherEntry::Search => "FREQ HUNT",'),
         ("            ", "LauncherEntry::Search => true,"),
         ("            ", "LauncherEntry::Search => Mode::Search,"),
     ):
-        text = guard(text, indent + suffix)
+        text = guard(text, indent + suffix, "not(feature = \"blowfang-host\")")
     for line in (
         "    FmRadio,",
         '            LauncherEntry::FmRadio => "FM RADIO",',
@@ -91,7 +90,22 @@ def launcher(text):
         "            LauncherEntry::FmRadio => Mode::Fm,",
     ):
         text = guard(text, line, "not(k6_no_scan)")
-    return replace(text, "    LauncherEntry::Blowfang,\n];\n\n#[cfg(not", "    LauncherEntry::Search,\n    #[cfg(not(k6_no_scan))]\n    LauncherEntry::FmRadio,\n    LauncherEntry::Blowfang,\n];\n\n#[cfg(not")
+    # Normalize the host item list after earlier patchers have run; legacy Search entries
+    # must not reappear in an already-patched generated tree.
+    host_array = re.compile(r'(?ms)^#\[cfg\(feature = "blowfang-host"\)\]\npub const LAUNCHER_ITEMS: &\[LauncherEntry\] = &\[.*?^\];')
+    normalized = '''#[cfg(feature = "blowfang-host")]
+pub const LAUNCHER_ITEMS: &[LauncherEntry] = &[
+    LauncherEntry::Settings,
+    LauncherEntry::ChannelMgr,
+    #[cfg(not(k6_no_scan))]
+    LauncherEntry::FmRadio,
+    LauncherEntry::Blowfang,
+];'''
+    text, count = host_array.subn(normalized, text)
+    if count != 1:
+        raise SystemExit("Host feature trim: could not normalize host launcher items")
+    text = text.replace('            #[cfg(feature = "blowfang-host")]\n            LauncherEntry::Blowfang => "BLOWFANG",\n', '')
+    return text
 
 
 def key_functions(text):
@@ -109,7 +123,7 @@ def key_functions(text):
 
 
 def main_loop(text):
-    text = guard(text, "        app.poll_search(&mut cp.SYST);")
+    text = guard(text, "        app.poll_search(&mut cp.SYST);", "not(feature = \"blowfang-host\")")
     text = guard(text, "        app.poll_fm(&mut cp.SYST);", "not(k6_no_scan)")
     return re.sub(r'        // APRS beacon TX: draw overlay before blocking transmission\n        if app\.aprs_beacon_active\(\) \{\n.*?^        \}\n\n', "", text, count=1, flags=re.M | re.S)
 

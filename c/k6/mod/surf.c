@@ -1357,7 +1357,7 @@ int k6_main(const k6_api_t *api) {
   api->say("surf screen begin");
   if (draw(s) < 0) api->say("surf screen unavailable");
   else api->say("surf screen ready");
-  for (;;) {
+  while (!km_power_switch_off()) {
     s->now = api->ms();
     pm_fall(s);
     k = kp_event(s);
@@ -1429,7 +1429,7 @@ int k6_main(const k6_api_t *api) {
   if (s->zif) api->fd_write(0x3D, (uint16_t)s->r3d);
   if (s->mon) squelch(s, 0);
   wr(GPIOB + (s->odr ? BSRR : BRR), SPK);
-  for (i = 0, n = 0; i < 300 && n < 5; i++) {
+  for (i = 0, n = 0; i < 300 && n < 5 && !km_power_switch_off(); i++) {
     n = kp_scan(s) ? 0 : n + 1;
     api->delay_us(10000);
   }

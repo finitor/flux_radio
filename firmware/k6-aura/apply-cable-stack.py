@@ -130,10 +130,10 @@ unsafe extern "C" fn draw_cable_screen_on_arena<'d, DI: WriteOnlyDataCommand + '
     raw: *mut core::ffi::c_void,
 ) {
     let display = unsafe { &mut *raw.cast::<Display<'d, DI>>() };
-    crate::screen!(display, |lcd| ui::cps::draw_lines(lcd, "BLOWFANG", "CABLE LOAD..."));
+    crate::screen!(display, |lcd| ui::cps::draw_lines(lcd, "FLUX", "CATALOG LOAD..."));
 }
 """
-if new_callback not in text:
+if new_callback not in text and 'draw_cable_screen_on_arena' not in text:
     assert text.count(old_callback) == 1
     text = text.replace(old_callback, new_callback, 1)
     text = text.replace('struct CableSessionArgs<\'d, DI: WriteOnlyDataCommand> {', 'struct CableSessionArgs {', 1)
@@ -159,7 +159,7 @@ if new_callback not in text:
 ) -> ! {"""
     assert text.count(old_inner) == 1
     text = text.replace(old_inner, 'fn run_cable_session_inner(app: &mut App, syst: &mut SYST) -> ! {', 1)
-    old_draw = '    uart::send_byte(ACK);\n    crate::screen!(display, |lcd| ui::cps::draw_lines(lcd, "BLOWFANG", "CABLE LOAD..."));'
+    old_draw = '    uart::send_byte(ACK);\n    crate::screen!(display, |lcd| ui::cps::draw_lines(lcd, "FLUX", "CATALOG LOAD..."));'
     assert text.count(old_draw) == 1
     text = text.replace(old_draw, '    uart::send_byte(ACK);', 1)
     path.write_text(text)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a signed-on-install CARD LINK module bundle for the FD6818B Aura host."""
+"""Build a signed-on-install CARD LINK module bundle for the FD6818B Flux host."""
 from __future__ import annotations
 
 import argparse

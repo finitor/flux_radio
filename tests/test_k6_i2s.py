@@ -33,7 +33,7 @@ PERIOD = 400            # samples between modelled DFS edges
 def run(regs, moder=0, i2s_en=(0x31, 1), gp0_gate=True, src=SRC, model=None, spare=1024,
         mmio=(), level=2, tx=None, rx_hz=440_850_000, keys=(), cal=None, tune=None, count=200_000_000, code=None, gpiob=None,
         flash=None, lcd=None, pb_idr=None, led=None, keypad=None, fsk=None, paint=False, clock=None,
-        write_us=0):
+        write_us=0, power_off_us=None):
     """regs: the chip's registers at the start. GP0 drives PB1 only while REG_33 bit 8 is clear
     (else PB1's pull-up reads 1), following REG_34[3:0]: 13 (DFS) toggles every PERIOD reads of
     PB1 once i2s_en's bit is set, 15 (XTAL/2) on every read, others hold 0. gp0_gate: the image
@@ -155,6 +155,13 @@ def run(regs, moder=0, i2s_en=(0x31, 1), gp0_gate=True, src=SRC, model=None, spa
             raise AssertionError(f"module wrote GPIOC/F+{off:#x}")
         mu.mmio_map(0x48000800, 0x400, gpioc_read, None, no_write, None)
         mu.mmio_map(0x48001400, 0x400, gpiof_read, None, no_write, None)
+    def read_power_switch(uc, off, size, _):
+        if off == 0x10 and power_off_us is not None and st["us"] >= power_off_us:
+            return 1 << 15
+        return 0
+
+    if not any(base <= 0x48000010 < base + size for base, size, _, _ in mmio):
+        mu.mmio_map(0x48000000, 0x400, read_power_switch, None, None, None)
     mu.mmio_map(0x48000400, 0x400, gpio_read, None, gpio_write, None)
     st["regs"] = regs
     for b, n, r, w in mmio:

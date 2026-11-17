@@ -42,7 +42,7 @@ def make_repo(name, source, output):
                 "band set; EXIT leaves the module. "
                 "Key 5 reports that saving is unavailable in this compact build.\n\n"
                 "This is an experimental port of the original Blowfang Explore workflow for the "
-                "FD6818B Aura host. The host links the shared `c/k6/xscan.c` scanner and "
+                "FD6818B Flux host. The host links the shared `c/k6/xscan.c` scanner and "
                 "`c/k6/explore.c` candidate engine into firmware flash; the module holds only "
                 "the UI and working state in the module arena. Manual Try uses the host's shared "
                 "decoder APIs. Automatic CW listening, DMR analysis, and table writes are not "
@@ -65,13 +65,13 @@ def make_repo(name, source, output):
         else:
             readme = (
                 f"# {name.upper()}\n\n"
-                "Experimental original Blowfang module; not validated on the compact FD6818B host. "
+                "Experimental original Flux module; not validated on the compact FD6818B host. "
                 "Check this module's documented behavior and radio compatibility before use. "
                 "Transmit only when the module explicitly supports it and you have verified its settings.\n\n"
             )
         if name != "aprsdfsk":
             readme += (
-                f"Source: `c/k6/mod/{name}.c` in the Blowfang checkout. This local bundle is built "
+                f"Source: `c/k6/mod/{name}.c` in the Flux checkout. This local bundle is built "
                 "from that checkout and uses an automatically allocated library slot. Rebuild it after "
                 "updating the source. See the main project's documentation and MIT license.\n")
         (build / "README.md").write_text(readme)
@@ -84,7 +84,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=ROOT / "local-modules")
     args = parser.parse_args(argv)
-    # Keep the local starter catalog aligned with the current FD6818B Aura host.
+    # Keep the local starter catalog aligned with the current FD6818B Flux host.
     # Other upstream modules can be added when they are ported and validated there.
     names = ["surf", "vfo", "cardlink", "explore_scan", "aprsdfsk"]
     failed = []

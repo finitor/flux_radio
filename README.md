@@ -1,108 +1,57 @@
-# AG7SU Blowfang
+# Flux
 
-AG7SU Blowfang is a standalone firmware and module project for the Baofeng UV-K6/K61 with the
-FD6818B RF chip. The active target is **normal Aura VFO/channel operation with a Blowfang module
-launcher**, plus the module loader, local Git-backed catalog, and tools to build, simulate, install,
-and manage modules.
+Flux is AG7SU firmware and a module catalog for the Baofeng UV-K6/K61 with the FD6818B RF chip. The firmware keeps normal VFO and channel operation, native Search, a module launcher labeled **Catalog**, and an About screen with the active feature set and flash space.
 
-This repository is intentionally scoped to that host and its module ecosystem. The experimental
-VOICE MSG / sotto pager, Explore firmware image, and unrelated UV-380/OpenRTX port are outside the
-current target. When one of those efforts is resumed, bring the needed upstream code and changes in
-then. Shared K6 code and fixtures that the host build or module workflow still depends on remain
-here.
+Optional feature sets add modules through the local Catalog. The **Scan** set bundles SURF and EXPLORE; APRS and Sotto remain separate module work. The boot screen supports voltage, message, or logo mode, with optional text alongside the logo.
 
-## Build the Aura host
+The firmware is built from pinned upstream sources with Flux patches. Upstream names remain in source paths and protocol identifiers where compatibility or attribution requires them.
 
-The build fetches the pinned Aura source, applies the FD6818B and Blowfang host patches, then builds
-the host image and the bundled starter modules. You need Rust's `thumbv6m-none-eabi` target, clang,
-LLD, LLVM tools, Python 3, and the module signing key used by this radio:
+## Build
+
+Install Rust with the `thumbv6m-none-eabi` target, clang, LLD, LLVM tools, and Python 3. Configure the 16-byte module signing key at `~/.config/flux/k6-mod.key`, then build through the unified CLI:
 
 ```sh
-K6_MOD_KEY_FILE="$HOME/.config/blowfang/k6-mod.key" \
-  sh firmware/k6-aura/build-blowfang-host.sh
+K6_MOD_KEY_FILE="$HOME/.config/flux/k6-mod.key" \
+  python3 tools/k6.py build base
 ```
 
-Outputs are written under `firmware/k6-aura/out-fd6818b/`:
+To build the base with Scan:
 
-- `aura-fd6818b-blowfang-host.bin` — Aura radio with the **BLOWFANG** launcher entry.
-- `vfo-module-bundle/` — SURF and VFO starter modules.
-- `cardlink-module-bundle/` — optional CARD LINK module.
+```sh
+K6_MOD_KEY_FILE="$HOME/.config/flux/k6-mod.key" \
+  python3 tools/k6.py build base scan
+```
 
-The slim host image keeps the shared modem services needed by sideloaded apps: guarded FD6818B
-fixed-frame FSK receive/transmit, bounded Bell 202 1200-baud AFSK transmit, and an exclusive KISS
-byte stream on the programming cable. APRS AX.25 receive/deframing and digipeater policy belong in
-the APRS module; the fixed-frame FSK API alone is not a continuous AX.25 receiver.
+Builds go under `firmware/k6-aura/out-fd6818b/`. The FD6818B build script also remains available at `firmware/k6-aura/build-fd6818b.sh`. The build and planning tools do not write to a radio. Use `python3 tools/k6.py --help` for the available read-only, build, install, and flash commands.
 
-The launcher omits Aura's SSTV, satellite, spectrum, and frequency-hunt apps in this build. The
-current image uses 100,600 bytes of the 122,880-byte application flash budget, leaving 22,280 bytes
-for later host-side features. Module code and data use SPI/RAM and do not consume that MCU flash.
+## Local Catalog
 
-On the radio, open Aura's launcher and select **BLOWFANG**. **AURA RADIO** returns to normal Aura
-VFO/channel operation; the other rows launch installed modules. V/M or A/B returns from the module
-menu to Aura.
-
-The image must be keyed with the same local key used to sign modules at install time. Keep that key
-private and out of Git. The radio loader verifies signatures but does not sandbox native modules.
-
-## Install and manage modules
-
-The catalog can display Git-hosted or local module repositories, show README screenshots, and install
-compatible bundles over the programming cable:
+The Catalog reads local or Git-hosted module repositories and can install compatible bundles over the programming cable. Start it with:
 
 ```sh
 python3 -m pip install -r tools/k6_store_requirements.txt
-python3 tools/k6_store.py add https://github.com/OWNER/K6-MODULE --ref main
-python3 tools/k6_store.py serve
+python3 tools/k6.py catalog
 ```
 
-Open <http://127.0.0.1:5055> and choose **My radio** to inspect, install, or remove modules. The
-CLI and bundle format are documented in [`docs/module-store.md`](docs/module-store.md); the cable
-installer is [`tools/k6_install.py`](tools/k6_install.py).
+Open <http://127.0.0.1:5055>. The web interface includes the Catalog, feature packs, device settings, and radio status. The CLI and catalog behavior are documented in [the Catalog guide](docs/module-store.md). The cable installer is [tools/k6_install.py](tools/k6_install.py).
 
-## Working on modules and the host
+## Simulator
 
-- [`firmware/k6-aura/`](firmware/k6-aura/) contains the pinned Aura build, host overlay, and module
-  bundle builders.
-- [`c/k6/k6_mod.c`](c/k6/k6_mod.c), [`c/k6/k6_lib.c`](c/k6/k6_lib.c), and
-  [`docs/k6-modules.md`](docs/k6-modules.md) define the signed module and SPI library contract.
-- [`local-modules/`](local-modules/) is generated locally by `python3 tools/k6_make_local_catalog.py`;
-  these build outputs are ignored by Git.
-- [`sim/k6emu/`](sim/k6emu/) is the host-contract emulator used to iterate on module and library
-  behavior without repeatedly flashing hardware.
-- [`tests/`](tests/) covers the shared loader, catalog, emulator, and module tooling.
-
-## Radio development workbench
-
-Run the local IDE-style simulator for the K6 host image:
+Start the radio development workbench with:
 
 ```sh
 python3 -m pip install -r sim/k6emu/requirements.txt -r tools/k6_store_requirements.txt
 python3 -m sim.k6ide
 ```
 
-The server binds to `0.0.0.0:5056` by default. On the host, open
-<http://127.0.0.1:5056>; from another device, use `http://<host-LAN-IP>:5056`. It has no login or
-token and is intended for the trusted home LAN; do not expose it to the public internet.
+It serves on port 5056 by default. Open <http://127.0.0.1:5056> locally. The workbench runs the firmware image in the K6 emulator, shows the display and UART output, and supports virtual keypad, power, and PTT input. Module bundles can be staged in virtual SPI flash. The simulator does not open a programming cable; emulator results do not verify RF or physical-radio behavior.
 
-The workbench runs the actual K6 firmware image in the emulator, shows its LCD and UART output,
-maps keyboard and on-screen presses to the radio keypad, and offers modeled power/PTT lines. Enter
-a bundle directory and signing key to stage modules in virtual SPI flash. Use
-`--spi-image sim/k6emu/runs/k6-spi.bin` to retain that virtual library between workbench restarts;
-this generated file is ignored by Git and may contain calibration copied into virtual flash. The
-workbench never opens the programming cable.
+## Development map
 
-This is the first radio backend, for UV-K6/K61 boards using the FD6818B RF chip. The interface
-and catalog should become radio-model adapters as other board emulators are added; at this point
-only the K6 execution and peripherals are implemented. Emulator evidence covers firmware behavior
-against modeled peripherals, not RF performance or physical-radio behavior.
+- `firmware/k6-aura/` contains the pinned source build, Flux patches, and FD6818B feature-set build.
+- `c/k6/` contains module and shared-library code; [docs/k6-modules.md](docs/k6-modules.md) describes the module API.
+- `tools/k6.py` is the unified command line; `tools/k6_store.py` runs and manages the local Catalog.
+- `local-modules/` contains generated local starter bundles and is ignored by Git.
+- `sim/` and `tests/` contain the emulator and tooling validation.
 
-Start with the focused host and emulator notes in [`docs/k6-host-contract-findings.md`](docs/k6-host-contract-findings.md)
-and [`docs/k6-emulator-llm-debug.md`](docs/k6-emulator-llm-debug.md). Hardware testing still means
-testing on the actual FD6818B K6; an emulator pass is not a radio or RF test.
-
-## Project boundary
-
-This is the AG7SU project checkout, not the upstream Blowfang development tree. It keeps the pinned
-Aura integration and the working host/module/store path together so that work can continue here
-without pulling in unrelated radio ports. Upstream K6 components can be brought back selectively
-when a feature needs them.
+For installation guidance, see [docs/manual/install.md](docs/manual/install.md). For deeper engineering notes, browse the other files in `docs/`.

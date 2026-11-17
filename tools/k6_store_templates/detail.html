@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>{{ repo.title }} · Blowfang Module Store</title>
+  <title>{{ repo.title }} · Flux Catalog</title>
   <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
   <link rel="stylesheet" href="{{ url_for('static', filename='store.css') }}">
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="{{ url_for('index') }}"><span class="brand-mark">B</span> Blowfang <span>Module Store</span></a>
+    <a class="brand" href="{{ url_for('index') }}"><span class="brand-mark">F</span> Flux <span>Catalog</span></a>
     <nav class="top-actions"><a href="{{ url_for('profiles') }}">Feature packs</a> <a href="{{ url_for('radio') }}">My radio</a><a href="{{ url_for('settings_page') }}">Device settings{% if radio_settings.port %} · {{ radio_settings.port }}{% endif %}</a><a class="quiet link-button" href="{{ url_for('index') }}">← All repos</a></nav>
   </header>
   <main class="layout detail-layout">
@@ -35,7 +35,7 @@
         {% if result %}<pre class="install-result {{ 'ok' if result.ok else 'failed' }}">{{ result.output or 'Installer finished without output.' }}</pre>{% endif %}
       </section>
     {% else %}
-      <section class="panel notice"><strong>README entry only.</strong> This repository does not contain a format-1 Blowfang bundle, so it can be browsed but not installed from here yet.</section>
+      <section class="panel notice"><strong>README entry only.</strong> This repository does not contain a format-1 Flux bundle, so it can be browsed but not installed from here yet.</section>
     {% endif %}
 
     {% if repo.screenshots %}

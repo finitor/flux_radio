@@ -1,5 +1,7 @@
 # MIDI player: quick manual
 
+> **Legacy pager module:** this guide covers a standalone MIDI module for the reference pager images. It is not part of the FD6818B Flux base image. The `aura-pager-*` CI artifact names below are retained upstream build identifiers.
+
 The MIDI player is a RAM module that plays tunes from the K6's speaker in four voices, round and
 round until you hold a key. It only listens and never keys the transmitter. It runs from RAM, so
 you never reflash the radio to use it or to change its songs. Design notes and tests are in

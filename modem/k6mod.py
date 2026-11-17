@@ -78,7 +78,7 @@ def siphash24(key, m):
 
 
 def default_key_path():
-    return os.path.expanduser("~/.config/blowfang/k6-mod.key")
+    return os.path.expanduser(os.environ.get("FLUX_MOD_KEY_FILE", "~/.config/flux/k6-mod.key"))
 
 
 def ensure_default_key(path):

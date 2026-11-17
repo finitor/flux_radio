@@ -1,5 +1,5 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Firmware build · Blowfang</title><link rel="stylesheet" href="{{ url_for('static', filename='store.css') }}">{% if job.state == 'running' %}<meta http-equiv="refresh" content="4">{% endif %}</head>
-<body><header class="topbar"><a class="brand" href="{{ url_for('index') }}"><span class="brand-mark">B</span> Blowfang <span>Firmware build</span></a><nav class="top-actions"><a href="{{ url_for('profiles') }}">Feature packs</a><a href="{{ url_for('radio') }}">My radio</a></nav></header>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Firmware build · Flux</title><link rel="stylesheet" href="{{ url_for('static', filename='store.css') }}">{% if job.state == 'running' %}<meta http-equiv="refresh" content="4">{% endif %}</head>
+<body><header class="topbar"><a class="brand" href="{{ url_for('index') }}"><span class="brand-mark">F</span> Flux <span>Firmware build</span></a><nav class="top-actions"><a href="{{ url_for('profiles') }}">Feature packs</a><a href="{{ url_for('radio') }}">My radio</a></nav></header>
 <main class="layout detail-layout">
 {% for category, message in get_flashed_messages(with_categories=true) %}
 <p class="notice {{ category }}">{{ message }}</p>
@@ -13,7 +13,7 @@
   <p>Flash this profile, then boot the radio and install its modules. Use UPDATE mode for a first flash and complete the radio's first-boot format prompt before installing. Back up the radio’s SPI flash before its first format.</p>
   <form method="post" action="{{ url_for('provision_profile', job_id=job.id) }}">
     <input type="hidden" name="token" value="{{ radio_token }}">
-    <label>Flash mode <select name="mode"><option value="cable">Running Blowfang</option><option value="update">Already showing UPDATE</option></select></label>
+    <label>Flash mode <select name="mode"><option value="cable">Running Flux</option><option value="update">Already showing UPDATE</option></select></label>
     <label><input type="checkbox" name="confirm" value="yes"> Authorize writing to this radio</label>
     <div class="top-actions">
       <button name="action" value="flash">Flash firmware</button>

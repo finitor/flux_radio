@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Unified Blowfang K6 CLI. Radio writes require explicit subcommands and approval."""
+"""Unified Flux radio CLI. Radio writes require explicit subcommands and approval."""
 import argparse
 import json
 from pathlib import Path
@@ -53,7 +53,7 @@ def command(argv):
     matrix.add_argument('--build', action='store_true')
     matrix.add_argument('--build-dir', type=Path)
     matrix.add_argument('--output', type=Path)
-    catalog = sub.add_parser('catalog', help='launch local module catalog web UI')
+    catalog = sub.add_parser('catalog', help='launch Flux local module catalog web UI')
     catalog.add_argument('args', nargs=argparse.REMAINDER)
     radio = sub.add_parser('radio', help='radio cable operations (status, backup, flash, load)')
     radio.add_argument('args', nargs=argparse.REMAINDER)

@@ -5,29 +5,24 @@ from pathlib import Path
 root = Path(__file__).parent / "build/aura-fd6818b-port/src"
 keys = root / "app/keys.rs"
 text = keys.read_text()
-old = '''                KeyId::Side1 | KeyId::Side2 | KeyId::Band => {
-                    let func = keyfn::from_u8(short_function(app, ev.key));
-                    keyfn::invoke(app, syst, func);
-                }
-'''
-new = '''                KeyId::Side1 | KeyId::Side2 => {
-                    let func = keyfn::from_u8(short_function(app, ev.key));
-                    keyfn::invoke(app, syst, func);
-                }
-                KeyId::Band => {
-                    #[cfg(feature = "blowfang-host")]
+import re
+
+pattern = re.compile(r'(?ms)^([ \t]*)KeyId::Band => \{\n.*?^\1\}')
+replacement = r"""\1KeyId::Band => {
+                    #[cfg(all(feature = "blowfang-host", not(k6_no_scan)))]
                     pager::host_run_surf(app);
+                    #[cfg(all(feature = "blowfang-host", k6_no_scan))]
+                    scan::enter(app, syst);
                     #[cfg(not(feature = "blowfang-host"))]
                     {
                         let func = keyfn::from_u8(short_function(app, ev.key));
                         keyfn::invoke(app, syst, func);
                     }
-                }
-'''
-if old in text:
-    keys.write_text(text.replace(old, new, 1))
-elif new not in text:
-    raise SystemExit("keys.rs: cannot locate short-press key dispatch")
+                }"""
+text2, count = pattern.subn(replacement, text, count=1)
+if count != 1:
+    raise SystemExit("keys.rs: cannot locate BAND shortcut block")
+keys.write_text(text2)
 
 pager = root / "app/pager.rs"
 text = pager.read_text()

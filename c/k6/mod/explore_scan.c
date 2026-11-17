@@ -304,8 +304,8 @@ static void try_frequency(explore_t *s, const k6_api_t *api, ex_cand_t *c) {
   api->say("EXPLORE Try; key to resume scan");
   screen_frame(s, api, 2);
   /* Let the key that opened Try be released before accepting its return key. */
-  while (keypad_event(s, api) != 0) api->delay_us(10000);
-  for (;;) {
+  while (!km_power_switch_off() && keypad_event(s, api) != 0) api->delay_us(10000);
+  while (!km_power_switch_off()) {
     if (keypad_event(s, api) != 0) break;
     {
       uint32_t now = api->ms();
@@ -383,7 +383,7 @@ int k6_main(const k6_api_t *api) {
   api->say("EXPLORE band ALL");
   api->say("EXPLORE scan/list started; RX only");
   screen_scan(s, api);
-  for (;;) {
+  while (!km_power_switch_off()) {
     result = api->explore_xs_step(&s->scan);
     if (result == XS_ROW) {
       s->eyes_right ^= 1u;

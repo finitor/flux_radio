@@ -119,7 +119,7 @@ def rt_record(slot, rx_hz, call=b"", off=0, tx_tone=0, state=0xFFFC):
                              b"", call, 0, 0, 0, 0, slot + 1, slot + 1, 0)
 
 
-def go(signals, keys, rx_hz=440_600_000, level=9, regs=None, src=SRC, bumps=(), table=()):
+def go(signals, keys, rx_hz=440_600_000, level=9, regs=None, src=SRC, bumps=(), table=(), power_off_us=None):
     from modem import k6mod
     code, entry = k6mod.build(src)
     m = Bumpy([(f, d, a, b) for f, d, a, b in signals], list(bumps))
@@ -130,7 +130,7 @@ def go(signals, keys, rx_hz=440_600_000, level=9, regs=None, src=SRC, bumps=(), 
     r = {**START, **AURA, 0x67: m.rssi, 0x47: 0x6040, **(regs or {})}
     ret, said, regs, writes = run(r, code=(code, entry), tune=m.tune, level=level, lcd=lcd, keypad=keys,
                                   spare=ARENA - 24 - len(code), count=3_000_000_000, rx_hz=rx_hz,
-                                  flash={"mem": mem}, paint=True)
+                                  flash={"mem": mem}, paint=True, power_off_us=power_off_us)
     lcd["tunes"] = m.tunes
     return ret, said, regs, writes, lcd
 
@@ -223,6 +223,16 @@ def test_builds_level_6_and_fits_the_store(src):
     # the arena, with the remembered peaks (128 x 8 B, the rest of the store) and room to grow
     # (the bitmap and the state: the stack)
     assert len(code) <= ARENA - 24 - 8 * 128 - 200
+
+
+@need_clang
+def test_power_switch_exits_surf_and_restores_radio():
+    ret, said, regs, _, lcd = go([], [], power_off_us=400_000)
+    assert ret >= 0
+    assert "surf screen ready" in said
+    assert said[-1].startswith("end sw=")
+    assert all(regs[reg] == AURA[reg] for reg in (0x13, 0x73, 0x7E))
+    assert lcd["frames"][-1]["us"] < 500_000
 
 
 def test_lens_scale_steps_grow_outward_and_end_on_the_span():

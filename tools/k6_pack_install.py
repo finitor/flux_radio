@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify, flash, and install Blowfang feature packs."""
+"""Verify, flash, and install Flux feature packs."""
 import argparse
 from contextlib import contextmanager
 import hashlib
@@ -123,7 +123,7 @@ def radio_preflight(root, spec, port, key_file=None):
         try:
             cable = open_cable(connection, lambda *_: None, wait=3.0)
             if cable is None:
-                raise PackError('no Blowfang cable session')
+                raise PackError('no Flux module-host cable session')
             caps = cable.authenticated_capabilities(key) if key is not None else cable.capabilities()
             report = compatibility_report(lock, caps, expected_build_id)
             report['key_possession_verified'] = key is not None
@@ -214,7 +214,7 @@ def provision_pack(root, spec, port, key_file=None, *, action, mode='cable', log
                 return
             cable = radio.open_cable(connection, log, wait=3.0)
             if cable is None:
-                raise PackError('no Blowfang cable session; enter UPDATE mode for a first flash')
+                raise PackError('no Flux module-host cable session; enter UPDATE mode for a first flash')
             caps = cable.authenticated_capabilities(key)
             if action == 'flash':
                 cable = None  # flash owns the restart and bootloader handshake
