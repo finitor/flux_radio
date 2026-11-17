@@ -59,7 +59,7 @@ def main():
         label = '-'.join(names)
         if args.build:
             env = os.environ.copy()
-            env['K6_AURA_FEATURES'] = ','.join(['pager-explore'] + plan['cargo_features'])
+            env['K6_AURA_FEATURES'] = ','.join(plan['cargo_features'])
             env['K6_IMAGE_NAME'] = f'aura-matrix-{label}'
             env.update(gate_environment(plan, policy))
             print(f'Building {label}: {gate_environment(plan, policy)}', file=sys.stderr, flush=True)

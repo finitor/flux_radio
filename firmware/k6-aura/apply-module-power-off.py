@@ -82,6 +82,18 @@ if new_key_down not in text:
         raise SystemExit("missing module key_down callback")
     text = text.replace(old_key_down, new_key_down, 1)
 
+# Shutdown is reported as a held key to modules, but the host must not
+# wait for that "key" to be released before its main loop can power off.
+old_release = "    while unsafe { mod_key_poll() } != 0 && uptime::now().wrapping_sub(t1) < 30_000 {}"
+new_release = """    while !unsafe { mod_power_off_requested() }
+        && unsafe { mod_key_poll() } != 0
+        && uptime::now().wrapping_sub(t1) < 30_000
+    {}"""
+if new_release not in text:
+    if text.count(old_release) != 1:
+        raise SystemExit("missing module key-release wait")
+    text = text.replace(old_release, new_release, 1)
+
 if "mod_power_off_requested() } { return 1;" not in text:
     raise SystemExit("did not update mod_key_poll")
 source.write_text(text)

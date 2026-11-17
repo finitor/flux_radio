@@ -89,9 +89,7 @@ def main():
         else:
             env = os.environ.copy()
             env.pop('K6_MOD_KEY_FILE', None)
-            # Existing firmware build still links some optional services unconditionally.
-            # Never imply that this plan has already stripped them from flash.
-            env['K6_AURA_FEATURES'] = ','.join(['pager-explore'] + plan['cargo_features'])
+            env['K6_AURA_FEATURES'] = ','.join(plan['cargo_features'])
             env['K6_IMAGE_NAME'] = 'aura-fd6818b-pack'
             env.update(gate_environment(plan, policy))
             with exclusive_build():

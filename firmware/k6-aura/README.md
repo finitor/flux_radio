@@ -19,5 +19,10 @@ The output directory is `firmware/k6-aura/out-fd6818b/`. The main artifact is
 `aura-fd6818b-blowfang-host.bin`; module bundles are emitted beside it. Never commit the signing
 key or generated `.bin` files.
 
-`build-blowfang-host.sh` is the supported project build. `build.sh` and the other feature variants
-are retained as references for upstream Aura integration work, not as the current radio target.
+The feature-pack builder and matrix use the same normal-radio host profile.
+The Scan pack delivers Explore through the local module catalog. The pinned
+Aura source still supplies the radio core and drivers. The standalone Explore
+and pager builds are retained for reference. Sotto playback remains outside
+the local feature packs.
+
+The FD6818B build rejects the standalone Explore and pager feature flags.

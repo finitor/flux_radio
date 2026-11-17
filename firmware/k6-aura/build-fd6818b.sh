@@ -1,5 +1,5 @@
 #!/bin/sh
-# Experimental FD6818B Aura builds: EXPLORE or compact normal-Aura Blowfang host.
+# Build the FD6818B Blowfang module host.
 # The legacy Blowfang FSK packet modem is disabled until ported and hardware-tested.
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -8,8 +8,22 @@ REPO=${AURA_REPO:-https://github.com/sophiel-meow/bf-k61-firmware-aura}
 REV=${AURA_FD6818B_REV:-c3aeb17aec0fd09dccf931b52f6c7d5dbf72e7ac}
 WORK="$HERE/build/aura-fd6818b-port"
 OUT="$HERE/out-fd6818b"
-FEATURES=${K6_AURA_FEATURES:-pager-explore,fd6818b,spilib,txdog}
-IMAGE=${K6_IMAGE_NAME:-aura-fd6818b-explore}
+FEATURES=${K6_AURA_FEATURES:-blowfang-host,fd6818b,lean,spilib,txdog-quiet}
+IMAGE=${K6_IMAGE_NAME:-aura-fd6818b-blowfang-host}
+
+case "$FEATURES" in
+  *[!a-zA-Z0-9_,-]*) echo "Use a comma-separated list of Cargo features." >&2; exit 1 ;;
+esac
+case ",$FEATURES," in
+  *,pager-explore,*|*,pager-only,*|*,voice-explore,*|*,explore,*)
+    echo "Standalone Explore/pager firmware is reference-only. Use the Blowfang host and catalog modules." >&2
+    exit 1
+    ;;
+esac
+case ",$FEATURES," in
+  *,blowfang-host,*) ;;
+  *) echo "FD6818B builds require the blowfang-host feature." >&2; exit 1 ;;
+esac
 
 if [ ! -d "$WORK/.git" ]; then
   git clone -q "$REPO" "$WORK"
