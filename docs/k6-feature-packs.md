@@ -23,3 +23,9 @@ The existing `tools/k6_install.py` already handles module bundles and slot alloc
 ## Scanner migration
 
 `xscan_hot.c` is the first shared engine primitive. It is linked once into firmware and receives consumer-owned hot arrays, preserving the compact module ABI. Further extraction must avoid sharing UI or policy code. Before promoting the scanner pack to a production build option, fix the host patcher build and measure the complete linked image.
+
+## Pack assembly prototype
+
+`python3 tools/k6_pack_build.py scan aprs` invokes the existing FD6818B firmware build and packages all resolved modules with the existing `k6_install.cmd_module_bundle` compiler. The output is `firmware/k6-aura/out-fd6818b/packs/firmware.bin`, `modules/<name>/{module.bin,manifest.json}`, and `pack.lock.json` with SHA-256 hashes, module API levels, target, selected packs and declared capabilities. `--skip-firmware-build --firmware PATH --output DIR` can stage a prebuilt image; use this only if you have verified the image matches the declared capabilities. It does **not** verify that the image implements those capabilities.
+
+An actual Scan+APRS bundle was assembled with five modules against the previously built 98,424-byte host image. This proves compilation and artifact generation, **not** runtime module compatibility: the image is unkeyed and refuses modules, and no physical radio was flashed. Firmware capabilities are still linked unconditionally in the existing build; feature selection does **not yet remove unused services from flash**. Next implement capability-gated C/Rust builds and a compatibility validator before installing bundles. Installation remains an explicit separate action.
