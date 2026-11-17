@@ -9,6 +9,7 @@ import os
 import shutil
 from k6_pack_policy import POLICY, validate, gate_environment
 from k6_build_lock import exclusive_build
+from k6_capability_receipt import write as write_receipt
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -70,6 +71,7 @@ def main():
                 shutil.copy2(source / 'size.txt', dest / 'size.txt')
                 shutil.copy2(source / f'aura-matrix-{label}.bin', dest / 'firmware.bin')
             (dest / 'plan.json').write_text(json.dumps(plan, indent=2) + '\n')
+            write_receipt(dest / 'firmware.receipt.json', dest / 'firmware.bin', plan, gate_environment(plan, policy))
             size = dest / 'size.txt'
         elif args.size_dir:
             size = args.size_dir / label / 'size.txt'

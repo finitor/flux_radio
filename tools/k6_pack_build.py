@@ -17,6 +17,7 @@ import k6_install
 from k6_flash_policy import assess, flash_bytes
 from k6_pack_policy import POLICY, validate, gate_environment
 from k6_build_lock import exclusive_build
+from k6_capability_receipt import write as write_receipt
 
 
 def digest(path):
@@ -100,6 +101,7 @@ def main():
                 if not budget['pass']:
                     raise ValueError(f'firmware exceeds {budget["policy"]}: {budget["used"]} > {budget["limit"]}')
                 lock = assemble(plan, args.output, image, verified_firmware=False)
+                write_receipt(args.output / 'firmware.receipt.json', args.output / 'firmware.bin', plan, gate_environment(plan, policy))
             image = None
         if args.skip_firmware_build:
             lock = assemble(plan, args.output, image, verified_firmware=False)

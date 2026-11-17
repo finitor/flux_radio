@@ -48,3 +48,9 @@ Muse Delegate read-only audit `8e2741232680` completed. Its findings on serial h
 ### Install preflight trust boundary
 
 `tools/k6_pack_install.py` verifies staged firmware and module SHA-256 hashes, resolved pack requirements, module identity and API level. It now also checks that any module-manifest `sha256` entry agrees with the locked module digest, and rejects modules that unexpectedly claim a firmware-specific build ID. These are **consistency and integrity checks against the supplied lockfile**, not authentication: a malicious actor could replace both payload and lockfile. The installation path remains fail-closed pending independently verifiable firmware identity and on-radio capability negotiation.
+
+### Firmware build receipts (host-side only)
+
+Newly compiled pack and matrix images include `firmware.receipt.json`, recording the firmware binary's SHA-256 and byte count, target, resolved packs, declared capabilities, Cargo features, and effective service gates. `tools/k6_capability_receipt.py` can regenerate and compare the receipt against an image and plan. This is **not** a cryptographic signature, a measurement of actual linked features, or evidence supplied by a running radio; a forged receipt can accompany a forged image. `radio_attested` is always false, and installation remains blocked. Prebuilt images staged with `--skip-firmware-build` do not receive a newly asserted build receipt.
+
+A firmware-side capability protocol is still needed. The generated Aura CPS code lives in `firmware/k6-aura/build/aura-fd6818b-port/src/cps/`, so the implementation must be captured in a repeatable patch or apply script, not edited only in that generated checkout. Muse investigation `28b0985c5d6a` traced the existing CPS read/write dispatch and suggested a new read-only command instead of changing legacy responses; protocol compatibility and on-device behavior remain unverified.
