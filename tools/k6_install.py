@@ -294,14 +294,14 @@ class Cable(CpsLink):
     def capabilities(self):
         """Query optional versioned firmware capabilities; never infer them from INFO."""
         data = self.call(CMD_CAPS)
-        if len(data) != 16 or data[:4] != b'K6CP' or data[4] != 1 or data[7] != 0:
+        if len(data) != 16 or data[:4] != b'K6CP' or data[4] not in (1, 2) or data[7] != 0:
             raise InstallError('unsupported or malformed firmware capability record')
-        if any(data[8:]):
-            raise InstallError('unknown nonzero reserved firmware identity fields')
+        if (data[4] == 1 and any(data[8:])) or (data[4] == 2 and not any(data[8:])):
+            raise InstallError('invalid firmware build identity field')
         mask = data[5]
         if mask & ~7 or not mask & 1:
             raise InstallError('invalid firmware capability flags')
-        return {'format': 1, 'module_loader': True, 'scanner': bool(mask & 2),
+        return {'format': data[4], 'build_id': data[8:].hex() if data[4] == 2 else None, 'module_loader': True, 'scanner': bool(mask & 2),
                 'fsk_rx': bool(mask & 4), 'module_api_max': data[6],
                 'authenticated': False, 'build_identity_verified': False}
 

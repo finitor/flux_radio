@@ -2,13 +2,19 @@
 import hashlib
 import json
 from pathlib import Path
+from k6_build_identity import image_build_id
 
 FORMAT = 1
 
 
 def create(image, plan, gates):
     image = Path(image)
-    return {'format': FORMAT, 'target': plan['target'], 'firmware_sha256': hashlib.sha256(image.read_bytes()).hexdigest(),
+    data = image.read_bytes()
+    try:
+        build_id = image_build_id(data)
+    except ValueError:
+        build_id = None
+    return {'format': FORMAT, 'target': plan['target'], 'firmware_sha256': hashlib.sha256(data).hexdigest(), 'build_id': build_id,
             'firmware_bytes': image.stat().st_size, 'packs': plan['packs'],
             'capabilities': plan['capabilities'], 'cargo_features': plan['cargo_features'],
             'service_gates': dict(sorted(gates.items())), 'source': 'host-build-receipt',

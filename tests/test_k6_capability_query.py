@@ -34,8 +34,9 @@ def test_generated_patch_idempotent_and_updates_gates(tmp_path, monkeypatch):
     generated.mkdir(parents=True)
     target = generated / 'mod.rs'
     target.write_text(text)
+    (generated.parent.parent / 'build.rs').write_text('    if feat("VOICE_EXPLORE") {\n        File::create(out.join("k6id.x"))')
     for scan in ('0', '1'):
         subprocess.run([sys.executable, str(here / script.name)], env={'K6_SCAN_SERVICE': scan, 'K6_FSK_RX_SERVICE': '0'}, check=True)
         output = target.read_text()
         assert output.count('CMD_CABLE_CAPS if f.addr') == 1
-        assert f"1, {1 | (2 if scan == '1' else 0)}, 22, 0" in output
+        assert f"2, {1 | (2 if scan == '1' else 0)}, 22, 0" in output

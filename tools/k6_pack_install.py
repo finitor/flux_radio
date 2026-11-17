@@ -13,6 +13,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 from k6_feature_packs import DEFAULT, resolve
+from k6_build_identity import image_build_id
 
 
 class PackError(ValueError):
@@ -85,7 +86,7 @@ CAPABILITY_FLAGS = {
 }
 
 
-def compatibility_report(lock, capabilities):
+def compatibility_report(lock, capabilities, expected_build_id=None):
     """Compare a verified artifact plan with an unauthenticated radio report."""
     missing = [name for name in lock['capabilities']
                if capabilities.get(CAPABILITY_FLAGS.get(name, ''), False) is not True]
@@ -93,7 +94,10 @@ def compatibility_report(lock, capabilities):
     if type(ceiling) is not int or not 1 <= ceiling <= 255:
         raise PackError('invalid reported module API ceiling')
     unsupported = [m['name'] for m in lock['modules'] if m['api_level'] > ceiling]
-    return {'capabilities_match': not missing and not unsupported,
+    reported_build_id = capabilities.get('build_id')
+    identity_match = bool(expected_build_id and reported_build_id == expected_build_id)
+    return {'expected_build_id': expected_build_id, 'reported_build_id': reported_build_id,
+            'build_id_match': identity_match, 'capabilities_match': not missing and not unsupported,
             'missing_capabilities': missing, 'unsupported_modules': unsupported,
             'reported_api_max': ceiling, 'authenticated': False,
             'build_identity_verified': False, 'install_ready': False}
@@ -103,13 +107,18 @@ def radio_preflight(root, spec, port):
     from k6_install import open_port, open_cable, InstallError
     from types import SimpleNamespace
     lock = verify_pack(root, spec, require_attested=False)
+    firmware = Path(root) / lock['firmware']['path']
+    try:
+        expected_build_id = image_build_id(firmware.read_bytes())
+    except ValueError:
+        expected_build_id = None  # legacy artifact; cannot match a build ID
     connection = open_port(SimpleNamespace(port=port))
     cable = None
     try:
         cable = open_cable(connection, lambda *_: None, wait=3.0)
         if cable is None:
             raise PackError('no Blowfang cable session')
-        report = compatibility_report(lock, cable.capabilities())
+        report = compatibility_report(lock, cable.capabilities(), expected_build_id)
         report['packs'] = lock['packs']
         return report
     except InstallError as exc:
@@ -139,7 +148,7 @@ def main():
         if args.radio_preflight:
             report = radio_preflight(args.pack, spec, args.port)
             print(json.dumps(report, indent=2))
-            return 0 if report['capabilities_match'] else 1
+            return 0 if report['capabilities_match'] and report['build_id_match'] else 1
         lock = verify_pack(args.pack, spec, require_attested=not args.inspect_unverified)
         print(json.dumps({'status': 'verified artifacts' if args.inspect_unverified else 'verified lockfile',
                           'install_ready': not args.inspect_unverified,
