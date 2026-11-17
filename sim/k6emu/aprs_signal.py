@@ -50,8 +50,8 @@ def afsk(frame: bytes, sample_rate: int = 9600, baud: int = 1200,
     emphasis_db is the relative SPACE amplitude in dB vs MARK, not an
     analog pre-emphasis filter model. Samples are normalized [-1,1].
     """
-    if sample_rate <= 0 or baud <= 0 or sample_rate % baud:
-        raise ValueError('sample rate must be an integer multiple of baud')
+    if sample_rate <= 0 or baud <= 0 or sample_rate < baud:
+        raise ValueError('sample rate must be at least the baud rate')
     if clip <= 0 or noise < 0:
         raise ValueError('invalid impairment settings')
     rng = random.Random(seed)
@@ -59,13 +59,16 @@ def afsk(frame: bytes, sample_rate: int = 9600, baud: int = 1200,
     mark = True
     out = []
     space_scale = 10 ** (emphasis_db / 20)
-    for bit in hdlc_bits(frame):
+    sample_index = 0
+    for bit_index, bit in enumerate(hdlc_bits(frame)):
         if bit == 0:
             mark = not mark
         frequency = (1200 if mark else 2200) + frequency_offset
         scale = amplitude * gain * (1 if mark else space_scale)
-        for _ in range(sample_rate // baud):
+        next_index = (bit_index + 1) * sample_rate // baud
+        for _ in range(next_index - sample_index):
             phase += 2 * math.pi * frequency / sample_rate
             sample = scale * math.sin(phase) + rng.gauss(0, noise) if noise else scale * math.sin(phase)
             out.append(max(-clip, min(clip, sample)))
+        sample_index = next_index
     return out
