@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Protocol
 
 from sim.k6emu.__main__ import K6Board, overlay_module_bundle
+from sim.k6emu.aprs_signal import ui_frame
+from sim.k6emu.if_signal import pb1_bits
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_IMAGE = ROOT / "firmware/k6-aura/out-fd6818b/aura-fd6818b-blowfang-host.bin"
@@ -69,6 +71,33 @@ class K6Workbench:
             # should use available CPU rather than run at an artificial fraction
             # of host speed; `sleep(0)` lets Flask/UI threads get scheduled.
             time.sleep(0)
+
+    def inject_aprs(self, source="AG7SU", destination="APRS", message=">sim test",
+                    ssid=7, noise=0.0, gain=1.0, clip=1.0,
+                    emphasis_db=0.0, frequency_offset=0.0, seed=0):
+        """Arm a simulated IF packet; firmware must enable DMA to consume it."""
+        if not (0 <= int(ssid) <= 15 and 0 <= float(noise) <= 2
+                and 0 < float(gain) <= 20 and 0 < float(clip) <= 1
+                and -24 <= float(emphasis_db) <= 24
+                and -500 <= float(frequency_offset) <= 500
+                and len(message) <= 200):
+            raise ValueError("APRS signal parameters outside permitted range")
+        frame = ui_frame(source, destination, message.encode("ascii"), int(ssid))
+        samples = pb1_bits(frame, noise=float(noise), gain=float(gain),
+                          clip=float(clip), emphasis_db=float(emphasis_db),
+                          frequency_offset=float(frequency_offset), seed=int(seed))
+        with self.lock:
+            self.board.attach_rx_bits(samples)
+            return {"frame_bytes": len(frame), "sample_rate_hz": 85800,
+                    "note": "armed only; reception requires firmware DMA activity"}
+
+    def aprs_rx_status(self):
+        with self.lock:
+            dma = self.board.rx_dma if self.board else None
+            return {"armed": dma is not None,
+                    "transfers": dma.transfers if dma else 0,
+                    "exhausted": dma.exhausted if dma else False,
+                    "remaining": dma.remaining if dma else 0}
 
     def reboot(self):
         with self.lock:
@@ -192,6 +221,33 @@ class RadioAdapter(Protocol):
     def screen_svg(self) -> str: ...
     def press(self, key: str, down: bool): ...
     def switch(self, name: str, on: bool): ...
+    def inject_aprs(self, source="AG7SU", destination="APRS", message=">sim test",
+                    ssid=7, noise=0.0, gain=1.0, clip=1.0,
+                    emphasis_db=0.0, frequency_offset=0.0, seed=0):
+        """Arm a simulated IF packet; firmware must enable DMA to consume it."""
+        if not (0 <= int(ssid) <= 15 and 0 <= float(noise) <= 2
+                and 0 < float(gain) <= 20 and 0 < float(clip) <= 1
+                and -24 <= float(emphasis_db) <= 24
+                and -500 <= float(frequency_offset) <= 500
+                and len(message) <= 200):
+            raise ValueError("APRS signal parameters outside permitted range")
+        frame = ui_frame(source, destination, message.encode("ascii"), int(ssid))
+        samples = pb1_bits(frame, noise=float(noise), gain=float(gain),
+                          clip=float(clip), emphasis_db=float(emphasis_db),
+                          frequency_offset=float(frequency_offset), seed=int(seed))
+        with self.lock:
+            self.board.attach_rx_bits(samples)
+            return {"frame_bytes": len(frame), "sample_rate_hz": 85800,
+                    "note": "armed only; reception requires firmware DMA activity"}
+
+    def aprs_rx_status(self):
+        with self.lock:
+            dma = self.board.rx_dma if self.board else None
+            return {"armed": dma is not None,
+                    "transfers": dma.transfers if dma else 0,
+                    "exhausted": dma.exhausted if dma else False,
+                    "remaining": dma.remaining if dma else 0}
+
     def reboot(self): ...
     def set_running(self, running: bool): ...
     def step(self, instructions: int = 5000): ...
@@ -288,6 +344,18 @@ def create_app(workbench: RadioAdapter):
     def api_step():
         workbench.step()
         return jsonify(ok=True)
+
+    @app.get("/api/aprs/rx")
+    def api_aprs_rx_status():
+        return jsonify(workbench.aprs_rx_status())
+
+    @app.post("/api/aprs/rx")
+    def api_aprs_rx():
+        try:
+            body = request.get_json(force=True)
+            return jsonify(ok=True, **workbench.inject_aprs(**body))
+        except (ValueError, TypeError, UnicodeError) as exc:
+            return jsonify(ok=False, error=str(exc)), 400
 
     @app.post("/api/modules/load")
     def api_load():
