@@ -200,7 +200,14 @@ $CC $CFLAGS -DKP_PAGE=KP_TABLE -c "$ROOT/c/k6/kp_tab.c" -o "$OUT/kp_table.o"
 $CC $CFLAGS -DKP_PAGE=KP_EDIT -c "$ROOT/c/k6/kp_tab.c" -o "$OUT/kp_edit.o"
 LIBOBJS="$OUT/sotto_pager.o $OUT/k6_mod.o $OUT/sotto_fx_dec.o $OUT/sp_cb.o $OUT/sp_vlr.o $OUT/fx_math.o $OUT/fx_tables.o $OUT/ifpager.o
   $OUT/xscan.o $OUT/xscan_hot.o $OUT/xlisten.o $OUT/xdmr.o $OUT/explore.o $OUT/cwid.o $OUT/k6_rt.o $OUT/sted.o"
-if [ "${K6_EXPLORE_HOST:-0}" = 1 ]; then LIBOBJS="$LIBOBJS $OUT/xscan_modhost.o"; fi
+if [ "${K6_EXPLORE_HOST:-0}" = 1 ]; then
+  if [ "${K6_SCAN_SERVICE:-1}" = 1 ]; then
+    LIBOBJS="$LIBOBJS $OUT/xscan_modhost.o"
+  else
+    $CC $CFLAGS -Oz -c "$ROOT/c/k6/scan_host_unavailable.c" -o "$OUT/scan_host_unavailable.o"
+    LIBOBJS="$LIBOBJS $OUT/scan_host_unavailable.o"
+  fi
+fi
 LIBOBJS="$LIBOBJS $OUT/k6_lib.o $OUT/card_record.o $OUT/card_store.o $OUT/card_air.o"
 if [ -n "$LR" ]; then     # not hot (field unpacking and shape sums once per 40 ms): -Oz
   $CC $CFLAGS -Oz -Dcalloc=sp_calloc -Dfree=sp_free -c "$ROOT/c/fixed/sotto_fx_lr.c" -o "$OUT/sotto_fx_lr.o"

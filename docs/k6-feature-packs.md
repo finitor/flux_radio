@@ -51,3 +51,16 @@ This is an initial **budget enforcement mechanism**, not proof that two arbitrar
 `tools/k6_pack_matrix.py --size-dir DIR --output report.json` consumes **independently linked** `base/size.txt`, `base-scan/size.txt`, `base-aprs/size.txt`, and `base-scan-aprs/size.txt` (from `llvm-size -A`). It fails if Base exceeds 96 KiB, any profile exceeds 120 KiB, or the required Scanner+APRS combination is missing or over budget. Without separately built linked images, it deliberately refuses to claim a successful matrix. Its default invocation does not yet build profiles because Rust API and C archive service gating remain incomplete.
 
 The pack inspector also refuses all radio-writing readiness claims regardless of the mutable `capabilities_verified` lockfile field: that field alone cannot establish firmware ABI compatibility. An independent firmware capability attestation and matching radio-side handshake are required before the installer may be enabled.
+
+## First measured selective linking: compact scanner engine
+
+`K6_SCAN_SERVICE=0` on the FD6818B firmware build replaces the compact host scanner (`xscan_modhost.o`) with a small, ABI-preserving unavailable-service implementation. The module API field layout stays stable; scanner initialization and stepping fail instead of calling missing code. `tools/k6_pack_build.py` now selects this automatically when the `scan` pack is absent. The full scanner engine and legacy Explore application are **not yet entirely removed** from Base; APRS-specific service gating and runtime capability negotiation remain to be implemented.
+
+Measured with the same `pager-explore,fd6818b,spilib,txdog,blowfang-host` Cargo features on the local workstation:
+
+| Service configuration | Linked MCU flash | Headroom to 120 KiB |
+| --- | ---: | ---: |
+| Scanner host disabled | 94,900 bytes | 27,980 bytes |
+| Scanner host enabled | 98,424 bytes | 24,456 bytes |
+
+This saves **3,524 bytes** and passes the 96 KiB Base budget, but is not yet a verified feature-complete Base/Scanner/APRS profile matrix. The images were unkeyed, not flashed, and not hardware tested.

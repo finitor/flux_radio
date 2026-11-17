@@ -88,7 +88,7 @@ grep -q 'FD6818B FSK TBD' "$WORK/src/ui/pager.rs" || {
 mkdir -p "$OUT"
 K6_EXPLORE_HOST=0
 case ",$FEATURES," in *,blowfang-host,*) K6_EXPLORE_HOST=1 ;; esac
-K6_EXPLORE_HOST="$K6_EXPLORE_HOST" K6_PKT_YIELD=0 K6_VOICE=0 K6_CB=spi \
+K6_EXPLORE_HOST="$K6_EXPLORE_HOST" K6_SCAN_SERVICE="${K6_SCAN_SERVICE:-1}" K6_PKT_YIELD=0 K6_VOICE=0 K6_CB=spi \
   K6_OUT="$OUT/c-build" sh "$ROOT/tools/k6_build.sh"
 mkdir -p "$WORK/lib"
 cp "$OUT/c-build/libsotto_k6.a" "$WORK/lib/libsotto_k6.a"
