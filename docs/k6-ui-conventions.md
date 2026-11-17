@@ -49,3 +49,11 @@ shortcuts. Existing behavior is noted separately from proposed conventions.
 5. Document deliberate exceptions rather than allowing accidental divergence.
 
 This is a **living convention**, not a claim that all current modules already conform.
+
+## Action chirps (firmware API level 22)
+
+- **BEEP** controls the ordinary every-keypress sound. **ACTBEEP** is a separate setting, default ON even when BEEP is OFF.
+- A successful hold action uses a brief rising confirmation; an unavailable hold uses a distinct two-note descending response. Both are local speaker tones, never transmitted.
+- Modules call `action_chirp(0)` for an available hold action or `action_chirp(1)` for an unavailable hold. The host checks ACTBEEP. Older firmware (`api->level < 22`) simply has no chirp.
+- Keep the sound before the action; avoid chirping for a short press. A generic long-key dispatch chirp does not prove that a particular mode handled the action; mode-aware validation remains a follow-up.
+- The setting is stored in previously reserved settings byte 161: 0 = legacy/default ON, 1 = OFF, 2 = ON. This avoids changing the 212-byte settings record layout.
