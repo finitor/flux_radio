@@ -2,10 +2,12 @@
 """Add a subtle focus marker to the active Aura VFO on the Blowfang host build."""
 from pathlib import Path
 import os
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
+from k6_feature_packs import validate_theme
 
 theme = os.environ.get("K6_THEME", "flux")
-if theme not in ("flux", "classic", "minimal"):
-    raise SystemExit("unknown Flux theme: " + theme)
+validate_theme(theme)
 
 root = Path(__file__).parent / "build/aura-fd6818b-port/src"
 standby = root / "ui/standby.rs"
@@ -73,6 +75,22 @@ elif theme == "classic":
 }
 
 """
+
+elif theme.startswith("custom-"):
+    flags, bitmap = theme.split("-")[1:]
+    start = helper.index("    Rectangle::new(Point::new(0, top),")
+    rail = helper.index("    // x=1", start)
+    end = helper.index("\n}", rail)
+    body = (helper[start:rail] if flags[0] == "1" else "")
+    if flags[1] == "1":
+        body += helper[rail:end] + "\n"
+    if int(bitmap, 16):
+        rows = ", ".join("0x" + bitmap[i:i+2] for i in range(0, 16, 2))
+        icon = f"    const MARKER: [u8; 8] = [{rows}];\n"
+        icon += "    let marker = embedded_graphics::image::ImageRaw::<BinaryColor>::new(&MARKER, 7);\n"
+        icon += "    Image::new(&marker, Point::new(2, top)).draw(lcd).ok();\n"
+        body = icon + body
+    helper = helper[:start] + body + "}\n\n"
 
 marker = "fn draw_tx_prohibited_overlay<D>"
 import re

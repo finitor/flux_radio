@@ -85,3 +85,23 @@ screenshots. A build is still explicit and its actual flash budget is checked af
 
 The theme is recorded in the pack lock; non-default themes are also bound to the
 host build receipt. Legacy receipts and packs without a theme mean Flux.
+
+
+### Visual theme editor
+
+Open the Catalog firmware builder at `/profiles`. The theme editor draws a
+seven-by-eight pixel active VFO marker, with optional top border and left rail.
+Switch the preview between VFO A and B. Give designs names and save them in
+browser-local storage; selecting a saved design makes it the active build theme.
+The preview is illustrative, not an emulator screenshot.
+
+Copy the theme code to share it, or paste one into the editor and choose Load code.
+The custom theme code is directly portable to the CLI, e.g.:
+
+    python3 tools/k6.py build base --theme custom-01-c0f0fcfefcf0c000
+
+The two flags are top border and left rail (0/1); the sixteen hex digits are
+eight row bytes, most significant bit first, with the low bit reserved/zero.
+An entirely blank marker without either border is rejected. The immutable code
+is included in the package lock and receipt so editing a saved browser theme
+cannot change a previous build. No arbitrary source code is accepted.

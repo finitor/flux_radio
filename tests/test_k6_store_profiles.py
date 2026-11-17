@@ -39,3 +39,19 @@ def test_live_preview_theme_and_validation(monkeypatch):
     page = client.post('/profiles', data={'theme': 'minimal', 'pack': 'scan'})
     assert b'--theme minimal' in page.data
     assert b'value="minimal" checked' in page.data
+
+
+def test_custom_theme_is_buildable_and_rejects_invalid_markers():
+    client = k6_store.create_app().test_client()
+    token = 'custom-01-c0f0fcfefcf0c000'
+    response = client.post('/profiles/preview', data={'theme': token, 'pack': 'scan'})
+    assert response.status_code == 200
+    assert response.get_json()['plan']['theme'] == token
+    page = client.post('/profiles', data={'theme': token})
+    assert b'Theme editor' in page.data
+    assert token.encode() in page.data
+    assert b'theme-editor.js' in page.data
+    for invalid in ('custom-00-0000000000000000', 'custom-11-0100000000000000',
+                    'custom-11-ffffffffffffffff', 'custom-22-c0f0fcfefcf0c000', 'custom-11-xyz'):
+        assert client.post('/profiles/preview', data={'theme': invalid}).status_code == 400
+        assert client.post('/profiles/build', data={'theme': invalid}).status_code == 400

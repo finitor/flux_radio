@@ -2,6 +2,7 @@
 """Resolve K6 firmware capability packs and module install plans (no flashing)."""
 import argparse
 import json
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,8 +18,14 @@ DEFAULT_THEME = 'flux'
 
 
 def validate_theme(theme):
-    if not isinstance(theme, str) or theme not in THEMES:
+    if not isinstance(theme, str) or (theme not in THEMES and not re.fullmatch(r'custom-[01][01]-[0-9a-f]{16}', theme)):
         raise ValueError(f'unknown firmware theme: {theme}')
+    if theme.startswith("custom-"):
+        flags, bitmap = theme.split("-")[1:]
+        if not (int(flags) or int(bitmap, 16)):
+            raise ValueError("custom theme needs a visible active VFO indicator")
+        if any(int(bitmap[i:i+2], 16) & 1 for i in range(0, 16, 2)):
+            raise ValueError("custom marker must be seven pixels wide")
     return theme
 
 
@@ -65,7 +72,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('packs', nargs='+', help='e.g. scan aprs')
     parser.add_argument('--spec', type=Path, default=DEFAULT)
-    parser.add_argument('--theme', choices=THEMES, default=DEFAULT_THEME)
+    parser.add_argument('--theme', type=validate_theme, default=DEFAULT_THEME, metavar="THEME")
     args = parser.parse_args()
     try:
         print(json.dumps(resolve(json.loads(args.spec.read_text()), args.packs, args.theme), indent=2))

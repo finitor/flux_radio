@@ -34,7 +34,10 @@ def test_unified_cli_routes_without_radio_access(monkeypatch, capsys):
     assert k6.main(['plan', 'scan']) == 0
     assert not calls
     assert k6.main(['build', 'scan', 'aprs']) == 0
-    assert Path(calls[-1][-3]).name == 'k6_pack_build.py' and calls[-1][-2:] == ['scan', 'aprs']
+    assert Path(calls[-1][1]).name == 'k6_pack_build.py' and calls[-1][2:] == ['scan', 'aprs', '--theme', 'flux']
+    token = 'custom-01-c0f0fcfefcf0c000'
+    assert k6.main(['build', 'base', '--theme', token]) == 0
+    assert calls[-1][2:] == ['base', '--theme', token]
     assert k6.main(['catalog']) == 0
     assert Path(calls[-1][-2]).name == 'k6_store.py' and calls[-1][-1] == 'serve'
     assert k6.main(['radio', '--port', '/dev/ttyUSB0', 'status']) == 0

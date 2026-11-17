@@ -12,7 +12,7 @@ from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
-from k6_feature_packs import DEFAULT, resolve, THEMES, DEFAULT_THEME
+from k6_feature_packs import DEFAULT, resolve, THEMES, DEFAULT_THEME, validate_theme
 import k6_install
 from k6_flash_policy import assess, flash_bytes
 from k6_pack_policy import POLICY, validate, gate_environment
@@ -74,7 +74,7 @@ def main():
     p.add_argument('--firmware', type=Path, help='required with --skip-firmware-build')
     p.add_argument('--allow-unverified-firmware', action='store_true',
                    help='explicitly allow staging a prebuilt image without verifying capabilities')
-    p.add_argument('--theme', choices=THEMES, default=DEFAULT_THEME)
+    p.add_argument('--theme', type=validate_theme, default=DEFAULT_THEME, metavar="THEME")
     args = p.parse_args()
     try:
         spec = json.loads(args.spec.read_text())

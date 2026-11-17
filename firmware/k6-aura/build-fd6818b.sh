@@ -11,10 +11,7 @@ OUT="$HERE/out-fd6818b"
 FEATURES=${K6_AURA_FEATURES:-blowfang-host,fd6818b,lean,spilib,txdog-quiet}
 IMAGE=${K6_IMAGE_NAME:-flux-fd6818b}
 K6_THEME=${K6_THEME:-flux}
-case "$K6_THEME" in
-  flux|classic|minimal) ;;
-  *) echo "Unknown Flux theme: $K6_THEME" >&2; exit 1 ;;
-esac
+PYTHONPATH="$ROOT/tools" python3 -c 'import sys; from k6_feature_packs import validate_theme; validate_theme(sys.argv[1])' "$K6_THEME"
 export K6_THEME
 
 case "$FEATURES" in

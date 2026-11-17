@@ -8,7 +8,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
-from k6_feature_packs import DEFAULT, resolve, THEMES, DEFAULT_THEME
+from k6_feature_packs import DEFAULT, resolve, THEMES, DEFAULT_THEME, validate_theme
 
 
 def command(argv):
@@ -30,7 +30,7 @@ def command(argv):
     build.add_argument('--output', type=Path)
     build.add_argument('--spec', type=Path)
     for cmd_parser in (plan, build):
-        cmd_parser.add_argument('--theme', choices=THEMES, default=DEFAULT_THEME)
+        cmd_parser.add_argument('--theme', type=validate_theme, default=DEFAULT_THEME, metavar="THEME")
     inspect = sub.add_parser('inspect', help='check staged feature-pack integrity (no radio writes)')
     inspect.add_argument('pack', type=Path)
     inspect.add_argument('--spec', type=Path)
