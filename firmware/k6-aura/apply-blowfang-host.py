@@ -409,12 +409,15 @@ pager_path.write_text(pager_text)
 build_path = root.parent / "build.rs"
 build_text = build_path.read_text()
 old_arena_cfg = 'if feat("LEAN") || (feat("EXPLORE") && !feat("VOICE_EXPLORE")) {'
-new_arena_cfg = 'if (feat("LEAN") && !feat("BLOWFANG_HOST")) || (feat("EXPLORE") && !feat("VOICE_EXPLORE")) {'
+intermediate_arena_cfg = 'if (feat("LEAN") && !feat("BLOWFANG_HOST")) || (feat("EXPLORE") && !feat("VOICE_EXPLORE")) {'
+new_arena_cfg = 'if !feat("BLOWFANG_HOST") && (feat("LEAN") || (feat("EXPLORE") && !feat("VOICE_EXPLORE"))) {'
+if intermediate_arena_cfg in build_text:
+    build_text = build_text.replace(intermediate_arena_cfg, new_arena_cfg, 1)
 if new_arena_cfg not in build_text:
     if build_text.count(old_arena_cfg) != 1:
         raise SystemExit("build.rs: cannot find small_arena feature condition")
     build_text = build_text.replace(old_arena_cfg, new_arena_cfg, 1)
-    build_path.write_text(build_text)
+build_path.write_text(build_text)
 
 # The full Aura loop owns the serial RX stream. Route Aura CPS and Blowfang cable
 # handshakes through one detector so two independent pollers cannot consume each

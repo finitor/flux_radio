@@ -100,6 +100,8 @@ glyph = WORK / "ui/glyph.rs"
 glyph_text = glyph.read_text()
 glyph_impl = (HERE / "explore-small-font.rs.inc").read_text()
 if "pub fn text_small_page" not in glyph_text:
+    if "fn glyph_6x10(" in glyph_text:
+        glyph_impl = glyph_impl.split("\n/// FONT_6X10", 1)[0].rstrip()
     glyph.write_text(glyph_text.rstrip() + "\n\n" + glyph_impl + "\n")
 
 ui = WORK / "ui/pager.rs"
@@ -111,9 +113,9 @@ branch = '''    if !s.explore.is_null() {
 '''
 anchor = '    use app::pager::{MOD_COLS, MOD_GLYPH_COLS, MOD_LINES, WF_TOP};\n'
 if "draw_explore_page(buf, page" not in ui_text:
-    if ui_text.count(anchor) != 1:
-        raise SystemExit("ui/pager.rs: cannot locate module page renderer")
-    ui_text = ui_text.replace(anchor, anchor + branch, 1)
+    renderer = ui_text.index("pub fn draw_mod_page(")
+    position = ui_text.index(anchor, renderer) + len(anchor)
+    ui_text = ui_text[:position] + branch + ui_text[position:]
     ui.write_text(ui_text.rstrip() + "\n\n" + (HERE / "explore-render-page.rs.inc").read_text() + "\n")
 
 print("Applied host-rendered EXPLORE UI API (level 21)")

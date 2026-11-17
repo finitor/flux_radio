@@ -13,6 +13,16 @@ patch('flash_map.rs','            beeps_switch: buf[9] != 0,','            beeps
 patch('flash_map.rs','        buf[9] = self.beeps_switch as u8;','        buf[9] = self.beeps_switch as u8;\n        buf[161] = if self.action_beep { 2 } else { 1 };')
 patch('app/settings.rs','    Beep,','    Beep,\n    ActionBeep,')
 patch('app/settings.rs','                SettingItem::Beep,\n                SettingItem::Vox,','                SettingItem::Beep,\n                SettingItem::ActionBeep,\n                SettingItem::Vox,')
+settings = root / 'app/settings.rs'
+settings_text = settings.read_text()
+order_start = settings_text.index('pub const SETTINGS_ORDER:')
+order_end = settings_text.index('];', order_start)
+order = settings_text[order_start:order_end]
+if 'SettingItem::ActionBeep,' not in order:
+    if order.count('    SettingItem::Beep,') != 1:
+        raise RuntimeError('app/settings.rs: missing ActionBeep insertion point')
+    order = order.replace('    SettingItem::Beep,', '    SettingItem::Beep,\n    SettingItem::ActionBeep,')
+    settings.write_text(settings_text[:order_start] + order + settings_text[order_end:])
 patch('app/settings.rs','pub const SETTINGS_ORDER: [SettingItem; 56]','pub const SETTINGS_ORDER: [SettingItem; 57]')
 patch('app/settings.rs','            SettingItem::Beep => "BEEP",','            SettingItem::Beep => "BEEP",\n            SettingItem::ActionBeep => "ACTBEEP",')
 patch('app/settings_ops.rs','        SettingItem::Beep => app.settings.beeps_switch as i32,','        SettingItem::Beep => app.settings.beeps_switch as i32,\n        SettingItem::ActionBeep => app.settings.action_beep as i32,')

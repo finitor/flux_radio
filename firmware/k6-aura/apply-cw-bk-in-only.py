@@ -11,7 +11,7 @@ old = '''            let want_tx = app.settings.bk_in != 0
 new = '''            let want_tx = app.settings.bk_in != 0;
 '''
 if old in text:
-    tx.write_text(text.replace(old, new, 1))
+    text = text.replace(old, new, 1)
 elif new not in text:
     raise SystemExit("tx.rs: cannot locate CW/CWF BK-IN transmit gate")
 

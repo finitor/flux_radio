@@ -38,11 +38,8 @@ fi
 case ",$FEATURES," in
   *,blowfang-host,*)
     if ! grep -q 'blowfang-host' "$WORK/Cargo.toml"; then
-      if [ ! -s "$HERE/aura-blowfang-host.patch" ]; then
-        echo "missing Aura patch required for the blowfang-host feature" >&2
-        exit 1
-      fi
-      git -C "$WORK" apply "$HERE/aura-blowfang-host.patch"
+      sed -i '/^spilib = \[\]/a blowfang-host = ["spilib"]' "$WORK/Cargo.toml"
+      grep -q '^blowfang-host = ' "$WORK/Cargo.toml"
     fi
     ;;
 esac
@@ -53,18 +50,18 @@ python3 "$HERE/apply-fd6818b-fsk-tx-api.py"
 python3 "$HERE/apply-fd6818b-afsk-module-api.py"
 python3 "$HERE/apply-fd6818b-kiss-api.py"
 python3 "$HERE/apply-module-settings-api.py"
-python3 "$HERE/apply-action-beep.py"
 python3 "$HERE/apply-surf-vfo-b.py"
+python3 "$HERE/apply-module-run-diag.py"
 python3 "$HERE/apply-managed-signal-api.py"
 python3 "$HERE/apply-explore-header-api.py"
 python3 "$HERE/apply-explore-engine-api.py"
 python3 "$HERE/apply-vfo-repeater-hint.py"
-python3 "$HERE/apply-module-run-diag.py"
 python3 "$HERE/apply-cw-bk-in-only.py"
 python3 "$HERE/apply-cw-hang-timing.py"
 python3 "$HERE/apply-module-power-off.py"
 python3 "$HERE/apply-host-module-screen.py"
 python3 "$HERE/apply-explore-ui-api.py"
+python3 "$HERE/apply-action-beep.py"
 python3 "$HERE/apply-boot-app-stack.py"
 python3 "$HERE/apply-cardlink-stack.py"
 python3 "$HERE/apply-cable-stack.py"
