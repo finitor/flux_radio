@@ -62,3 +62,19 @@ Before implementing streaming, measure whether GP0 can be sampled at a
 an explicitly validated anti-aliasing strategy. Otherwise use bounded
 recording and delayed export. These figures are transport budgets, not proof
 of firmware or UART performance.
+
+## Synthetic GPIO clock-domain bridge
+
+`sim/k6emu/if_resample.py` now provides `held_gpio_samples()` to feed a
+high-rate DMA with a lower-rate synthetic **digital GPIO waveform**. A
+rational phase accumulator holds the last GPIO bit until the next source
+sample boundary, preventing the 85.8 kHz test waveform from being
+accidentally played 66.55 times too fast when DMA is set to 5.71 MHz.
+Tests exercise integer and noninteger rate ratios and a real `GpioRxDma`
+register/buffer path at the measured transfer clock.
+
+This bridge is **not a low-pass filter or an RF decimator**. It models a
+sampled digital pin; its source sample rate must resolve the underlying IF
+edges, and actual hardware IF capture still requires rate measurement and
+continuity checks. The existing workbench's 85.8 kHz DMA injection remains
+unchanged by default. Use this bridge explicitly for clock-domain tests.
