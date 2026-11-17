@@ -16,6 +16,7 @@ def create(image, plan, gates):
         build_id = None
     return {'format': FORMAT, 'target': plan['target'], 'firmware_sha256': hashlib.sha256(data).hexdigest(), 'build_id': build_id,
             'firmware_bytes': image.stat().st_size, 'packs': plan['packs'],
+            **({'theme': plan['theme']} if plan.get('theme', 'flux') != 'flux' else {}),
             'capabilities': plan['capabilities'], 'cargo_features': plan['cargo_features'],
             'service_gates': dict(sorted(gates.items())), 'source': 'host-build-receipt',
             'radio_attested': False}

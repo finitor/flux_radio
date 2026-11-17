@@ -10,6 +10,12 @@ WORK="$HERE/build/aura-fd6818b-port"
 OUT="$HERE/out-fd6818b"
 FEATURES=${K6_AURA_FEATURES:-blowfang-host,fd6818b,lean,spilib,txdog-quiet}
 IMAGE=${K6_IMAGE_NAME:-flux-fd6818b}
+K6_THEME=${K6_THEME:-flux}
+case "$K6_THEME" in
+  flux|classic|minimal) ;;
+  *) echo "Unknown Flux theme: $K6_THEME" >&2; exit 1 ;;
+esac
+export K6_THEME
 
 case "$FEATURES" in
   *[!a-zA-Z0-9_,-]*) echo "Use a comma-separated list of Cargo features." >&2; exit 1 ;;

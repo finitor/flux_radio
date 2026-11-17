@@ -1,0 +1,25 @@
+.builder-panel .visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.theme-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:16px 0 8px;padding:0;border:0}
+.theme-card input{position:absolute;opacity:0}
+.theme-card-body{display:block;padding:12px;border:1px solid var(--line);border-radius:10px;background:#121714;cursor:pointer}
+.theme-card input:checked+.theme-card-body{border-color:var(--acid);box-shadow:0 0 0 2px #c8f16d33}
+.theme-card input:focus-visible+.theme-card-body{outline:2px solid var(--acid);outline-offset:2px}
+.theme-card strong{display:block;margin-top:8px}
+.theme-desc{display:block;margin-top:4px;color:var(--muted);font-size:11px}
+.theme-preview{display:block;width:100%;max-width:256px;height:auto;border-radius:6px;border:1px solid #465341}
+.pack-list{margin:8px 0 0;padding:0;border:0}
+.builder-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}
+.builder-actions button{border:0;border-radius:7px;padding:10px 14px;color:#16200e;background:var(--acid);font-size:12px;font-weight:750}
+.builder-actions button:disabled{opacity:.45;cursor:not-allowed}
+.builder-actions button[type=submit]:first-child{background:transparent;color:var(--text);border:1px solid var(--line)}
+.builder-live{margin-top:18px;padding:16px;border:1px solid var(--line);border-radius:10px;background:#121714}
+.builder-live h2{margin:0 0 8px;font-size:18px}
+.builder-summary{display:grid;gap:8px;margin:12px 0}
+.builder-summary div{display:grid;grid-template-columns:120px 1fr;gap:10px}
+.builder-summary dt{color:var(--subtle);font-size:11px}
+.builder-summary dd{margin:0;color:var(--text);font-size:12px;overflow-wrap:anywhere}
+@media (max-width:850px){.theme-cards{grid-template-columns:1fr 1fr}}
+@media (max-width:620px){.theme-cards{grid-template-columns:1fr}.builder-summary div{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{transition-duration:.01ms!important}}
+
+.pack-list{display:grid;gap:8px}.pack-card{display:block;border:1px solid var(--line);border-radius:9px;padding:12px;background:var(--surface);cursor:pointer}.pack-card:has(input:checked){border-color:var(--acid);background:var(--surface-raised)}.pack-card:has(input:disabled){opacity:.55;cursor:default}.pack-card input{accent-color:var(--acid)}.theme-card-body,.pack-card{transition:border-color .15s,background .15s,box-shadow .15s}.theme-card-body:hover,.pack-card:hover{border-color:var(--muted)}

@@ -8,7 +8,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
-from k6_feature_packs import DEFAULT, resolve
+from k6_feature_packs import DEFAULT, resolve, THEMES, DEFAULT_THEME
 
 
 def command(argv):
@@ -29,6 +29,8 @@ def command(argv):
     build.add_argument('packs', nargs='+')
     build.add_argument('--output', type=Path)
     build.add_argument('--spec', type=Path)
+    for cmd_parser in (plan, build):
+        cmd_parser.add_argument('--theme', choices=THEMES, default=DEFAULT_THEME)
     inspect = sub.add_parser('inspect', help='check staged feature-pack integrity (no radio writes)')
     inspect.add_argument('pack', type=Path)
     inspect.add_argument('--spec', type=Path)
@@ -59,7 +61,7 @@ def command(argv):
     radio.add_argument('args', nargs=argparse.REMAINDER)
     args = p.parse_args(argv)
     if args.command == 'plan':
-        print(json.dumps(resolve(json.loads(args.spec.read_text()), args.packs), indent=2))
+        print(json.dumps(resolve(json.loads(args.spec.read_text()), args.packs, args.theme), indent=2))
         return 0
     if args.command in ('flash-pack', 'install-pack'):
         from k6_pack_install import provision_pack
@@ -72,7 +74,7 @@ def command(argv):
             p.error(str(exc))
         return 0
     if args.command == 'build':
-        cmd = ['k6_pack_build.py', *args.packs]
+        cmd = ['k6_pack_build.py', *args.packs, '--theme', args.theme]
         if args.output: cmd += ['--output', str(args.output.expanduser().resolve())]
         if args.spec: cmd += ['--spec', str(args.spec.expanduser().resolve())]
     elif args.command == 'inspect':

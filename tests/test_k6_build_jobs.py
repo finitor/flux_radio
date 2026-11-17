@@ -80,3 +80,18 @@ def test_catalog_pack_radio_jobs_require_token_and_confirmation(tmp_path):
     assert b'Flash firmware' in client.get(response.location).data
     client.post(route, data={'action': 'preview', 'token': token})
     assert calls[-1][-1] == '--preview'
+
+
+def test_theme_used_by_build_job(tmp_path):
+    calls = []
+    def runner(command, **kwargs):
+        calls.append(command)
+        return FakeProcess()
+    jobs = BuildJobs(tmp_path, runner=runner)
+    app = k6_store.create_app()
+    app.config['build_jobs'] = jobs
+    response = app.test_client().post('/profiles/build', data={'theme': 'minimal', 'pack': 'scan'})
+    assert response.status_code == 302
+    job_id = next(iter(jobs._jobs))
+    assert jobs.get(job_id)['theme'] == 'minimal'
+    assert calls[0][-2:] == ['--theme', 'minimal']

@@ -1,12 +1,54 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Feature packs · Flux</title><link rel="stylesheet" href="{{ url_for('static', filename='store.css') }}"></head>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Feature packs · Flux</title><link rel="stylesheet" href="{{ url_for('static', filename='store.css') }}"><link rel="stylesheet" href="{{ url_for('static', filename='builder.css') }}"></head>
 <body><header class="topbar"><a class="brand" href="{{ url_for('index') }}"><span class="brand-mark">F</span> Flux <span>Feature packs</span></a><nav class="top-actions"><a href="{{ url_for('index') }}">Catalog</a><a href="{{ url_for('radio') }}">My radio</a><a href="{{ url_for('settings_page') }}">Device settings</a></nav></header>
 <main class="layout detail-layout"><p class="eyebrow">FIRMWARE PROFILE PLANNER</p><div class="detail-title"><div><h1>Build your radio</h1><p class="summary">Choose optional services. Base firmware and module loader are always included. This preview does not build, flash, or install anything.</p></div></div>
-<section class="panel"><div class="section-heading"><div><p class="eyebrow">SELECT CAPABILITIES</p><h2>Feature sets</h2></div><span class="badge">Base included</span></div>
-<form method="post" action="{{ url_for('plan_profile') }}">
-{% for name, pack in choices.items() %}<p class="radio-note"><label><input type="checkbox" name="pack" value="{{ name }}" {% if name in selected %}checked{% endif %} {% if pack.status is defined %}disabled{% endif %}> <strong>{{ name|upper }}</strong> — {{ pack.capabilities|join(', ') }}{% if pack.status is defined %} ({{ pack.status }}){% endif %}</label></p>{% endfor %}
-<button type="submit">Preview build plan</button></form></section>
-{% if result %}<section class="panel"><div class="section-heading"><div><p class="eyebrow">RESOLVED PROFILE</p><h2>{{ 'Ready to build' if result.ok else 'Plan unavailable' }}</h2></div></div>
-{% if result.ok %}<p class="radio-note"><strong>Packs:</strong> {{ result.plan.packs|join(' + ') }}</p><p class="radio-note"><strong>Capabilities:</strong> {{ result.plan.capabilities|join(', ') }}</p><p class="radio-note"><strong>Modules:</strong> {{ result.plan.modules|join(', ') }}</p><details class="readme"><summary>Show exact build gates</summary><pre>{{ result.gates|tojson(indent=2) }}</pre></details><p class="radio-note">To build on this host, run <code>python3 tools/k6.py build {{ result.plan.packs|reject('equalto','base')|join(' ') or 'base' }}</code>. Builds produce unverified, unkeyed artifacts; they do not flash the radio.</p><form method="post" action="{{ url_for('build_profile') }}">{% for pack in result.plan.packs if pack != 'base' %}<input type="hidden" name="pack" value="{{ pack }}">{% endfor %}<button type="submit">Build this profile</button></form>{% else %}<pre class="install-result failed">{{ result.error }}</pre>{% endif %}</section>{% endif %}
+{% set themes = themes|default({'flux': {'name': 'Flux', 'description': 'Default status layout with top bar and side indicator.'}, 'classic': {'name': 'Classic', 'description': 'Arrow-guided layout familiar from earlier firmware.'}, 'minimal': {'name': 'Minimal', 'description': 'Compact rail-only layout with essential VFO readout.'}}, true) %}
+{% set selected_theme = selected_theme|default('flux') %}
+<section class="panel builder-panel"><div class="section-heading"><div><p class="eyebrow">SELECT THEME</p><h2>Display theme</h2></div><span class="badge">Base included</span></div>
+<form id="builder-form" data-preview-url="{{ url_for('preview_profile') }}" method="post" action="{{ url_for('plan_profile') }}">
+<fieldset class="theme-cards" data-builder-themes>
+<legend class="visually-hidden">Display theme</legend>
+{% for key in ['flux', 'classic', 'minimal'] %}{% set theme = themes.get(key, {}) %}
+<label class="theme-card">
+<input type="radio" name="theme" value="{{ key }}" {% if (selected_theme or 'flux') == key %}checked{% endif %}>
+<span class="theme-card-body">
+<svg class="theme-preview" viewBox="0 0 128 64" width="256" height="128" role="img" aria-label="Illustrative dual VFO preview for {{ theme.get('name', key) }}">
+<rect width="128" height="64" fill="#b7c8a1"/><g fill="#172211" font-family="monospace">
+<text x="2" y="6" font-size="6">AG7SU</text><text x="88" y="6" font-size="6">DW</text><rect x="111" y="1" width="13" height="5" fill="none" stroke="#172211" stroke-width=".7"/><rect x="112" y="2" width="10" height="3"/>
+{% if key == 'flux' %}<path d="M0 8H128 M0 9V30" stroke="#172211" stroke-width="1"/>{% elif key == 'classic' %}<path d="M2 9L9 12.5 2 16Z"/>{% else %}<path d="M0 9V30" stroke="#172211" stroke-width="1"/>{% endif %}
+<text x="3" y="23" font-size="6">VFO</text><text x="34" y="23" font-size="14">146.520</text><text x="113" y="17" font-size="7">00</text><text x="3" y="30" font-size="6">FM  LOW  12.5K</text><text x="3" y="39" font-size="6">S</text><path d="M12 34h3v5h-3z M17 34h3v5h-3z M22 34h3v5h-3z M27 34h3v5h-3z"/>
+<text x="3" y="55" font-size="6">VFO</text><text x="34" y="55" font-size="14">440.850</text><text x="113" y="49" font-size="7">00</text><text x="3" y="62" font-size="6">FM  LOW  25K</text></g></svg>
+<strong>{{ theme.get('name', key|capitalize) }}</strong>
+<span class="theme-desc">{{ theme.get('description', '') }}</span>
+</span>
+</label>
+{% endfor %}
+</fieldset>
+<div class="section-heading"><div><p class="eyebrow">SELECT CAPABILITIES</p><h2>Feature sets</h2></div></div>
+<fieldset class="pack-list" data-builder-packs>
+<legend class="visually-hidden">Feature packs</legend>
+{% for name, pack in choices.items() %}<label class="pack-card"><input type="checkbox" name="pack" value="{{ name }}" {% if name in selected %}checked{% endif %} {% if pack.status is defined %}disabled{% endif %} data-pack-checkbox> <strong>{{ name|upper }}</strong> — {{ pack.capabilities|join(', ') }}{% if pack.status is defined %} ({{ pack.status }}){% endif %}</label>{% endfor %}
+</fieldset>
+<p class="radio-note">Illustrative LCD previews; themes change the active VFO marker, not radio behavior.</p>
+<p class="radio-note builder-hint" data-builder-hint>Preview validates your selection. Building starts only when you choose Build.</p>
+<div class="builder-actions">
+<button type="submit" id="preview-button">Preview build plan</button>
+<button type="submit" id="build-button" formaction="{{ url_for('build_profile') }}">Build this profile</button>
+</div>
+</form>
+<section class="builder-live" aria-live="polite" data-builder-live hidden>
+<h2 data-builder-title>Build preview</h2>
+<p class="radio-note" data-builder-status role="status"></p>
+<dl class="builder-summary">
+<div><dt>Theme</dt><dd data-builder-theme>—</dd></div>
+<div><dt>Packs</dt><dd data-builder-packs-out>—</dd></div>
+<div><dt>Capabilities</dt><dd data-builder-caps>—</dd></div>
+<div><dt>Modules</dt><dd data-builder-modules>—</dd></div>
+</dl>
+<details class="readme"><summary>Show exact build gates</summary><pre data-builder-gates>{}</pre></details>
+</section>
+</section>
+{% if result %}<section class="panel" id="fallback-result"><div class="section-heading"><div><p class="eyebrow">RESOLVED PROFILE</p><h2>{{ 'Ready to build' if result.ok else 'Plan unavailable' }}</h2></div></div>
+{% if result.ok %}{% if result.plan.theme %}<p class="radio-note"><strong>Theme:</strong> {{ result.plan.theme }}</p>{% endif %}<p class="radio-note"><strong>Packs:</strong> {{ result.plan.packs|join(' + ') }}</p><p class="radio-note"><strong>Capabilities:</strong> {{ result.plan.capabilities|join(', ') }}</p><p class="radio-note"><strong>Modules:</strong> {{ result.plan.modules|join(', ') }}</p><details class="readme"><summary>Show exact build gates</summary><pre>{{ result.gates|tojson(indent=2) }}</pre></details><p class="radio-note">To build on this host, run <code>python3 tools/k6.py build {{ result.plan.packs|reject('equalto','base')|join(' ') or 'base' }} --theme {{ result.plan.theme }}</code>. Builds produce unverified, unkeyed artifacts; they do not flash the radio.</p>{% else %}<pre class="install-result failed">{{ result.error }}</pre>{% endif %}</section>{% endif %}
 <section class="panel notice"><strong>Safety:</strong> Pack planning is read-only. The current unkeyed firmware cannot install modules, and feature-pack installation remains blocked pending independent compatibility attestation.</section>
-</main></body></html>
+</main><script src="{{ url_for('static', filename='builder.js') }}" defer></script></body></html>

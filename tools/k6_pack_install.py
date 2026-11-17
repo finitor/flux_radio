@@ -36,7 +36,7 @@ def verify_pack(root, spec, *, require_attested=True):
     lock = json.loads((root / 'pack.lock.json').read_text())
     if lock.get('format') != 1 or lock.get('target') != spec['target']:
         raise PackError('unsupported lockfile or radio target')
-    plan = resolve(spec, lock['packs'])
+    plan = resolve(spec, lock['packs'], lock.get('theme', 'flux'))
     for key in ('packs', 'capabilities', 'modules', 'cargo_features'):
         if key == 'modules':
             actual = [m['name'] for m in lock['modules']]
@@ -165,7 +165,7 @@ def provision_artifacts(root, spec, key_file):
 
     lock = verify_pack(root, spec, require_attested=False)
     firmware = Path(root) / lock['firmware']['path']
-    plan = resolve(spec, lock['packs'])
+    plan = resolve(spec, lock['packs'], lock.get('theme', 'flux'))
     policy = json.loads(POLICY.read_text())
     validate(spec, policy)
     receipt = json.loads((Path(root) / 'firmware.receipt.json').read_text())

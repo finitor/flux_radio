@@ -19,12 +19,12 @@ class BuildJobs:
         self._jobs = {}
         self._radio_jobs = {}
 
-    def start(self, packs):
+    def start(self, packs, theme='flux'):
         from k6_feature_packs import DEFAULT, resolve
         from k6_pack_policy import POLICY, validate
         spec = json.loads(DEFAULT.read_text())
         validate(spec, json.loads(POLICY.read_text()))
-        plan = resolve(spec, packs or ['base'])
+        plan = resolve(spec, packs or ['base'], theme)
         with self._lock:
             if self._active and self._active.poll() is None:
                 raise ValueError('another firmware build is already running')
@@ -34,11 +34,11 @@ class BuildJobs:
             folder.mkdir(parents=True, exist_ok=False)
             log = folder / 'build.log'
             output = folder / 'pack'
-            command = [sys.executable, str(ROOT / 'tools/k6.py'), 'build', *plan['packs'], '--output', str(output)]
+            command = [sys.executable, str(ROOT / 'tools/k6.py'), 'build', *plan['packs'], '--output', str(output), '--theme', plan['theme']]
             with log.open('wb') as stream:
                 process = self.runner(command, cwd=ROOT, stdout=stream, stderr=subprocess.STDOUT)
             self._active = process
-            self._jobs[job_id] = {'process': process, 'packs': plan['packs'], 'folder': folder,
+            self._jobs[job_id] = {'process': process, 'packs': plan['packs'], 'theme': plan['theme'], 'folder': folder,
                                   'command': command}
             return job_id
 
@@ -79,5 +79,5 @@ class BuildJobs:
         output = job['folder'] / 'pack' / 'pack.lock.json'
         lock = json.loads(output.read_text()) if code == 0 and output.is_file() else None
         log = (job['folder'] / 'build.log').read_text(errors='replace')
-        return {'id': job_id, 'packs': job['packs'], 'state': 'running' if code is None else ('success' if code == 0 and lock else 'failed'),
+        return {'id': job_id, 'packs': job['packs'], 'theme': job['theme'], 'state': 'running' if code is None else ('success' if code == 0 and lock else 'failed'),
                 'exit_code': code, 'log': log[-16000:], 'lock': lock, 'output': str(output.parent) if lock else None}

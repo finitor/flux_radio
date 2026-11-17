@@ -8,7 +8,22 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT = ROOT / 'config/k6-feature-packs.json'
 
 
-def resolve(spec, selected):
+THEMES = {
+    'flux': {'name': 'Flux', 'description': 'Signature top border and left rail.'},
+    'classic': {'name': 'Classic', 'description': 'Traditional active VFO arrow.'},
+    'minimal': {'name': 'Minimal', 'description': 'Clean left rail, no horizontal border.'},
+}
+DEFAULT_THEME = 'flux'
+
+
+def validate_theme(theme):
+    if not isinstance(theme, str) or theme not in THEMES:
+        raise ValueError(f'unknown firmware theme: {theme}')
+    return theme
+
+
+def resolve(spec, selected, theme=DEFAULT_THEME):
+    validate_theme(theme)
     packs = spec['packs']
     resolved, visiting = [], set()
 
@@ -40,7 +55,7 @@ def resolve(spec, selected):
         missing = set(required) - set(capabilities)
         if missing:
             raise ValueError(f'module {module} missing capabilities: {sorted(missing)}')
-    return {'target': spec['target'], 'packs': resolved,
+    return {'target': spec['target'], 'theme': theme, 'packs': resolved,
             'cargo_features': collect('cargo_features'),
             'capabilities': capabilities, 'modules': collect('modules'),
             'module_install': 'explicit post-flash action; no automatic radio writes'}
@@ -50,9 +65,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('packs', nargs='+', help='e.g. scan aprs')
     parser.add_argument('--spec', type=Path, default=DEFAULT)
+    parser.add_argument('--theme', choices=THEMES, default=DEFAULT_THEME)
     args = parser.parse_args()
     try:
-        print(json.dumps(resolve(json.loads(args.spec.read_text()), args.packs), indent=2))
+        print(json.dumps(resolve(json.loads(args.spec.read_text()), args.packs, args.theme), indent=2))
     except (ValueError, KeyError) as exc:
         parser.error(str(exc))
 

@@ -12,7 +12,7 @@ from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
-from k6_feature_packs import DEFAULT, resolve
+from k6_feature_packs import DEFAULT, resolve, THEMES, DEFAULT_THEME
 import k6_install
 from k6_flash_policy import assess, flash_bytes
 from k6_pack_policy import POLICY, validate, gate_environment
@@ -55,7 +55,7 @@ def assemble(plan, output, firmware, *, module_builder=None, verified_firmware=F
                         'api_level': manifest['library'][0]['level'],
                         'path': str(module_file.relative_to(output)), 'sha256': digest(module_file),
                         'manifest_sha256': digest(folder / 'manifest.json')})
-    lock = {'format': 1, 'target': plan['target'], 'packs': plan['packs'],
+    lock = {'format': 1, 'target': plan['target'], 'theme': plan.get('theme', DEFAULT_THEME), 'packs': plan['packs'],
             'cargo_features': plan['cargo_features'], 'capabilities': plan['capabilities'],
             'firmware': {'path': 'firmware.bin', 'sha256': digest(dest), 'bytes': dest.stat().st_size,
                          'capabilities_verified': verified_firmware},
@@ -74,13 +74,16 @@ def main():
     p.add_argument('--firmware', type=Path, help='required with --skip-firmware-build')
     p.add_argument('--allow-unverified-firmware', action='store_true',
                    help='explicitly allow staging a prebuilt image without verifying capabilities')
+    p.add_argument('--theme', choices=THEMES, default=DEFAULT_THEME)
     args = p.parse_args()
     try:
         spec = json.loads(args.spec.read_text())
         policy = json.loads(POLICY.read_text())
         validate(spec, policy)
-        plan = resolve(spec, args.packs)
+        plan = resolve(spec, args.packs, args.theme)
         if args.skip_firmware_build:
+            if args.theme != DEFAULT_THEME:
+                p.error('non-default themes require a fresh firmware build')
             if args.firmware is None:
                 p.error('--firmware is required with --skip-firmware-build')
             if not args.allow_unverified_firmware:
@@ -90,6 +93,7 @@ def main():
             env = os.environ.copy()
             env.pop('K6_MOD_KEY_FILE', None)
             env['K6_AURA_FEATURES'] = ','.join(plan['cargo_features'])
+            env['K6_THEME'] = plan['theme']
             env['K6_IMAGE_NAME'] = 'flux-fd6818b-pack'
             env.update(gate_environment(plan, policy))
             with exclusive_build():

@@ -297,7 +297,7 @@ class ModuleStore:
 
 def create_app(store: ModuleStore | None = None):
     try:
-        from flask import Flask, abort, flash, redirect, render_template, request, send_from_directory, session, url_for
+        from flask import Flask, abort, flash, redirect, render_template, request, send_from_directory, session, url_for, jsonify
     except ImportError as exc:
         raise RuntimeError("Flask is required for the web UI; install tools/k6_store_requirements.txt") from exc
 
@@ -351,44 +351,51 @@ def create_app(store: ModuleStore | None = None):
             flash(str(exc), "error")
         return render_template("index.html", repos=repos)
 
-    @app.get("/profiles")
-    def profiles():
-        from k6_feature_packs import DEFAULT, resolve
-        from k6_pack_policy import POLICY, validate, gate_environment
-        spec = json.loads(DEFAULT.read_text())
-        policy = json.loads(POLICY.read_text())
-        validate(spec, policy)
-        choices = {name: item for name, item in spec['packs'].items() if name != 'base'}
-        return render_template("profiles.html", choices=choices, result=None, selected=['base'])
-
-    @app.post("/profiles")
-    def plan_profile():
+    def profile_plan(selected, theme):
         from k6_feature_packs import DEFAULT, resolve
         from k6_pack_policy import POLICY, validate, gate_environment
         spec = json.loads(DEFAULT.read_text())
         policy = json.loads(POLICY.read_text())
         choices = {name: item for name, item in spec['packs'].items() if name != 'base'}
-        selected = request.form.getlist('pack')
-        if any(name not in choices for name in selected):
-            abort(400)
         try:
+            if any(name not in choices for name in selected):
+                raise ValueError('unknown feature pack')
             validate(spec, policy)
-            plan = resolve(spec, selected or ['base'])
+            plan = resolve(spec, selected or ['base'], theme)
             result = {'ok': True, 'plan': plan, 'gates': gate_environment(plan, policy)}
         except (ValueError, KeyError) as exc:
             result = {'ok': False, 'error': str(exc)}
+        return choices, result
+
+    @app.get("/profiles")
+    @app.post("/profiles")
+    def profiles():
+        from k6_feature_packs import THEMES, DEFAULT_THEME
+        selected = request.form.getlist('pack')
+        theme = request.form.get('theme', DEFAULT_THEME)
+        choices, result = profile_plan(selected, theme)
         return render_template('profiles.html', choices=choices, result=result,
-                               selected=selected), (200 if result['ok'] else 400)
+                               selected=selected, themes=THEMES, selected_theme=theme), (200 if result['ok'] else 400)
+
+    # Preserve the existing form endpoint name for templates and callers.
+    app.add_url_rule('/profiles', endpoint='plan_profile', view_func=profiles, methods=['POST'])
+
+    @app.post("/profiles/preview")
+    def preview_profile():
+        from k6_feature_packs import DEFAULT_THEME
+        _, result = profile_plan(request.form.getlist('pack'), request.form.get('theme', DEFAULT_THEME))
+        return jsonify(result), (200 if result['ok'] else 400)
 
     @app.post("/profiles/build")
     def build_profile():
-        from k6_feature_packs import DEFAULT
-        spec = json.loads(DEFAULT.read_text())
+        from k6_feature_packs import DEFAULT_THEME
         selected = request.form.getlist('pack')
-        if any(name not in spec['packs'] or name == 'base' for name in selected):
+        theme = request.form.get('theme', DEFAULT_THEME)
+        _, result = profile_plan(selected, theme)
+        if not result['ok']:
             abort(400)
         try:
-            job_id = app.config['build_jobs'].start(selected)
+            job_id = app.config['build_jobs'].start(selected, theme)
         except (ValueError, OSError) as exc:
             flash(str(exc), 'error')
             return redirect(url_for('profiles'))

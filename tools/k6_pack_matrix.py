@@ -60,6 +60,7 @@ def main():
         if args.build:
             env = os.environ.copy()
             env['K6_AURA_FEATURES'] = ','.join(plan['cargo_features'])
+            env['K6_THEME'] = plan['theme']
             env['K6_IMAGE_NAME'] = f'flux-matrix-{label}'
             env.update(gate_environment(plan, policy))
             print(f'Building {label}: {gate_environment(plan, policy)}', file=sys.stderr, flush=True)

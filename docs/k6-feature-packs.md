@@ -70,3 +70,18 @@ This saves **3,524 bytes** and passes the 96 KiB Base budget, but is not yet a v
 `K6_FSK_RX_SERVICE=0` excludes the real FD6818B FSK RX callbacks from the Rust link and supplies failure-returning API-compatible stubs. The APRS pack selects `K6_FSK_RX_SERVICE=1`; the Base and Scan-only packs select 0. The original hardware radio driver and other FSK/TX paths may still be referenced elsewhere, so this is **callback-level gating**, not yet a complete APRS-only subsystem split.
 
 Measured on the same host, with scanner service disabled: Base with FSK RX disabled **94,500 bytes**; with FSK RX enabled **94,900 bytes** (400 bytes incremental). Both are below the 120 KiB application limit; Base is below its 96 KiB ceiling. The disabled build must explicitly retain `-C link-arg=-Tlink.x` when supplying `RUSTFLAGS`, or Cargo can silently produce an invalid 24-byte image; the build script now preserves that linker argument. These images are not hardware verified or ready for installation.
+
+## Build-time LCD themes
+
+The firmware builder offers Flux (default), Classic and Minimal active-VFO styles.
+Flux uses a one-pixel top border and left rail, Classic uses the original VFO
+arrow, and Minimal uses the left rail alone. These are compile-time presentation
+choices; they do not change capabilities, key assignments or module ABI. Module
+screens retain their own layouts. Browser previews are illustrative, not emulator
+screenshots. A build is still explicit and its actual flash budget is checked after linking.
+
+    python3 tools/k6.py plan scan aprs --theme classic
+    python3 tools/k6.py build scan aprs --theme minimal
+
+The theme is recorded in the pack lock; non-default themes are also bound to the
+host build receipt. Legacy receipts and packs without a theme mean Flux.

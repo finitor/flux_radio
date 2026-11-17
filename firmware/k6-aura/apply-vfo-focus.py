@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """Add a subtle focus marker to the active Aura VFO on the Blowfang host build."""
 from pathlib import Path
+import os
+
+theme = os.environ.get("K6_THEME", "flux")
+if theme not in ("flux", "classic", "minimal"):
+    raise SystemExit("unknown Flux theme: " + theme)
 
 root = Path(__file__).parent / "build/aura-fd6818b-port/src"
 standby = root / "ui/standby.rs"
@@ -57,6 +62,18 @@ where
 }
 
 '''
+if theme == "minimal":
+    start = helper.index("    Rectangle::new(Point::new(0, top),")
+    end = helper.index("    // x=1", start)
+    helper = helper[:start] + helper[end:]
+elif theme == "classic":
+    start = helper.index("    Rectangle::new(Point::new(0, top),")
+    helper = helper[:start] + """    let marker = super::icons::vfo_default();
+    Image::new(&marker, Point::new(2, top)).draw(lcd).ok();
+}
+
+"""
+
 marker = "fn draw_tx_prohibited_overlay<D>"
 import re
 
