@@ -11,7 +11,11 @@ if stack_decl not in text:
     if text.count(ffi_anchor) != 1:
         raise SystemExit(f"expected one km_run FFI anchor, found {text.count(ffi_anchor)}")
     text = text.replace(ffi_anchor, ffi_anchor + '\n' + stack_decl, 1)
-host_call_decl = '        pub fn km_call_host_stack(f: unsafe extern "C" fn(*mut core::ffi::c_void), arg: *mut core::ffi::c_void);'
+host_call_decl = '        pub fn km_call_host_stack(f: unsafe extern "C" fn(*mut core::ffi::c_void), arg: *mut core::ffi::c_void, stack_top: *mut u8);'
+text = text.replace(
+    '        pub fn km_call_host_stack(f: unsafe extern "C" fn(*mut core::ffi::c_void), arg: *mut core::ffi::c_void);',
+    host_call_decl,
+)
 if host_call_decl not in text:
     if text.count(stack_decl) != 1:
         raise SystemExit(f"expected one km_run_on_stack FFI anchor, found {text.count(stack_decl)}")
@@ -209,7 +213,13 @@ if 'fn set_module_stack(' not in text:
         '#[cfg(feature = "blowfang-host")]\n'
         'fn module_stack_top() -> *mut u8 { unsafe { MOD_STACK_TOP as *mut u8 } }\n'
         '#[cfg(feature = "blowfang-host")]\n'
-        'fn module_stack_bytes() -> usize { unsafe { MOD_STACK_TOP.saturating_sub(MOD_STACK_START) } }\n\n'
+        'fn module_stack_bytes() -> usize { unsafe { MOD_STACK_TOP.saturating_sub(MOD_STACK_START) } }\n'
+        '#[cfg(feature = "blowfang-host")]\n'
+        'fn module_lcd_stack_top() -> *mut u8 {\n'
+        '    if unsafe { (*addr_of!(MOD_CTX)).stack_from_arena } {\n'
+        '        unsafe { core::ptr::addr_of_mut!(crate::MODULE_PAGE_BUFFER_STORAGE).cast::<u8>().add(1152) }\n'
+        '    } else { arena::end() as *mut u8 }\n'
+        '}\n\n'
     )
     if text.count(marker) != 1:
         raise SystemExit(f"expected one ModCtx anchor, found {text.count(marker)}")
@@ -319,6 +329,12 @@ if stack_start >= 0 and stack_end >= 0:
         '#[cfg(feature = "blowfang-host")]\n'
         'fn module_stack_bytes() -> usize { 1152 }\n'
         '#[cfg(feature = "blowfang-host")]\n'
+        'fn module_lcd_stack_top() -> *mut u8 {\n'
+        '    if unsafe { (*addr_of!(MOD_CTX)).stack_from_arena } {\n'
+        '        unsafe { core::ptr::addr_of_mut!(crate::MODULE_PAGE_BUFFER_STORAGE).cast::<u8>().add(1152) }\n'
+        '    } else { arena::end() as *mut u8 }\n'
+        '}\n'
+        '#[cfg(feature = "blowfang-host")]\n'
         'unsafe fn restore_module_page_buffer() {\n'
         '    crate::restore_module_page_buffer(core::ptr::addr_of_mut!(crate::MODULE_PAGE_BUFFER_STORAGE).cast::<u8>());\n'
         '}\n\n'
@@ -332,6 +348,15 @@ text = text.replace(
     '    unsafe { if let Some(reset) = MOD_STACK_RESET { reset(MOD_STACK_RESET_BUF as *mut u8); } }',
     '    #[cfg(feature = "blowfang-host")]\n    unsafe { restore_module_page_buffer(); }',
 )
+text = text.replace('''        arena::end()
+    }
+}
+
+unsafe extern "C" fn mod_key_down()''', '''        arena::end().saturating_sub(1024) // reserve isolated LCD callback stack
+    }
+}
+
+unsafe extern "C" fn mod_key_down()''')
 run_module_start = text.find('fn run_module(')
 dispatch_start = text.find('    mod_screen_clear();\n', run_module_start)
 dispatch_end = text.find('    unsafe { mod_tx_off() };', dispatch_start)

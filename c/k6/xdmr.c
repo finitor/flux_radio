@@ -233,31 +233,54 @@ static uint16_t xd_dcs(uint32_t w) {
 }
 #endif
 
+uint16_t xd_tone_decode(uint16_t r68, uint16_t r69, uint16_t r6a) {
+  uint32_t tenths, i;
+  uint16_t std = 0;
+#ifndef XD_NO_DCS
+  if (!(r69 & 0x8000))
+    std = xd_dcs(((r69 & 0xFFFu) << 12 | (r6a & 0xFFFu)) & 0x7FFFFFu);
+#else
+  (void)r69;
+  (void)r6a;
+#endif
+  if (std || (r68 & 0x8000)) return std;
+  tenths = ds_udiv((r68 & 0x1FFFu) * 100000u, 206489u);
+  for (i = 0; i < 50; i++) {
+    uint32_t d = tenths > XD_CTCSS[i] ? tenths - XD_CTCSS[i] : XD_CTCSS[i] - tenths;
+    if (d < 10) return XD_CTCSS[i];
+  }
+  return 0;
+}
+
 /* the sub-audio scan's reading, once a step: a standard tone or DCS code twice in a row is the
    carrier's. REG_69 first (bit 15 clear: a DCS word, 69[11:0] << 12 | 6A[11:0]); during a CTCSS
    tone it also clears bit 15 with words that are no code, so then REG_68 */
 static void xd_ctcss(xd_t *s) {
   const k6_api_t *api = s->api;
-  uint32_t r = api->fd_read(0x69), tenths, i;
-  uint16_t std = 0;
+  uint16_t r69, r6a = 0, std;
+  uint32_t i;
   char line[24], *p;
-#ifndef XD_NO_DCS
-  if (!(r & 0x8000)) std = xd_dcs(((r & 0xFFFu) << 12 | (api->fd_read(0x6A) & 0xFFFu)) & 0x7FFFFFu);
-#else
-  (void)r;
-#endif
-  if (!std) {
-    r = api->fd_read(0x68);
-    if (r & 0x8000) return;
-    tenths = ds_udiv((r & 0x1FFF) * 100000u, 206489u);
-    for (i = 0; i < 50; i++) {
-      uint32_t d = tenths > XD_CTCSS[i] ? tenths - XD_CTCSS[i] : XD_CTCSS[i] - tenths;
-      if (d < 10) std = XD_CTCSS[i];
-    }
+  if (s->r51 == 0xFFFE) {
+    int decoded = api->tone_step();
+    s->treads++;
+    if (decoded <= 0 || (uint16_t)decoded == s->tone) return;
+    std = (uint16_t)decoded;
+    s->tone = std;
+    goto report_tone;
+  }
+  r69 = api->fd_read(0x69);
+  if (!(r69 & 0x8000)) r6a = api->fd_read(0x6A);
+  if (api->level >= 17) {
+    std = api->tone_decode(0x8000, r69, r6a);
+    if (!std) std = api->tone_decode(api->fd_read(0x68), 0x8000, 0);
+  } else {
+    std = xd_tone_decode(0x8000, r69, r6a);
+    if (!std) std = xd_tone_decode(api->fd_read(0x68), 0x8000, 0);
   }
   s->treads++;
   if (std && std == s->tcand && std != s->tone) {
     s->tone = std;
+report_tone:
     if (std & 0x8000) {
       p = xd_put(line, "DCS ");
       for (i = 9; i;) i -= 3, *p++ = (char)('0' + (std >> i & 7u));
@@ -323,8 +346,12 @@ void xd_start(xd_t *s, const k6_api_t *api, int spk, uint32_t cps8) {
   for (i = 0; i < sizeof *s; i++) ((uint8_t *)s)[i] = 0;
   s->api = api, s->spk = spk ? 1 : 0, s->af = 1, s->cps8 = cps8 > 4000u && cps8 < 5200u ? cps8 : CPS8_0;
   s->start = s->last = api->ms();
-  s->r51 = api->fd_read(0x51);
-  api->fd_write(0x51, 0x0300);                /* the sub-audio scan: wide filter, TX tone off */
+  if (api->level >= 18 && api->tone_start() == 0) {
+    s->r51 = 0xFFFE; /* managed host API owns REG_51 and restores it on stop */
+  } else {
+    s->r51 = api->fd_read(0x51);
+    api->fd_write(0x51, 0x0300);              /* the sub-audio scan: wide filter, TX tone off */
+  }
   if (rd(GPIOB) & (3u << 2)) {               /* PB1 not an input: no IF to read */
     api->say("DMR off pb1");
     return;
@@ -362,7 +389,8 @@ int xd_stop(xd_t *s) {
   const k6_api_t *api = s->api;
   char line[80], *p;   /* two lines, each under say's 60 characters (one 64-byte line overran
                           the buffer on the K6 once h, steps and the reads grew: 2026-11-08) */
-  if (s->r51 != 0xFFFF) api->fd_write(0x51, s->r51), s->r51 = 0xFFFF;
+  if (s->r51 == 0xFFFE) api->tone_stop(), s->r51 = 0xFFFF;
+  else if (s->r51 != 0xFFFF) api->fd_write(0x51, s->r51), s->r51 = 0xFFFF;
   if (!s->ok) return 0;
   s->ok = 0;
   xd_wr_list(XD_TEARDOWN, sizeof XD_TEARDOWN / sizeof XD_TEARDOWN[0]);

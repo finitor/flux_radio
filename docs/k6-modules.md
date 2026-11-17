@@ -83,7 +83,7 @@ The chunks' data, in order, is the image (the last chunk padded with zeros):
 | 4 | code length, u16 little-endian |
 | 6 | entry offset in the code, u16, even |
 | 8 | serial, u32: must be newer than the last module this boot ran |
-| 12 | API level the module needs (1 to 10; a K6 refuses a newer one), flags (0), telemetry parts (0-12, level 4 images; see below), 1 reserved byte |
+| 12 | API level the module needs (1 to 21; a K6 refuses a newer one), flags (0), telemetry parts (0-12, level 4 images; see below), 1 reserved byte |
 | 16 | code: Thumb, position-independent, no writable statics |
 | 16 + code length | SipHash-2-4 tag of bytes 0 .. 15 + code length, u64 little-endian |
 
@@ -300,6 +300,76 @@ at level 9 and return no FSK frames through these calls. The register/FIFO model
 fixtures are in `tests/k6_fd6818b_fsk.py` and `tests/test_k6_fd6818b_fsk.py`; they are software
 contract tests, not captures from a physical radio. `c/k6/mod/fskbcap.c` is a receive-only bench
 probe that reports raw FIFO words so a real capture can settle byte order and frame behavior.
+
+## API level 15: read-only radio settings
+
+`settings_read(out, cap)` copies a snapshot of all 212 bytes of Aura's live serialized settings
+and returns 212, or -1 for a null output or undersized buffer. The format follows
+`flash_map::Settings::to_bytes`, not Rust's in-memory struct layout. `c/k6/k6_mod.h` defines
+`KM_SETTINGS_*` offsets and the encodings: scalar booleans are 0/1, multi-byte values are little
+endian, APRS latitude/longitude are signed degrees times 100000, and fixed text fields are NUL
+terminated. Modules can read every setting without adding a new API call for each field; the
+snapshot is read-only and reflects the settings currently in memory. This accessor is available
+on the FD6818B image (API level 15); modules must check their required API level before calling.
+
+The Morse module uses the APRS callsign at `KM_SETTINGS_APRS_CALLSIGN` for its CW ident. If that
+setting is empty or invalid, it stays in practice mode and reports that a callsign must be set in
+Menu > DIGI.
+
+## API level 17: shared CW and sub-audio sample decoders
+
+Level 17 exposes the shared software decoders already used by the CW ID listener and EXPLORE's
+Listen for ID path. `cw_init`, `cw_feed`, `cw_flush`, and `cw_call` operate on caller-owned
+`cw_t` state (`c/k6/cwid.h`); the module owns sampling the detector and the lifetime of that
+state. `tone_decode(r68, r69, r6a)` recognizes the standard CTCSS or DCS code represented by one
+FD6818 sub-audio scan sample, returning CTCSS in tenths of Hz or a DCS value with `RT_TONE_DCS`
+and optional `RT_TONE_DCS_INV` flags. It returns zero when the sample is not a standard code.
+The caller owns its CW detector and state. Level 18 adds a managed sub-audio observation API:
+`tone_start()` saves the current detector configuration and starts the FD6818 scan,
+`tone_step()` samples and debounces until two matching standard values (0 while unsettled,
+positive CTCSS/DCS value when stable, negative on error), and `tone_stop()` restores the prior
+configuration. The host also calls stop after a module returns. It is available only on
+FD6818B images; older module builds retain their local fallback.
+
+## API level 19: firmware-rendered EXPLORE header
+
+`lcd_explore_header(band, found, gaze)` formats and draws the compact EXPLORE title and its two
+eye-gaze frames using firmware-owned glyph storage. It keeps this small UI asset out of the
+module's code and scratch budget.
+
+## API level 20: shared EXPLORE scan engine
+
+The FD6818B Blowfang host links the compact `xscan.c` sweep engine and `explore.c` candidate
+grader into firmware flash. The module API exposes the scanner lifecycle and candidate-list
+operations; EXPLORE still owns its `xs_t`, candidate array, floor buffer, and UI state in the
+existing module arena. The compact build uses four live carrier slots and the same scan settings
+as the earlier module implementation. This moves the scanner and ranking code out of the module
+binary while preserving its working state in the existing scratch arena. Only images with API
+level 20 provide these callbacks.
+
+## API level 21: host-rendered EXPLORE screen
+
+`lcd_explore_frame(frame)` passes the current band, eye direction, selected row, scan frequency,
+signal level, and up to seven ranked candidates to the host's LCD renderer. The host draws the
+original Explore-style inverse selection, compact 4x6 candidate rows, signal and score bars,
+callsign/saved markers, and a detail footer. The frame stays in the module arena; rendering runs
+through the normal LCD flush hook on the host stack. This keeps pixel drawing and its working
+space out of the scanner module while preserving the radio's low-memory module runtime.
+
+The Aura VFO status line also shows `REV +600`, `REV -600`, or the 70 cm equivalent on simplex
+FM frequencies in the common North American repeater segments. Pressing REV applies that split;
+the hint disappears once an offset is configured.
+
+The Aura-host EXPLORE module uses these shared APIs while a candidate is open in **Try**: the
+shared CW decoder records a callsign after two matching IDs, and the managed tone scan records a
+stable CTCSS/DCS value. In its candidate list, **B** hands the selected output frequency to Aura
+VFO B; Aura's normal simplex REV hint then supplies the band-plan offset. Its compact working set
+tracks 4 simultaneous carriers and 5 ranked candidates. The CW decoder temporarily reuses the
+paused scanner's floor buffer. Saved-repeater lookup remains omitted in this build. This
+creates a provisional `?` row as soon as the scanner confirms a carrier in a repeater-output
+range, rather than waiting for that transmission to end; later overs and decoder cues update its
+grade. It improves discovery capacity over the earlier three-candidate module, but it still does
+not run the original Explore automatic CW listener or DMR listen/auto-save path.
 
 ## The SPI module library
 

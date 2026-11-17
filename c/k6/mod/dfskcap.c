@@ -303,7 +303,9 @@
 #define NV 7
 #endif
 #define CAPW 1056u       /* words kept of a capture: 2048 bytes, the stale reads, and a few */
+#ifndef CAPN
 #define CAPN 12u         /* captures said per setting */
+#endif
 #define LAG 3u           /* words the timed reads stay behind the chip (its FIFO holds 8) */
 #ifdef DFSK_TONE
 #define STALE 40u        /* (a K unit's opening is 24 words of one kind at 4800 baud) */
@@ -615,6 +617,22 @@ typedef struct {
   uint16_t cap[CAPW];
 } st_t;
 
+#ifdef DFSK_LCD
+static void cap_screen(const k6_api_t *api, uint32_t setting) {
+  if (api->level < 6) return;
+  api->lcd_text(0, "APRS CAP / RAW RX");
+  api->lcd_text(1, "144.390 MHz");
+  if (setting == 0) api->lcd_text(2, "FM, default FE");
+  else if (setting == 1) api->lcd_text(2, "FM, AF source 7");
+  else if (setting == 2) api->lcd_text(2, "+2.5 kHz tune");
+  else api->lcd_text(2, "FM, source found");
+  api->lcd_text(3, "Send APRS packet");
+  api->lcd_text(4, "Raw words: serial");
+  api->lcd_text(5, "Any key stops");
+  api->lcd_flush();
+}
+#endif
+
 static char *put(char *p, const char *s) {
   while (*s) *p++ = *s++;
   return p;
@@ -822,6 +840,9 @@ int k6_main(const k6_api_t *api) {
   p = kv(p, " n=", NV);
   *p = 0;
   api->say(ln);
+#ifdef DFSK_LCD
+  cap_screen(api, 0);
+#endif
   while (api->ms() < WAIT_MS && !key) {
     api->delay_us(50000);
     key = api->level >= 4 ? api->key_poll() : api->key_down();
@@ -906,6 +927,9 @@ int k6_main(const k6_api_t *api) {
       v = &V[cur];
       prev = BEGIN(cur);
       t0 = api->ms(), acc = 0, tlast = api->ticks() & 0xFFFF;
+#ifdef DFSK_LCD
+      cap_screen(api, (uint32_t)cur);
+#endif
       continue;
     }
     f = api->fd_read(0x02) & (IRQ_DONE | IRQ_FULL | 2u);

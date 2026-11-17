@@ -5,9 +5,13 @@ from pathlib import Path
 root = Path(__file__).parent / "build/aura-fd6818b-port/src/ui"
 mod = root / "mod.rs"
 text = mod.read_text()
+plain_display = '#[cfg(any(not(feature = "lean"), feature = "blowfang-host"))]\nstatic mut MOD_DISPLAY:'
+linked_display = '#[cfg(any(not(feature = "lean"), feature = "blowfang-host"))]\n#[link_section = ".data.mod_display"]\nstatic mut MOD_DISPLAY:'
+if plain_display in text:
+    text = text.replace(plain_display, linked_display, 1)
 replacements = (
     ('#[cfg(not(feature = "lean"))]\nstatic mut MOD_DISPLAY:',
-     '#[cfg(any(not(feature = "lean"), feature = "blowfang-host"))]\nstatic mut MOD_DISPLAY:'),
+     '#[cfg(any(not(feature = "lean"), feature = "blowfang-host"))]\n#[link_section = ".data.mod_display"]\nstatic mut MOD_DISPLAY:'),
     ('#[cfg(not(feature = "lean"))]\nunsafe fn mod_flush',
      '#[cfg(any(not(feature = "lean"), feature = "blowfang-host"))]\nunsafe fn mod_flush'),
     ('#[cfg(not(feature = "lean"))]\npub fn hook_mod_screen',
@@ -107,20 +111,28 @@ if new not in text:
         raise SystemExit(f"expected one module-screen hook, found {text.count(old)}")
     mod.write_text(text.replace(old, new, 1))
 
-# A small static page buffer keeps the LCD transfer independent of the display's graphics buffer,
-# which is repurposed as the module stack in this compact image.
+# Keep the graphics driver out of the module stack buffer.
 display = root.parent / "device/display.rs"
 text = display.read_text()
 anchor = 'use display_interface::WriteOnlyDataCommand;\n'
 insert = '''use display_interface::WriteOnlyDataCommand;
-
+'''
+text = text.replace('''#[cfg(all(feature = "blowfang-host", not(shared_lcd), not(banded)))]
+#[repr(align(8))]
+pub(crate) struct HostDisplayStorage([u64; 16]);
 #[cfg(all(feature = "blowfang-host", not(shared_lcd), not(banded)))]
+pub(crate) static mut HOST_DISPLAY_STORAGE: HostDisplayStorage = HostDisplayStorage([0; 16]);
+''', '')
+old_page_storage = '''#[cfg(all(feature = "blowfang-host", not(shared_lcd), not(banded)))]
 static mut MOD_LCD_PAGE: [u8; 128] = [0; 128];
 '''
-if 'static mut MOD_LCD_PAGE' not in text:
-    if text.count(anchor) != 1:
-        raise SystemExit("expected display imports anchor")
-    text = text.replace(anchor, insert, 1)
+if 'static mut HOST_DISPLAY_STORAGE' not in text:
+    if text.count(old_page_storage) == 1:
+        text = text.replace(old_page_storage, insert.split('\n', 2)[2], 1)
+    elif text.count(anchor) == 1:
+        text = text.replace(anchor, insert, 1)
+    else:
+        raise SystemExit("expected display storage anchor")
 
 anchor = '''    #[cfg(banded)]
     pub fn draw_pages(&mut self, mut draw: impl FnMut(u8, &mut [u8; 128])) {
@@ -129,19 +141,33 @@ method = '''    #[cfg(all(feature = "blowfang-host", not(shared_lcd), not(banded
     pub fn draw_pages(&mut self, mut draw: impl FnMut(u8, &mut [u8; 128])) {
         let (detached, mut interface) = self.lcd.take().unwrap().release_display_interface();
         let col = <display_spec::Sc5260Spec as st7565::DisplaySpecs<128, 64, 8>>::COLUMN_OFFSET;
-        let buf = unsafe { &mut *core::ptr::addr_of_mut!(MOD_LCD_PAGE) };
+        let mut buf = [0u8; 128];
         for page in 0..8u8 {
             buf.fill(0);
-            draw(page, buf);
+            draw(page, &mut buf);
             interface
                 .send_commands(DataFormat::U8(&[0xB0 | page, 0x10 | (col >> 4), col & 0x0F]))
                 .ok();
-            interface.send_data(DataFormat::U8(buf)).ok();
+            interface.send_data(DataFormat::U8(&buf)).ok();
         }
         self.lcd = Some(detached.attach_display_interface(interface));
     }
 
 '''
+old_page_loop = '''        let buf = unsafe { &mut *core::ptr::addr_of_mut!(MOD_LCD_PAGE) };
+        for page in 0..8u8 {
+            buf.fill(0);
+            draw(page, buf);
+'''
+new_page_loop = '''        let mut buf = [0u8; 128];
+        for page in 0..8u8 {
+            buf.fill(0);
+            draw(page, &mut buf);
+'''
+if old_page_loop in text:
+    text = text.replace(old_page_loop, new_page_loop, 1)
+text = text.replace('interface.send_data(DataFormat::U8(buf)).ok();',
+                    'interface.send_data(DataFormat::U8(&buf)).ok();')
 if '#[cfg(all(feature = "blowfang-host", not(shared_lcd), not(banded)))]\n    pub fn draw_pages' not in text:
     if text.count(anchor) != 1:
         raise SystemExit("expected draw_pages method anchor")
@@ -185,6 +211,45 @@ display.write_text(text)
 # Reinstall the monomorphized callback after MOD_CTX is initialized and before C module dispatch.
 app_pager = root.parent / "app/pager.rs"
 text = app_pager.read_text()
+if "fn module_lcd_stack_top()" not in text:
+    anchor = '#[cfg(feature = "blowfang-host")]\nfn cardlink_module_loaded()'
+    helper = """#[cfg(feature = "blowfang-host")]
+fn module_lcd_stack_top() -> *mut u8 {
+    if unsafe { (*addr_of!(MOD_CTX)).stack_from_arena } {
+        unsafe { core::ptr::addr_of_mut!(crate::MODULE_PAGE_BUFFER_STORAGE).cast::<u8>().add(1152) }
+    } else { arena::end() as *mut u8 }
+}
+
+"""
+    if text.count(anchor) != 1:
+        raise SystemExit("expected cardlink module helper anchor")
+    text = text.replace(anchor, helper + anchor, 1)
+text = text.replace("""fn scratch_end() -> usize {
+    if unsafe { (*addr_of!(MOD_CTX)).stack_from_arena } {
+        arena::end().saturating_sub(2048)
+    } else {
+        arena::end()
+    }
+}""", """fn scratch_end() -> usize {
+    if unsafe { (*addr_of!(MOD_CTX)).stack_from_arena } {
+        arena::end().saturating_sub(2048)
+    } else {
+        arena::end().saturating_sub(1024) // isolated LCD callback stack
+    }
+}""")
+text = text.replace("""fn scratch_end() -> usize {
+    if unsafe { (*addr_of!(MOD_CTX)).tlm_cap } != 0 {
+        arena::tlm() as usize
+    } else {
+        arena::end()
+    }
+}""", """fn scratch_end() -> usize {
+    if unsafe { (*addr_of!(MOD_CTX)).tlm_cap } != 0 {
+        arena::tlm() as usize
+    } else {
+        arena::end().saturating_sub(1024) // isolated LCD callback stack
+    }
+}""")
 old = '''unsafe extern "C" fn mod_lcd_flush() -> i32 {
     mod_tx_guard();
     if unsafe { (*addr_of!(MOD_CTX)).app.is_null() } {
@@ -223,7 +288,7 @@ unsafe extern "C" fn mod_lcd_flush() -> i32 {
     }
     #[cfg(feature = "blowfang-host")]
     {
-        unsafe { ffi::km_call_host_stack(mod_lcd_call_host, core::ptr::null_mut()) };
+        unsafe { ffi::km_call_host_stack(mod_lcd_call_host, core::ptr::null_mut(), module_lcd_stack_top()) };
         unsafe { *addr_of!(MOD_LCD_RESULT) }
     }
     #[cfg(not(feature = "blowfang-host"))]
@@ -280,3 +345,13 @@ if replacement not in text:
         raise SystemExit("expected module-dispatch anchor")
     text = text.replace(anchor, replacement, 1)
 app_pager.write_text(text)
+
+# The driver contains a reference into the page buffer. Keep it in main's frame rather than
+# relocating it into an ad-hoc byte array; the module stack is switched independently.
+main = root.parent / "main.rs"
+text = main.read_text()
+if 'let display_value = Display::new(lcd);' in text:
+    start = text.index('    let display_value = Display::new(lcd);')
+    end = text.index('    #[cfg(banded)]\n    display.draw_pages', start)
+    text = text[:start] + '    let mut display = Display::new(lcd);\n' + text[end:]
+main.write_text(text)

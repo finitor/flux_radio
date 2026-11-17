@@ -3,7 +3,25 @@
 #include "k6_mod.h"
 #include "k6_lib.h"
 #include "sotto_pager.h"
+#include "cwid.h"
+#include "xdmr.h"
 #include <stddef.h>
+
+/* API level 17: keep shared signal algorithms in the base image. Module state remains
+   caller-owned, while the decoder implementation and the standard tone tables are shared. */
+void km_cw_init(void *state) { if (state) cw_init((cw_t *)state); }
+int km_cw_feed(void *state, uint32_t ms, int keyed) {
+  return state ? cw_feed((cw_t *)state, ms, keyed) : -1;
+}
+int km_cw_flush(void *state, uint32_t ms) {
+  return state ? cw_flush((cw_t *)state, ms) : -1;
+}
+int km_cw_call(const char *text, char *call, uint8_t *flags) {
+  return text && call && flags ? cw_call(text, call, flags) : 0;
+}
+uint16_t km_tone_decode(uint16_t r68, uint16_t r69, uint16_t r6a) {
+  return xd_tone_decode(r68, r69, r6a);
+}
 
 /* The key: -DKM_KEY=0x12,0x34,... (16 bytes, tools/k6_build.sh), or else a placeholder that
    `python -m modem.k6 keyimage` overwrites in a built .bin (so a CI image can be keyed without
@@ -187,14 +205,13 @@ __attribute__((naked)) int km_run_on_stack(void *arena, const k6_api_t *api, voi
                  "bx r2\n");
 }
 
-/* Run LCD callbacks on the module's private stack. The Aura stack can be nearly exhausted by
-   the time a sideloaded module calls us, while the module stack is deliberately reserved for
-   its callbacks as well as its own frames. */
-__attribute__((naked)) void km_call_host_stack(void (*fn)(void *), void *arg) {
+/* Run host callbacks on their own stack, preserving the module's live stack frames. */
+__attribute__((naked)) void km_call_host_stack(void (*fn)(void *), void *arg, void *stack_top) {
   __asm volatile("push {r4, lr}\n"
                  "mov r4, sp\n"
                  "mov r3, r0\n"
                  "mov r0, r1\n"
+                 "mov sp, r2\n"
                  "blx r3\n"
                  "mov sp, r4\n"
                  "pop {r4, pc}\n");

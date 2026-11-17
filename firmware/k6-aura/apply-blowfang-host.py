@@ -301,4 +301,285 @@ if "        #[cfg(not(feature = \"blowfang-host\"))]\n        {\n" + voice_start
     main_text = main_text[:start] + "        #[cfg(not(feature = \"blowfang-host\"))]\n        {\n" + body + "        }\n\n" + main_text[end:]
 main_path.write_text(main_text)
 
+# Keep a failed module selection visible when the menu is reopened, and expose
+# the slot metadata needed to distinguish a corrupt header from a loader limit.
+pager_path = root / "app/pager.rs"
+pager_text = pager_path.read_text()
+pager_text = pager_text.replace('        pub fn kl_last_load_reason() -> i32;\n', '')
+old_sel_reset = '''    #[cfg(all(feature = "blowfang-host", not(feature = "explore")))]
+    { m.sel = 0; }'''
+new_sel_reset = '''    #[cfg(all(feature = "blowfang-host", not(feature = "explore")))]
+    { m.sel = m.sel.min(MENU_CORE.saturating_add(m.n).saturating_sub(1)); }'''
+if new_sel_reset not in pager_text:
+    if pager_text.count(old_sel_reset) != 1:
+        raise SystemExit("pager.rs: cannot find host menu selection reset")
+    pager_text = pager_text.replace(old_sel_reset, new_sel_reset, 1)
+load_anchor = '            r = unsafe { ffi::kl_load(n as i32, &LIB_FL, arena::base(), arena::ARENA_BYTES as u32) };'
+load_diag = '''            let mut info = ffi::KlInfo::default();
+            let info_result = unsafe { ffi::kl_info(n as i32, &LIB_FL, &mut info) };
+            rl!("K6 LIB hdr slot={} info={} code={} flags={:#04x} cap={} serial={}",
+                n, info_result, info.code_len, info.flags, arena::ARENA_BYTES, info.serial);
+''' + load_anchor
+if load_diag in pager_text:
+    pager_text = pager_text.replace(load_diag, load_anchor, 1)
+reason_logged = '            rl!("K6 LIB loaded slot={} r={} reason={}", n, r, unsafe { ffi::kl_last_load_reason() });'
+reason_plain = '            rl!("K6 LIB loaded slot={} r={}", n, r);'
+if reason_logged in pager_text:
+    pager_text = pager_text.replace(reason_logged, reason_plain, 1)
+pager_path.write_text(pager_text)
+
+# Use a scratch-tail stack for LCD callbacks. The module keeps its own stack; callbacks
+# must not consume the same frames while drawing a screen.
+pager_text = pager_path.read_text()
+if "fn module_lcd_stack_top()" not in pager_text:
+    marker = '#[cfg(feature = "blowfang-host")]\nfn cardlink_module_loaded()'
+    helper = """#[cfg(feature = "blowfang-host")]
+fn module_lcd_stack_top() -> *mut u8 {
+    if unsafe { (*addr_of!(MOD_CTX)).stack_from_arena } {
+        unsafe { core::ptr::addr_of_mut!(crate::MODULE_PAGE_BUFFER_STORAGE).cast::<u8>().add(1152) }
+    } else { arena::end() as *mut u8 }
+}
+
+"""
+    if pager_text.count(marker) != 1:
+        raise SystemExit("pager.rs: missing callback-stack insertion point")
+    pager_text = pager_text.replace(marker, helper + marker, 1)
+pager_text = pager_text.replace("arena::end().saturating_sub(1024) // reserve isolated LCD callback stack", "arena::end().saturating_sub(1040) // reserve aligned LCD callback stack below globals")
+pager_text = pager_text.replace("arena::end().saturating_sub(1024) // isolated LCD callback stack", "arena::end().saturating_sub(1040) // reserve aligned LCD callback stack below globals")
+pager_text = pager_text.replace("arena::end().saturating_sub(2048)", "arena::end().saturating_sub(2064)")
+pager_text = pager_text.replace("""fn scratch_end() -> usize {
+    if unsafe { (*addr_of!(MOD_CTX)).stack_from_arena } {
+        arena::end().saturating_sub(2048)
+    } else {
+        arena::end()
+    }
+}""", """fn scratch_end() -> usize {
+    if unsafe { (*addr_of!(MOD_CTX)).stack_from_arena } {
+        arena::end().saturating_sub(2048)
+    } else {
+        arena::end().saturating_sub(1024) // isolated LCD callback stack
+    }
+}""")
+pager_text = pager_text.replace("""fn scratch_end() -> usize {
+    if unsafe { (*addr_of!(MOD_CTX)).tlm_cap } != 0 {
+        arena::tlm() as usize
+    } else {
+        arena::end()
+    }
+}""", """fn scratch_end() -> usize {
+    if unsafe { (*addr_of!(MOD_CTX)).tlm_cap } != 0 {
+        arena::tlm() as usize
+    } else {
+        arena::end().saturating_sub(1040) // aligned 1 KiB LCD callback stack below globals
+    }
+}""")
+pager_text = pager_text.replace("""fn scratch_end() -> usize {
+    if unsafe { (*addr_of!(MOD_CTX)).stack_from_arena } {
+        arena::end().saturating_sub(2048)
+    } else {
+        arena::end()
+    }
+}""", """fn scratch_end() -> usize {
+    if unsafe { (*addr_of!(MOD_CTX)).stack_from_arena } {
+        arena::end().saturating_sub(2064) // 2 KiB module stack below globals
+    } else {
+        arena::end().saturating_sub(1040) // aligned 1 KiB LCD callback stack below globals
+    }
+}""")
+pager_text = pager_text.replace("""fn module_lcd_stack_top() -> *mut u8 {
+    if unsafe { (*addr_of!(MOD_CTX)).stack_from_arena } {
+        unsafe { core::ptr::addr_of_mut!(crate::MODULE_PAGE_BUFFER_STORAGE).cast::<u8>().add(1152) }
+    } else { arena::end() as *mut u8 }
+}""", """fn module_lcd_stack_top() -> *mut u8 {
+    if unsafe { (*addr_of!(MOD_CTX)).stack_from_arena } {
+        unsafe { core::ptr::addr_of_mut!(crate::MODULE_PAGE_BUFFER_STORAGE).cast::<u8>().add(1152) }
+    } else { ((arena::end().saturating_sub(16)) & !7usize) as *mut u8 }
+}""")
+pager_text = pager_text.replace("""fn module_stack_top() -> *mut u8 {
+    if unsafe { (*addr_of!(MOD_CTX)).stack_from_arena } {
+        arena::end() as *mut u8
+""", """fn module_stack_top() -> *mut u8 {
+    if unsafe { (*addr_of!(MOD_CTX)).stack_from_arena } {
+        ((arena::end().saturating_sub(16)) & !7usize) as *mut u8
+""")
+pager_path.write_text(pager_text)
+
+# `lean` strips the voice decoder to save MCU flash, but the sideload host still
+# needs the full shared RAM arena to load modules and provide their scratch space.
+build_path = root.parent / "build.rs"
+build_text = build_path.read_text()
+old_arena_cfg = 'if feat("LEAN") || (feat("EXPLORE") && !feat("VOICE_EXPLORE")) {'
+new_arena_cfg = 'if (feat("LEAN") && !feat("BLOWFANG_HOST")) || (feat("EXPLORE") && !feat("VOICE_EXPLORE")) {'
+if new_arena_cfg not in build_text:
+    if build_text.count(old_arena_cfg) != 1:
+        raise SystemExit("build.rs: cannot find small_arena feature condition")
+    build_text = build_text.replace(old_arena_cfg, new_arena_cfg, 1)
+    build_path.write_text(build_text)
+
+# The full Aura loop owns the serial RX stream. Route Aura CPS and Blowfang cable
+# handshakes through one detector so two independent pollers cannot consume each
+# other's bytes.
+cps_path = root / "cps/mod.rs"
+cps_text = cps_path.read_text()
+detector_anchor = "pub struct HandshakeDetector {\n"
+host_detector = '''#[cfg(feature = "blowfang-host")]
+pub enum HostHandshake { Aura, Cable }
+
+#[cfg(feature = "blowfang-host")]
+pub struct HostHandshakeDetector { tail: [u8; 16], len: usize }
+
+#[cfg(feature = "blowfang-host")]
+impl HostHandshakeDetector {
+    pub const fn new() -> Self { Self { tail: [0; 16], len: 0 } }
+
+    pub fn poll(&mut self) -> Option<HostHandshake> {
+        while let Some(byte) = uart::take_byte() {
+            if self.len < self.tail.len() {
+                self.tail[self.len] = byte;
+                self.len += 1;
+            } else {
+                self.tail.copy_within(1.., 0);
+                self.tail[15] = byte;
+            }
+            if self.len >= HANDSHAKE.len()
+                && self.tail[self.len - HANDSHAKE.len()..self.len] == *HANDSHAKE
+            {
+                self.len = 0;
+                return Some(HostHandshake::Aura);
+            }
+            #[cfg(feature = "spilib")]
+            if self.len >= CABLE_HANDSHAKE.len()
+                && self.tail[self.len - CABLE_HANDSHAKE.len()..self.len] == *CABLE_HANDSHAKE
+            {
+                self.len = 0;
+                return Some(HostHandshake::Cable);
+            }
+        }
+        None
+    }
+}
+
+'''
+if host_detector not in cps_text:
+    if cps_text.count(detector_anchor) != 1:
+        raise SystemExit("cps/mod.rs: cannot find handshake detector insertion point")
+    cps_text = cps_text.replace(detector_anchor, host_detector + detector_anchor, 1)
+cps_path.write_text(cps_text)
+
+main_text = main_path.read_text()
+old_detector = "    let mut cps_handshake = cps::HandshakeDetector::new();"
+new_detector = '''    #[cfg(not(feature = "blowfang-host"))]
+    let mut cps_handshake = cps::HandshakeDetector::new();
+    #[cfg(feature = "blowfang-host")]
+    let mut host_handshake = cps::HostHandshakeDetector::new();'''
+if new_detector not in main_text:
+    if main_text.count(old_detector) < 1:
+        raise SystemExit("main.rs: cannot find Aura CPS detector setup")
+    pos = main_text.rfind(old_detector)
+    main_text = main_text[:pos] + new_detector + main_text[pos + len(old_detector):]
+old_poll = '''        if cps_handshake.poll() {
+            cps::run_session(&mut app, &mut cp.SYST, &mut display, &mut dbg);
+        }'''
+new_poll = '''        #[cfg(not(feature = "blowfang-host"))]
+        if cps_handshake.poll() {
+            cps::run_session(&mut app, &mut cp.SYST, &mut display, &mut dbg);
+        }
+        #[cfg(feature = "blowfang-host")]
+        match host_handshake.poll() {
+            Some(cps::HostHandshake::Aura) =>
+                cps::run_session(&mut app, &mut cp.SYST, &mut display, &mut dbg),
+            Some(cps::HostHandshake::Cable) if !app.is_transmitting() =>
+                cps::run_cable_session(&mut app, &mut cp.SYST, &mut display),
+            _ => {}
+        }'''
+if new_poll not in main_text:
+    if main_text.count(old_poll) < 1:
+        raise SystemExit("main.rs: cannot find Aura CPS handshake poll")
+    pos = main_text.rfind(old_poll)
+    main_text = main_text[:pos] + new_poll + main_text[pos + len(old_poll):]
+main_path.write_text(main_text)
+
+# Keep the host image focused on VFO/channel radio operation, APRS beacons, and
+# the sideload host. Other Aura apps remain available in the ordinary Aura build
+# but their periodic service and dedicated TX paths are not linked here.
+main_text = main_path.read_text()
+for statement in (
+    "        if app.sstv_tx_pending() {",
+    "        if due.every_100ms && app.poll_wall_clock() {",
+    "        app.poll_satellite_name_timeout();",
+    "        app.poll_sstv_name_timeout();",
+    "        app.poll_search(&mut cp.SYST);",
+    "        app.poll_scanqt(&mut cp.SYST);",
+    "        app.poll_fm(&mut cp.SYST);",
+    "        app.poll_spectrum(&mut cp.SYST);",
+):
+    guarded = "        #[cfg(not(feature = \"blowfang-host\"))]\n" + statement
+    if guarded not in main_text:
+        if main_text.count(statement) != 1:
+            raise SystemExit(f"main.rs: expected one host-prunable call: {statement.strip()}")
+        main_text = main_text.replace(statement, guarded, 1)
+
+start_marker = "        // PTT / CW key. CW bypasses the voice-PTT debouncer entirely"
+end_marker = "        if due.ticks_10ms > 0 {"
+if "// Host image PTT path: normal VFO/CW and Blowfang return only." not in main_text:
+    start = main_text.find(start_marker)
+    end = main_text.find(end_marker, start)
+    if start < 0 or end < 0:
+        raise SystemExit("main.rs: cannot isolate the optional tracking/SSTV PTT path")
+    original = main_text[start:end]
+    host_ptt = '''        // Host image PTT path: normal VFO/CW and Blowfang return only.
+        #[cfg(feature = "blowfang-host")]
+        {
+            if app.mode() == app::Mode::Pager {
+                app.handle_pager_ptt(&mut cp.SYST);
+            } else if matches!(
+                app.side_modulation(app.master_index()),
+                Modulation::Cw | Modulation::Cwf
+            ) {
+                app.poll_cw_key(&mut cp.SYST);
+            } else if let Some(level) = app.radio_mut().poll_ptt() {
+                app.set_ptt(&mut cp.SYST, !level);
+            }
+        }
+
+'''
+    main_text = main_text[:start] + '#[cfg(not(feature = "blowfang-host"))]\n        {\n' + original + '        }\n\n' + host_ptt + main_text[end:]
+main_path.write_text(main_text)
+
+# The slim host launcher intentionally keeps only the normal VFO, settings,
+# channel manager, and Blowfang module host. Gate the other launcher variants as
+# well as the table entries: otherwise their labels and dispatch arms remain in
+# the host binary even though they are not selectable.
+launcher_path = root / "app/launcher.rs"
+launcher_text = launcher_path.read_text()
+for variant in ("Contacts", "FmRadio", "ScanQt", "Search", "Spectrum", "Satellite", "Sstv"):
+    enum_line = f"    {variant},\n"
+    enum_guard = f"    #[cfg(not(feature = \"blowfang-host\"))]\n{enum_line}"
+    if enum_guard not in launcher_text:
+        if launcher_text.count(enum_line) < 1:
+            raise SystemExit(f"launcher.rs: missing {variant} enum entry")
+        launcher_text = launcher_text.replace(enum_line, enum_guard, 1)
+    lines = launcher_text.splitlines(keepends=True)
+    updated = []
+    for line in lines:
+        if line.startswith(f"            LauncherEntry::{variant} =>"):
+            if not updated or 'cfg(not(feature = "blowfang-host"))' not in updated[-1]:
+                updated.append('            #[cfg(not(feature = "blowfang-host"))]\n')
+        updated.append(line)
+    launcher_text = "".join(updated)
+launcher_path.write_text(launcher_text)
+
+keys_path = root / "app/keys.rs"
+keys_text = keys_path.read_text()
+for variant in ("Contacts", "FmRadio", "ScanQt", "Search", "Spectrum", "Satellite", "Sstv"):
+    lines = keys_text.splitlines(keepends=True)
+    updated = []
+    for line in lines:
+        if line.startswith(f"                        LauncherEntry::{variant} =>"):
+            if not updated or 'cfg(not(feature = "blowfang-host"))' not in updated[-1]:
+                updated.append('                        #[cfg(not(feature = "blowfang-host"))]\n')
+        updated.append(line)
+    keys_text = "".join(updated)
+keys_path.write_text(keys_text)
+
 print("Aura launcher now includes the Blowfang host menu")

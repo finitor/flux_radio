@@ -28,6 +28,15 @@ Outputs are written under `firmware/k6-aura/out-fd6818b/`:
 - `vfo-module-bundle/` — SURF and VFO starter modules.
 - `cardlink-module-bundle/` — optional CARD LINK module.
 
+The slim host image keeps the shared modem services needed by sideloaded apps: guarded FD6818B
+fixed-frame FSK receive/transmit, bounded Bell 202 1200-baud AFSK transmit, and an exclusive KISS
+byte stream on the programming cable. APRS AX.25 receive/deframing and digipeater policy belong in
+the APRS module; the fixed-frame FSK API alone is not a continuous AX.25 receiver.
+
+The launcher omits Aura's SSTV, satellite, spectrum, and frequency-hunt apps in this build. The
+current image uses 100,600 bytes of the 122,880-byte application flash budget, leaving 22,280 bytes
+for later host-side features. Module code and data use SPI/RAM and do not consume that MCU flash.
+
 On the radio, open Aura's launcher and select **BLOWFANG**. **AURA RADIO** returns to normal Aura
 VFO/channel operation; the other rows launch installed modules. V/M or A/B returns from the module
 menu to Aura.

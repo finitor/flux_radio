@@ -14,7 +14,7 @@
      - - - - - - - - - - -
      -.. .  .- --.             the send tape, the same for what the keyer sent
      D  E  A  G
-     DE AG7EW                  the text sent
+     DE <CALL>                 the text sent: station callsign from Menu > DIGI
 
    Receive: the FD6818's tone detector (c/k6/tonedet.h, as cwlisten and EXPLORE's Listen for ID:
    16 tones 400-1300 Hz, REG_0B bit 12) polled every millisecond, debounced 8 ms, the detector's
@@ -28,15 +28,15 @@
    no keypad row driven, read here straight from the GPIO input registers, so a squeeze shows
    both. Iambic B (the default), iambic A, or a straight key (either side key keys). The first
    touch keys the transmitter up (tx_on: the pager's own frequency only, and this module only
-   when that is 430-450 MHz; tx_on takes 1.4-1.9 s, and the paddle that started it is sent
+   when that is 144-148 or 420-450 MHz; tx_on takes 1.4-1.9 s, and the paddle that started it is sent
    first once it returns). It sends MCW: the carrier stays up, and the FD6818's tone oscillator
    (REG_70/71, as wsprtx's ID) is keyed at MR_TONE Hz, so an FM receiver hears the tone and
    another K6's tone detector reads it. MR_HANG_MS after the paddles go quiet, the over ends
-   with "DE AG7EW", unless AG7EW was sent in it (the project rule: every transmission carries
+   with "DE <CALL>", unless the configured callsign was sent in it (the project rule: every transmission carries
    the ident), and the transmitter keys down. It never keys up over a busy channel (RSSI at
    or above MR_BUSY_DBM): that over is practice. An over is at most MR_OVER_MS (the paddles stop
    in time for the ident). The side keys give a sidetone on the speaker (TIM1 on PA11, the
-   voice prompts' pin, as spksweep), put back as found. Off 430-450 MHz, on an image without the
+   voice prompts' pin, as spksweep), put back as found. Off those bands, on an image without the
    transmitter, or built with MR_TX 0, the paddles drive the keyer, the sidetone and the send
    tape only: practice (PR).
 
@@ -46,13 +46,13 @@
    It says
      K6 MOD say morse 20wpm IB tone=700 rx=440850000 tx=on
      K6 MOD say rx 18wpm CQ DE K7ABC                 (2 s after a received transmission)
-     K6 MOD say tx 20wpm ms=9480 id=auto CQ DE AG7EW (each over)
+     K6 MOD say tx 20wpm ms=9480 id=auto CQ DE <CALL> (each over)
      K6 MOD say morse end overs=1
    and returns the overs sent, or -1 (an image without the module screen, level 6).
 
    Build: python -m modem.k6 mod out.wav c/k6/mod/morse.c --key-file KEY (CI: mod-morse.bin)
    SPDX-License-Identifier: MIT */
-#define K6_MODULE_LEVEL 6
+#define K6_MODULE_LEVEL 15
 #define K6_MODULE_OPT z
 #include "../k6_mod.h"
 #include "../tonedet.h"
@@ -100,11 +100,10 @@ K6_MODULE_NAME(K6_NAME);
 #ifndef MR_RUN_MS
 #define MR_RUN_MS 0          /* stop after this long (the tests); 0: until EXIT */
 #endif
-#ifndef MR_ID
-#define MR_ID "AG7EW"
-#endif
-#define TX_LO 430000000u     /* 70 cm, north of Line A */
-#define TX_HI 450000000u
+#define TX_2M_LO 144000000u
+#define TX_2M_HI 148000000u
+#define TX_70CM_LO 420000000u
+#define TX_70CM_HI 450000000u
 #define GLITCH 8
 #define POLL_US 1000u
 
@@ -260,7 +259,9 @@ typedef struct {
   tape_t rx, tx;
   keyer_t k;
   uint32_t st[11];           /* TIM1 and pins as found (sidetone) */
-  uint8_t st_ok, idm, dirty, wpm;
+  char id[7], auto_id[12];   /* Menu > DIGI callsign and automatic " DE <call>" */
+  uint8_t settings[KM_SETTINGS_BYTES];
+  uint8_t st_ok, idm, dirty, wpm, id_len, auto_cwid;
 } work_t;
 
 static void px(work_t *w, int x, int y) {
@@ -529,6 +530,7 @@ static void screen(const k6_api_t *api, work_t *w, int s, int hint) {
   p = put(p, "wpm ");
   *p++ = mode[2 * w->k.mode], *p++ = mode[2 * w->k.mode + 1];
   p = dec(put(p, " r"), udiv(1200u, w->rx.unit));
+  p = put(p, w->auto_cwid ? " ID+" : " ID-");
   while (p < l + 18) *p++ = ' ';
   *p++ = st[3 * s], *p++ = st[3 * s + 1], *p++ = st[3 * s + 2];
   *p = 0;
@@ -561,14 +563,37 @@ static void tone(const k6_api_t *api, work_t *w, int s, int on) {
 
 static int run(const k6_api_t *api, work_t *w) {
   uint32_t now, t_on = 0, t_act = 0, t_flush = 0, t_key = 0, t_chk = 0, over_ms, unit;
+  uint32_t menu_at = 0;
   uint32_t rx_hz = api->rx_hz();
   int s = S_RX, tx_ok, quit = 0, overs = 0, hint = 1, id_auto = 0, relax = 1, leave = 0;
+  int menu_long = 0;
   uint32_t kd = 0;
   uint16_t r47 = api->fd_read(0x47);
   unsigned held = 0, i;
   char l[64];
 
   for (i = 0; i < sizeof w->bm; i++) w->bm[i] = 0;
+  w->id_len = 0;
+  w->id[0] = 0;
+  w->auto_id[0] = 0;
+  if (api->settings_read(w->settings, sizeof w->settings) == KM_SETTINGS_BYTES) {
+    unsigned n = 0;
+    while (n < 6 && w->settings[KM_SETTINGS_APRS_CALLSIGN + n] &&
+           w->settings[KM_SETTINGS_APRS_CALLSIGN + n] != 0xFF) {
+      char c = (char)w->settings[KM_SETTINGS_APRS_CALLSIGN + n];
+      if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'))) break;
+      w->id[n] = c >= 'a' && c <= 'z' ? (char)(c - 'a' + 'A') : c;
+      n++;
+    }
+    if (n && (!w->settings[KM_SETTINGS_APRS_CALLSIGN + n] ||
+              w->settings[KM_SETTINGS_APRS_CALLSIGN + n] == 0xFF)) {
+      w->id[n] = 0;
+      w->id_len = (uint8_t)n;
+      char *p = put(w->auto_id, " DE ");
+      p = put(p, w->id);
+      *p = 0;
+    }
+  }
   for (i = 0; i < 128; i += 4) px(w, (int)i, 14);        /* the line between the tapes */
   w->wpm = MR_WPM;
   w->k.mode = MR_MODE, w->k.swap = MR_SWAP, w->k.phase = 0, w->k.q = 0, w->k.last = 0;
@@ -577,7 +602,12 @@ static int run(const k6_api_t *api, work_t *w) {
   tape_init(&w->rx, TAPE_RX, unit, 1, MR_LAG, GLITCH);
   tape_init(&w->tx, TAPE_TX, unit, 0, 0, 5);
   w->idm = 0;
-  tx_ok = MR_TX && api->level >= 3 && rx_hz >= TX_LO && rx_hz <= TX_HI;
+  w->auto_cwid = 1;
+  /* Match the host's guarded US amateur TX ranges; tx_on still applies the live band lock,
+     low-power setting, no-tone policy, busy check below, and hard timeout. */
+  tx_ok = MR_TX && w->id_len && api->level >= 15 &&
+          ((rx_hz >= TX_2M_LO && rx_hz <= TX_2M_HI) ||
+           (rx_hz >= TX_70CM_LO && rx_hz <= TX_70CM_HI));
   over_ms = api->level >= 7 ? MR_OVER_MS : 18000u;
 
   {
@@ -588,7 +618,8 @@ static int run(const k6_api_t *api, work_t *w) {
     p = dec(p, udiv(rx_hz, 1000u));
     p = put(p, tx_ok ? "000 tx=on" : "000 tx=off");
     *p = 0;
-    api->say(l);
+  api->say(l);
+  if (!w->id_len) api->say("morse set callsign in Menu > DIGI");
   }
   td_on(api);
   if (MR_AF) api->fd_write(0x47, 0x6040 | (1 << 8));    /* Aura's AF_OUT_BASE | RX audio */
@@ -660,18 +691,20 @@ static int run(const k6_api_t *api, work_t *w) {
       key(w, &w->tx, now, k);
       if (w->tx.key != was) tone(api, w, s, w->tx.key);
       if ((ch = gap(w, &w->tx, now)) != 0 && !(w->idm & 0x80)) {   /* the ident sent? */
-        w->idm = ch == MR_ID[w->idm] ? (uint8_t)(w->idm + 1) : ch == MR_ID[0] ? 1 : 0;
-        if (w->idm >= sizeof MR_ID - 1) w->idm = 0x80;
+        w->idm = w->idm < w->id_len && ch == w->id[w->idm]
+                     ? (uint8_t)(w->idm + 1)
+                     : w->id_len && ch == w->id[0] ? 1 : 0;
+        if (w->idm >= w->id_len) w->idm = 0x80;
       }
       quiet = !dit && !dah && !w->k.phase && !w->k.q && !k && !w->tx.key && !w->tx.cand &&
               !w->k.dit_m && !w->k.dah_m;
       if (!quiet) {
         t_act = now;
       } else if (s == S_ID || now - t_act >= MR_HANG_MS || leave || late) {
-        if (s == S_TX && !(w->idm & 0x80)) {     /* not identified yet: DE AG7EW */
+        if (s == S_TX && w->auto_cwid && !(w->idm & 0x80)) { /* send the configured call */
           s = S_ID;
           id_auto = 1;
-          w->k.q = " DE " MR_ID;
+          w->k.q = w->auto_id;
           w->k.qcode = 0;
           w->k.first = 0;
           w->dirty = 1;
@@ -713,6 +746,24 @@ static int run(const k6_api_t *api, work_t *w) {
     if (!dit && !dah && now - t_key >= 20u) {
       unsigned kk = keys(api);
       t_key = now;
+      if ((kk & K_MENU) && !(held & K_MENU)) {
+        menu_at = now;
+        menu_long = 0;
+      } else if ((kk & K_MENU) && (held & K_MENU) && !menu_long &&
+                 now - menu_at >= 800u) {
+        w->auto_cwid ^= 1;
+        menu_long = 1;
+        w->dirty = 1;
+        api->say(w->auto_cwid ? "morse auto CWID on" : "morse auto CWID off");
+      }
+      if (!(kk & K_MENU) && (held & K_MENU)) {
+        if (!menu_long) {
+          w->k.mode = (uint8_t)(w->k.mode == M_SK ? M_IB : w->k.mode + 1);
+          w->dirty = 1;
+        }
+        menu_at = 0;
+        menu_long = 0;
+      }
       if (kk && (!held || now - kd >= 300u)) {
         if (kk & K_EXIT) {
           if (s == S_RX) quit = 1;
@@ -720,7 +771,6 @@ static int run(const k6_api_t *api, work_t *w) {
         }
         if (kk & K_UP && w->wpm < 40) w->wpm++;
         if (kk & K_DOWN && w->wpm > 5) w->wpm--;
-        if (kk & K_MENU && !held) w->k.mode = (uint8_t)(w->k.mode == M_SK ? M_IB : w->k.mode + 1);
         if (kk & K_STAR && !held) w->k.swap ^= 1;
         if (s == S_RX && kk & (K_UP | K_DOWN)) w->rx.unit = (uint16_t)udiv(1200u, w->wpm);
         kd = now;
@@ -772,7 +822,7 @@ __attribute__((noinline)) static int run_on_stack(const k6_api_t *api) {
 int k6_main(const k6_api_t *api) {
   uint32_t n = 0;
   void *s;
-  if (api->abi != 1 || api->level < 6) return -1;
+  if (api->abi != 1 || api->level < 15) return -1;
   s = api->scratch(&n);
   if (s && n >= sizeof(work_t)) return run(api, (work_t *)s);
   return run_on_stack(api);

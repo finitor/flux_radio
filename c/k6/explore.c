@@ -34,12 +34,16 @@ void ex_known_store(ex_t *e, uint32_t *buf, unsigned cap) {
   e->known = buf, e->known_n = 0, e->known_cap = (uint16_t)cap;
 }
 
+#ifdef EXPLORE_NO_KNOWN
+static int known(const ex_t *e, uint32_t hz) { (void)e; (void)hz; return 0; }
+#else
 static int known(const ex_t *e, uint32_t hz) {
   unsigned i;
   for (i = 0; i < e->known_n; i++)
     if (dist(e->known[i], hz) <= e->tol_hz) return 1;
   return 0;
 }
+#endif
 
 ex_cand_t *ex_find(ex_t *e, uint32_t hz) {
   ex_cand_t *best = 0;
@@ -125,6 +129,7 @@ static ex_cand_t *get(ex_t *e, uint32_t hz, uint32_t t) {
   return c;
 }
 
+#ifndef EXPLORE_NO_KNOWN
 void ex_know(ex_t *e, uint32_t hz) {
   ex_cand_t *c = ex_find(e, hz);
   if (c) c->flags |= EX_F_KNOWN;
@@ -139,6 +144,7 @@ void ex_unknow(ex_t *e, uint32_t hz) {
     if (dist(e->known[i], hz) <= e->tol_hz) e->known[i] = e->known[--e->known_n];
     else i++;
 }
+#endif
 
 ex_cand_t *ex_over(ex_t *e, uint32_t hz, uint32_t start_ms, uint32_t dur_ms, int level) {
   ex_cand_t *c = get(e, hz, start_ms);
@@ -163,6 +169,21 @@ ex_cand_t *ex_over(ex_t *e, uint32_t hz, uint32_t start_ms, uint32_t dur_ms, int
     if (o->hi >= level + EX_SKIRT_DB && c->skirts < c->overs) c->skirts++;
     else if (level >= o->hi + EX_SKIRT_DB && o->skirts < o->overs) o->skirts++, ex_grade(o);
   }
+  ex_grade(c);
+  return c;
+}
+
+ex_cand_t *ex_seen(ex_t *e, uint32_t hz, uint32_t now_ms, int level) {
+  const ex_plan_t *p = plan_row(hz);
+  ex_cand_t *c;
+  if (!p || p->simplex) return 0;
+  c = get(e, hz, now_ms);
+  if (!c) return 0;
+  if (!c->overs) {
+    c->first_ms = c->last_ms = now_ms;
+    c->lo = c->hi = (int16_t)level;
+  }
+  if ((int32_t)(now_ms - e->now) > 0) e->now = now_ms;
   ex_grade(c);
   return c;
 }
@@ -210,10 +231,10 @@ static int skirt(const ex_cand_t *c) { return c->overs && c->skirts >= c->overs;
 
 /* the i-th by selection (skirts left out unless all): no sorting in place, so a pointer the
    caller holds stays put */
-/* off the screen list: a skirt, or a stale one-over '?' (heard once, nothing more about it, and
-   nothing since for EX_STALE_MS: bench 7's 35 noise bins from a low floor read, 2026-11-08) */
+/* off the screen list: a skirt, or a stale unconfirmed '?' (a live carrier with no finished
+   over, or one over, and nothing since for EX_STALE_MS: bench 7's 35 noise bins, 2026-11-08) */
 static int hidden(const ex_t *e, const ex_cand_t *c) {
-  return skirt(c) || (c->overs == 1 && c->grade == '?' && !c->call[0] &&
+  return skirt(c) || (c->overs <= 1 && c->grade == '?' && !c->call[0] &&
                       !(c->flags & (EX_F_KNOWN | EX_F_TRIED | EX_F_OFF_HEARD)) &&
                       e->now - c->last_ms > EX_STALE_MS && e->now - c->last_ms < 0x80000000u);
 }

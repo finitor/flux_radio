@@ -7,7 +7,7 @@ keys modelled at the GPIO pins and a modelled operator on the paddles:
     (REG_70) inside one tx_on, the over ends with DE AG7EW (or not, if the operator sent AG7EW),
     and every element and gap is a whole number of dots;
   - the transmit rules (as tests/test_k6_txrules.py's, for a module that keys up only when a
-    person keys it): 430-450 MHz only, never over a busy channel, inside what it asked tx_on
+    person keys it): 144-148 and 420-450 MHz only, never over a busy channel, inside what it asked tx_on
     for, keys down on every way out with the oscillator off, ident on every over;
   - the keys (EXIT, UP / DOWN, MENU, *) and the screen frames, and what it puts back.
 

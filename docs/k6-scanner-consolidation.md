@@ -35,3 +35,9 @@ The 2026-11-17 baseline test run had 36 passing, two failing: the expected unres
 ## Initial implementation checkpoint
 
 `c/k6/xscan_view.h` now defines a provisional **internal** consumer-owned engine view. It is deliberately not exported as a module ABI yet; its `legacy` pointer cannot be dereferenced as a universal `xs_t` beyond the common prefix. `tests/test_k6_scanner_abi.py` compiles both existing consumer layouts and verifies that their common prefix agrees while their tail differs by exactly six 28-byte hot entries. This test passes. No scanner functions have been redirected to the new view; extracting the hot-list loops and post-hot fields is the next step. The legacy module's binary layout remains untouched.
+
+## Shared hot-list extraction (work in progress)
+
+`c/k6/xscan_hot.c` now provides a single `xs_hot_near` and `xs_hot_slot` implementation, parameterized by consumer-owned hot array and capacity. `xscan.c` calls these through thin wrappers. Both compiled scanner variants reference the same external functions, confirmed in the C archive. `tools/k6_build.sh` links the shared object once; scanner and code-page test builds now include it. This is a first extraction, **not yet a unified `xs_step`**.
+
+Validation: C archive with `K6_EXPLORE_HOST=1` built; code-page tests 3 passed; scanner tests 15 passed, with the same two previously observed failures (`ex_seen` whitelist and weak one-off candidate). The full `blowfang-host` firmware build currently stops in the pre-existing `apply-managed-signal-api.py` patcher because it cannot locate the module API level 16/17 initializer; this must be repaired before any host flash-size claim. No reliable linked-image delta yet.

@@ -83,10 +83,30 @@ new = '''fn scratch_end() -> usize {
     }
 }
 '''
-if "arena::end().saturating_sub(2048)" not in text:
+if "arena::end().saturating_sub(2064)" not in text:
     if text.count(old) != 1:
         raise SystemExit(f"expected one lean scratch_end function, got {text.count(old)}")
     text = text.replace(old, new, 1)
+
+# run_module logs scratch before initializing MOD_CTX. That measures the previous module's
+# stack policy (often CARD LINK's) and understates the selected module's actual scratch.
+run_log = '''    rl!(
+        "K6 MOD run serial={} code={} B status={} B at {:#010x} stack={} B scratch={} B",
+        st.serial,
+        code_len,
+        st.code_len,
+        at,
+        room,
+        scratch_end().saturating_sub(scratch)
+    );
+'''
+if text.count(run_log) != 1:
+    raise SystemExit(f"expected one module scratch log, found {text.count(run_log)}")
+text = text.replace(run_log, "", 1)
+log_anchor = "    // a reply-wanted upload whose header asks for telemetry: keep the say lines\n"
+if text.count(log_anchor) != 1:
+    raise SystemExit("could not find post-context module log anchor")
+text = text.replace(log_anchor, run_log + log_anchor, 1)
 
 path.write_text(text)
 

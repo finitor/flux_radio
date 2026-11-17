@@ -18,6 +18,17 @@
 #define APRS_HOST
 int32_t aprs_tr[1 << 20][3];
 int aprs_ntr;
+uint8_t aprs_bit_trace[1 << 16];
+uint8_t aprs_tone_trace[1 << 16];
+int aprs_nbits_trace;
+#define APRS_BIT_TRACE(s, bit, tone)                                                          \
+  do {                                                                                       \
+    (void)(s);                                                                               \
+    if (aprs_nbits_trace < (1 << 16)) {                                                       \
+      aprs_bit_trace[aprs_nbits_trace] = (uint8_t)(bit);                                      \
+      aprs_tone_trace[aprs_nbits_trace++] = (uint8_t)(tone);                                  \
+    }                                                                                        \
+  } while (0)
 #define APRS_TRACE(s, d, m, sp)                                                              \
   do {                                                                                       \
     if (aprs_ntr < (1 << 20)) {                                                              \
@@ -44,7 +55,7 @@ void aprs_reset(uint32_t cps8) {
   memset(&S, 0, sizeof S);
   memset(&A, 0, sizeof A);
   A.abi = 1, A.level = 2, A.say = h_say, A.ms = h_msf;
-  olen = 0, out[0] = 0, aprs_ntr = 0;
+  olen = 0, out[0] = 0, aprs_ntr = 0, aprs_nbits_trace = 0;
   S.cps8 = cps8;
   steps(&S);
   S.n = (int32_t)udiv(64000000u + 600u * cps8, 1200u * cps8);

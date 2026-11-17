@@ -30,7 +30,7 @@ from test_k6_cwid import MORSE  # noqa: E402
 import k6_explore as kx  # noqa: E402
 import k6_scan  # noqa: E402
 
-SRCS = ["xscan.c", "xlisten.c", "explore.c", "cwid.c", "rt.c"]
+SRCS = ["xscan.c", "xscan_hot.c", "xlisten.c", "explore.c", "cwid.c", "rt.c"]
 U32, I32, U16, U8 = ctypes.c_uint32, ctypes.c_int32, ctypes.c_uint16, ctypes.c_uint8
 SAY = ctypes.CFUNCTYPE(None, ctypes.c_char_p)
 TICKS = ctypes.CFUNCTYPE(U32)

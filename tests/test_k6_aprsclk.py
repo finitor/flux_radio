@@ -438,6 +438,8 @@ def modem_chip(le, pick, BASE=4800):
                             # (the plain FSK receiver on the bench, 2026-11-10 12:00Z)
         ring = False        # an empty FIFO read gives the word of eight reads before (the bench,
                             # 2026-11-10 12:20Z), not the last one
+        empty_fifo_words = None  # optional stale eight-word ring contents left across re-arms
+        empty_fifo_pos = 0
         rate = 1.0          # the chip's bit clock against REG_72's (the plain receiver's follows the
                             # audio: 0.92 on 2200 Hz)
         times = None        # or the second each bit of the air is taken at (follow_times)
@@ -488,6 +490,7 @@ def modem_chip(le, pick, BASE=4800):
                     if self.buf and self.hist is not None:
                         self.hist.append(self.buf)
                     self.reg, self.pkt, self.buf = 0, False, None
+                    self.empty_fifo_pos = 0
                     self.sync = self.done = self.full = self.end = False
                     self.sync, self.pol = self.spur, 0
             if name == "fd_read" and r0 == 0x0B:
@@ -500,7 +503,16 @@ def modem_chip(le, pick, BASE=4800):
                 flags = (2 if self.sync else 0) | (0x1000 if self.full else 0) | (0x2000 if getattr(self, "end", False) else 0)
                 if r0 == 0x5F:
                     at = 16 * self.taken
-                    if self.buf is not None and len(self.buf) >= at + 16:
+                    stale = getattr(self, "empty_fifo_words", None)
+                    if stale is not None and (self.buf is None or len(self.buf) < at + 16):
+                        if self.empty_fifo_pos < 8:
+                            self.last = stale[self.empty_fifo_pos]
+                            self.empty_fifo_pos += 1
+                        else:
+                            # FD6818B repeats the first word in the drained eight-word window
+                            # when the FIFO is empty; it does not return the final drained word.
+                            self.last = stale[0]
+                    elif self.buf is not None and len(self.buf) >= at + 16:
                         self.taken += 1
                         v = 0
                         for b in self.buf[at:at + 16]:
@@ -921,7 +933,7 @@ def test_aprsdfsk_reads_the_bench_captures_on_the_emulated_m0(slow):
     assert ret >= 2 and f" v={ret}" in end, (ret, end)
     assert e.said[-2].startswith("aprs fsk ms=") and " key=0 " in e.said[-2], e.said[-2]
     assert e.said[-2].endswith(" inv=2"), e.said[-2]
-    assert e.lcd[0].strip() == "APRS CLOCK 144.390" and e.lcd[3].startswith("heard "), e.lcd
+    assert e.lcd[0].strip() == "APRS RX 144.390" and e.lcd[3].startswith("heard "), e.lcd
     assert any(on for _, on in e.led)
     for reg in (0x58, 0x59, 0x5A, 0x5B, 0x5C, 0x5D, 0x5E, 0x72, 0x3F, 0x2B):
         assert e.writes[reg][-1] == 0, hex(reg)         # put back as read (the emulator reads 0)
@@ -1028,7 +1040,7 @@ def test_aprsfsk_on_a_model_of_the_chips_modem(name, spur, again_ms):
     for ms, utc, date, w, ok in e.clock_sets:
         assert abs(utc - round(((UTC0 + ms / 1000) % DAY) * 1000)) <= w and w < 9000, (ms, utc, w)
     if stream or not spur:
-        assert e.lcd[0].strip() == "APRS CLOCK 144.390" and e.lcd[1].startswith("UTC 17:52:0"), e.lcd
+        assert e.lcd[0].strip() in ("APRS CLOCK 144.390", "APRS RX 144.390") and e.lcd[1].startswith("UTC 17:52:0"), e.lcd
         assert e.lcd[3].startswith("heard ") and e.lcd[3].endswith(" ok 3 ts 3"), e.lcd
     else:
         # as on the bench: a read of stale words is always under way, so the screen and the
@@ -1045,6 +1057,33 @@ def test_aprsfsk_on_a_model_of_the_chips_modem(name, spur, again_ms):
     assert (lim[0] <= again <= lim[1] if stream else again == 0) and w58.count(0) >= len(y) + 2, (again, len(y), w58)
     assert e.writes[0x5A][0] == 0xFEFE and e.writes[0x5B][0] == 0xFEFE and e.writes[0x5D][0] == 0xFF00
     assert e.writes[0x59].count(0x1000 | ctrl) == 2 * w58.count(0x33A3) and 0x3002 in e.writes[0x3F], e.writes[0x59][:8]
+
+
+@need_clang
+@pytest.mark.parametrize("name", ["aprsdfsk", "aprsfskb"])
+def test_aprs_ignores_the_repeated_empty_fifo_window(name):
+    """The FD6818B leaves an eight-word FIFO window after re-arm. Empty reads repeat its first
+    word, not its last. Match the observed radio pattern and ensure it is never treated as a packet."""
+    pytest.importorskip("unicorn")
+    import k6_live_emu as le
+    from modem import k6mod
+
+    src = os.path.join(K6, "mod", name + ".c")
+    total = 0.5
+    code, entry = le.build("x", [("RUN_MS", f"{int(total * 1000)}u")], src)
+    full, _ = k6mod.build(src)
+    air = np.zeros(4800, np.int8)
+    Chip = modem_chip(le, lambda r58: air, 4800)
+    # The radio log prints the byte-swapped values after the module reads them.
+    Chip.empty_fifo_words = (0xCFF7, 0xE6FD, 0xDF71, 0xE8D4,
+                             0xDDBF, 0xF766, 0xBFFF, 0x3F35)
+    e = Chip(code, entry, np.zeros(16, np.uint8), 0, FDMA, 1.5,
+             max_s=total + 1, level=8, scratch=11776 - 24 - len(full))
+    r = e.run()
+    assert r is not None, e.said[-5:]
+    assert r[0] >= 0 and e.over == 0, (r, e.said[-8:])
+    assert not any(ln.startswith(("y ", "d ")) for ln in e.said), e.said
+    assert "pre=0 fake=0" in next(ln for ln in e.said if ln.startswith("aprs fsk ms=")), e.said[-3:]
 
 
 def test_kinds_wav_a_rehearsal_of_real_packets():

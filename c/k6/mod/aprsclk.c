@@ -85,7 +85,9 @@ K6_MODULE_NAME(K6_NAME);
 #define PLL_IN 4 /* inside a frame each transition pulls the bit clock 1 / 2^PLL_IN of the way */
 #endif
 #endif
+#ifndef FIF_CHZ
 #define FIF_CHZ 1692708u /* 26 MHz / 1536 in 0.01 Hz */
+#endif
 #define DAY 86400000
 
 #define GPIOB 0x48000400u
@@ -143,11 +145,21 @@ typedef struct {
   uint16_t rlo, rhi; /* REG_67 once a second: the minute's least and most */
   int32_t ref, haveref, votes, est, wid, hops;
   uint8_t day, mon, yr, stn;
+#if defined(APRS_IF_DIAG) && !defined(APRS_HOST) && !defined(APRS_FSK)
+  /* Last 4096 NRZI-decoded decisions, packed LSB first. Stop on the first
+     CRC failure and print only after DMA is shut down. */
+  uint8_t bitlog[512];
+  uint32_t bitn;
+  uint16_t diag_len;
+  uint8_t diag_stop, diag_first[3];
+#endif
 #ifdef APRS_FSK
   uint32_t fake;      /* sync words with under 6 words and no frame */
   uint16_t sv[10];    /* the modem's registers as found */
+#if defined(FSK_PLAIN) || defined(FSK_STREAM)
+  uint16_t fifo[8];   /* history for the chip's eight-word-old empty-FIFO value */
+#endif
 #ifdef FSK_PLAIN
-  uint16_t fifo[8];   /* the last eight words taken: what a read of the empty FIFO gives again */
   int32_t dlast, dn, dtone, ddur, dmd; /* the slicer: the last sample, samples since a transition,
                                           the run's tone and length, a mark run held back */
   int32_t dhold, dbias, dacc, dnf;     /* one sample after a mark run, not yet either tone's; what
@@ -499,7 +511,14 @@ static void hdlc(const k6_api_t *api, st_t *s, uint32_t bit) {
 #if !defined(APRS_HOST) && !defined(APRS_FSK)
         resync(s); /* the line took the CPU for a while */
 #endif
-      } else s->bad++;
+      } else {
+        s->bad++;
+#if defined(APRS_IF_DIAG) && !defined(APRS_HOST) && !defined(APRS_FSK)
+        s->diag_len = (uint16_t)s->len;
+        s->diag_first[0] = s->fr[0], s->diag_first[1] = s->fr[1], s->diag_first[2] = s->fr[2];
+        s->diag_stop = 1;
+#endif
+      }
     }
     s->in = 1, s->len = 0, s->bb = 0x80, s->nbits = 0;
     return;
@@ -642,7 +661,16 @@ static void audio(const k6_api_t *api, st_t *s, int32_t x, int32_t y) {
      window late, so the clock's half turn is the bit's end */
   if ((int32_t)prev >= 0 && (int32_t)s->pll < 0) {
     int b = mfout(s, 0) > mfout(s, 1);
-    hdlc(api, s, b == s->mlast);
+    int bit = b == s->mlast;
+#ifdef APRS_BIT_TRACE
+    APRS_BIT_TRACE(s, bit, b);
+#endif
+#if defined(APRS_IF_DIAG) && !defined(APRS_HOST) && !defined(APRS_FSK)
+    if (!(s->bitn & 7)) s->bitlog[(s->bitn >> 3) & 511u] = 0;
+    s->bitlog[(s->bitn >> 3) & 511u] |= (uint8_t)(bit << (s->bitn & 7));
+    s->bitn++;
+#endif
+    hdlc(api, s, bit);
     s->mlast = b;
   }
 #endif
@@ -676,7 +704,11 @@ static void drain(const k6_api_t *api, st_t *s) {
     return;
   }
   /* s->produced, not P: a frame's line resyncs the ring from inside count() */
-  while (s->produced - s->consumed >= 64) {
+  while (s->produced - s->consumed >= 64
+#if defined(APRS_IF_DIAG) && !defined(APRS_HOST) && !defined(APRS_FSK)
+         && !s->diag_stop
+#endif
+  ) {
     const uint8_t *q = s->ring + (s->consumed & (RSZ - 1));
     s->consumed += 64; /* before count(): its resync sets it */
     count(api, s, 2 * ones64(q) - 64);
@@ -698,7 +730,7 @@ static void dma_on(uint8_t *ring) {
 
 static void screen(const k6_api_t *api, st_t *s) {
   char *p;
-  p = dec(put(s->ln, " APRS CLOCK "), udiv(APRS_HZ, 1000000), 3);
+  p = dec(put(s->ln, " APRS RX "), udiv(APRS_HZ, 1000000), 3);
   *p++ = '.';
   p = dec(p, udiv(APRS_HZ, 1000) - 1000 * udiv(APRS_HZ, 1000000), 3);
   *p = 0;
@@ -795,6 +827,9 @@ int k6_main(const k6_api_t *api) {
   resync(s);
   for (;;) {
     drain(api, s);
+#ifdef APRS_IF_DIAG
+    if (s->diag_stop) break;
+#endif
     if ((int32_t)(s->now_ms - tkey) >= 50) {
       int key;
       s->now_ms = api->ms();
@@ -853,6 +888,29 @@ int k6_main(const k6_api_t *api) {
   if (GAIN13) api->fd_write(0x13, r13), api->fd_write(0x7E, r7e);
   api->fd_write(0x34, r34);
   api->fd_write(0x33, r33);
+#ifdef APRS_IF_DIAG
+  if (s->diag_stop) {
+    static const char hex[] = "0123456789abcdef";
+    uint32_t off, j;
+    p = kv(s->ln, "bad n=", s->diag_len);
+    p = kv(p, " b0=", s->diag_first[0]);
+    p = kv(p, " b1=", s->diag_first[1]);
+    p = kv(p, " b2=", s->diag_first[2]);
+    say(api, s, p);
+    p = kv(s->ln, "bits total=", s->bitn);
+    say(api, s, p);
+    for (off = 0; off < sizeof s->bitlog; off += 16) {
+      p = kv(s->ln, "bits ", off);
+      *p++ = ' ';
+      for (j = off; j < off + 16; j++) {
+        uint8_t v = s->bitlog[j];
+        *p++ = hex[v >> 4];
+        *p++ = hex[v & 15];
+      }
+      say(api, s, p);
+    }
+  }
+#endif
   p = put(s->ln, "aprs end ok=");
   p = dec(p, s->ok, 1);
   p = kv(p, " bad=", s->bad);
@@ -911,7 +969,9 @@ int k6_main(const k6_api_t *api) {
                                         that ended it, sync words, those of under 6 words
    Writes REG_58, 59, 5A, 5B, 5C, 5D, 5E, 72, 3F, 02 and (FSK_AF) 2B, put back as read (the pager arms its
    own receiver again after any module). Returns as the tap build does, less -4, -5 and -7. */
-#define FSK_CFG 0x33A3u  /* REG_58: the 1200/2400 Hz receiver, bits 7:6 = 10 */
+#ifndef FSK_CFG
+#define FSK_CFG 0x33A3u /* legacy FD6818 REG_58 receiver configuration */
+#endif
 #if defined(FSK_PLAIN) && !defined(FSK_CTRL)
 #define FSK_CTRL 0x00F0u /* REG_59: REG_5A alone, a sync word of two bytes */
 #endif
@@ -921,7 +981,12 @@ int k6_main(const k6_api_t *api) {
 #ifndef APRS_FSK_DUMP
 #define APRS_FSK_DUMP 1
 #endif
+#ifndef FSK_SYNC
 #define FSK_SYNC 0xFEFEu
+#endif
+#ifndef FSK_TYPE
+#define FSK_TYPE 0x5625u /* format 1, no chip CRC; default for the legacy bounded receiver */
+#endif
 #define FSK_WORDS 128    /* REG_5D's most: 256 bytes */
 #define FSK_LAG 1        /* words the timed reads stay behind the chip (its FIFO holds 8) */
 #define FSK_IDLE 40      /* line bits outside a frame: the packet is over */
@@ -963,6 +1028,33 @@ static void fsk_seek(const k6_api_t *api, uint32_t cfg) {
   fsk_arm(api);
 }
 
+#ifdef FSK_PLAIN
+/* Clear the eight-word FIFO after a search reset. On FD6818B an empty FIFO reads the word
+   eight reads back, so after draining exactly eight entries the next empty read repeats the
+   FIRST drained word, not the last. Keep that value as the no-data sentinel. */
+static uint16_t fsk_drain(const k6_api_t *api) {
+  uint32_t i, first = 0;
+  for (i = 0; i < 8; i++) {
+    uint32_t w = api->fd_read(0x5F);
+    if (!i) first = w;
+  }
+  return (uint16_t)(((first & 0xFF) << 8) | (first >> 8));
+}
+#endif
+
+#ifdef FSK_STREAM
+/* Seed the stream's eight-word history. On this chip, an empty FIFO repeats the word
+   eight reads back, so adjacent-word comparison mistakes that stale ring for live data. */
+static void fsk_stream_drain(const k6_api_t *api, st_t *s, uint32_t *nread) {
+  uint32_t i;
+  for (i = 0; i < 8; i++) {
+    uint32_t w = api->fd_read(0x5F);
+    s->fifo[i] = (uint16_t)(((w & 0xFF) << 8) | (w >> 8));
+  }
+  *nread = 8;
+}
+#endif
+
 #ifndef FSK_PLAIN
 static char *hex4(char *p, uint32_t v) {
   int i;
@@ -1003,7 +1095,12 @@ int k6_main(const k6_api_t *api) {
   uint32_t cfg = FSK_CFG;
 #endif
 #ifdef FSK_STREAM
-  uint32_t acc = 0, tlast, tseek = 0, prev = 0;
+  uint32_t acc = 0, tlast, tseek = 0, nread = 0, pending_v = 0, last_word_ms = 0;
+#ifdef FSK_DIAG
+  uint32_t status_or = 0, ready_edges = 0;
+  int ready_before = 0;
+#endif
+  int pending = 0;
 #else
   uint16_t tw = 0;
 #endif
@@ -1025,15 +1122,33 @@ int k6_main(const k6_api_t *api) {
   api->fd_write(0x5A, FSK_SYNC);
   api->fd_write(0x5B, FSK_SYNC);
   api->fd_write(0x72, 0x3065);  /* 1200 baud x 10.32444 */
-  api->fd_write(0x5C, 0x5625);  /* no CRC of the chip's */
+  api->fd_write(0x5C, FSK_TYPE); /* format/type byte; format 2 is unlimited RX, no chip CRC */
   api->fd_write(0x5D, (2 * FSK_WORDS - 1) << 8);
   api->fd_write(0x5E, 0x0204);  /* RX almost full at 4 words */
   fsk_seek(api, cfg);
   api->fd_write(0x3F, 0x3002);  /* RX done, almost full, sync found: as the probes had it */
 #ifdef FSK_STREAM
-  for (i = 0; i < 8; i++) prev = api->fd_read(0x5F);
-  prev = (prev & 0xFF) << 8 | prev >> 8;
+  fsk_stream_drain(api, s, &nread);
   tlast = api->ticks() & 0xFFFF;
+#endif
+#ifdef FSK_DIAG
+  {
+    char line[64], *q = put(line, "B cfg");
+    q = hex4(put(q, " 58="), api->fd_read(0x58));
+    q = hex4(put(q, " 59="), api->fd_read(0x59));
+    q = hex4(put(q, " 5a="), api->fd_read(0x5A));
+    q = hex4(put(q, " 5b="), api->fd_read(0x5B));
+    *q = 0; api->say(line);
+    q = put(line, "B cfg");
+    q = hex4(put(q, " 5c="), api->fd_read(0x5C));
+    q = hex4(put(q, " 5d="), api->fd_read(0x5D));
+    q = hex4(put(q, " 72="), api->fd_read(0x72));
+    q = hex4(put(q, " 3f="), api->fd_read(0x3F));
+    *q = 0; api->say(line);
+    q = hex4(put(line, "B cfg 70="), api->fd_read(0x70));
+    q = hex4(put(q, " 0c="), api->fd_read(0x0C));
+    *q = 0; api->say(line);
+  }
 #endif
   s->rlo = 0x1FF;
   p = put(s->ln, "aprs start hz=");
@@ -1042,6 +1157,9 @@ int k6_main(const k6_api_t *api) {
   p = kv(p, " sync=", FSK_CTRL);
 #ifdef FSK_STREAM
   p = put(p, " stream");
+#endif
+#ifdef FSK_FORMAT2
+  p = put(p, " format2");
 #endif
   say(api, s, p);
   for (;;) {
@@ -1070,7 +1188,17 @@ int k6_main(const k6_api_t *api) {
 #endif
 #ifdef FSK_STREAM
     {
-      uint32_t f = api->fd_read(0x02) & 0x3002, tk = api->ticks() & 0xFFFF, n, over = 0;
+      uint32_t cause = api->fd_read(0x02), f = cause & 0x3002;
+      uint32_t tk = api->ticks() & 0xFFFF, n, over = 0;
+#ifdef FSK_DIAG
+      {
+        uint32_t status = api->fd_read(0x0C);
+        int ready = (status & 1u) != 0;
+        status_or |= status;
+        if (ready && !ready_before) ready_edges++;
+        ready_before = ready;
+      }
+#endif
       if (f) {
         api->fd_write(0x02, 0);
         if (now - tseek >= 20) st |= f << 16; /* not the sync flag that turning it on raises */
@@ -1078,12 +1206,32 @@ int k6_main(const k6_api_t *api) {
       acc += ((tk - tlast) & 0xFFFF) * 3, tlast = tk;
       n = udiv(acc, 400), acc -= 400 * n; /* a word is 40/3 ms */
       if (n > 8) n = 8;                   /* the FIFO's size */
-      while (n && !over) {
+      while ((n || pending) && !over) {
         /* its low byte was on the air first (the pager's swap), each byte's top bit first */
-        uint32_t w = api->fd_read(0x5F), v = (w & 0xFF) << 8 | w >> 8;
-        n--;
+        uint32_t w, v;
+        if (pending) {
+          v = pending_v;
+          pending = 0;
+        } else {
+          w = api->fd_read(0x5F), v = (w & 0xFF) << 8 | w >> 8;
+          /* The empty FIFO replays the eight-read history, not necessarily the same word
+             twice. Check a two-word slice against the matching history positions before
+             accepting a word that happens to equal one from eight reads ago. */
+          if (nread >= 8 && v == s->fifo[nread & 7]) {
+            uint32_t w2 = api->fd_read(0x5F), v2 = (w2 & 0xFF) << 8 | w2 >> 8;
+            if (v2 == s->fifo[(nread + 1) & 7]) {
+              /* Both reads are the empty-FIFO replay. Keep the software cursor aligned with
+                 the chip's read history so the next poll compares against the next pair. */
+              nread += 2;
+              n = 0;
+              break;
+            }
+            pending_v = v2;
+            pending = 1;
+          }
+        }
+        if (n) n--;
         if (!left) {
-          if (v == prev) continue; /* the empty FIFO: its last word again */
           left = 1, got = 0, idle = 0, tsync = now, ok0 = s->ok;
           st = (st & 0xFFFF0000) | api->fd_read(0x0B);
           /* the sync word was four flags and this is the bit after them, so a frame may begin
@@ -1092,10 +1240,12 @@ int k6_main(const k6_api_t *api) {
           s->in = 1, s->len = 0, s->bb = 0x80, s->nbits = 0, s->run = 0, s->sr = 0x7E;
           s->mlast = (int32_t)(~v >> 15 & 1);
         }
-        prev = v;
+        s->fifo[nread & 7] = (uint16_t)v;
+        nread++;
         if (got < FSK_WORDS) s->cap[got] = (uint16_t)v;
         got++;
         s->now_ms = now > 13 * n ? now - 13 * n : now; /* words still to read came later */
+        last_word_ms = s->now_ms;
         for (i = 16; i--;) {
           int32_t tone = (int32_t)((v >> i) & 1);
           hdlc(api, s, tone == s->mlast);
@@ -1104,6 +1254,7 @@ int k6_main(const k6_api_t *api) {
         }
         over = idle >= FSK_IDLE || got >= FSK_WORDS;
       }
+      if (left && now - last_word_ms >= 100u) over = 1; /* no new FIFO words: packet ended */
       if ((f & 0x2000) && now - tseek >= FSK_SETTLE) {
         /* the chip's 256 bytes are up; with no word read, a packet nobody saw */
         if (!left) s->lost++;
@@ -1112,8 +1263,8 @@ int k6_main(const k6_api_t *api) {
       if (!left && now - tseek >= FSK_AGAIN) over = 1;
       if (over) {
         fsk_seek(api, cfg);
-        for (i = 0; i < 8; i++) prev = api->fd_read(0x5F); /* what is left in the FIFO */
-        prev = (prev & 0xFF) << 8 | prev >> 8;
+        fsk_stream_drain(api, s, &nread);
+        pending = 0;
         if (left) {
           s->pre++;
           if (got < 6 && s->ok == ok0) s->fake++;
@@ -1198,6 +1349,13 @@ int k6_main(const k6_api_t *api) {
   p = kv(p, " pre=", s->pre);
   p = kv(p, " fake=", s->fake);
   say(api, s, p);
+#ifdef FSK_DIAG
+  p = hex4(put(s->ln, "B diag st="), status_or);
+  p = kv(p, " edges=", ready_edges);
+  p = hex4(put(p, " rssi="), s->rlo);
+  p = hex4(put(p, ".."), s->rhi);
+  *p = 0; say(api, s, p);
+#endif
   p = put(s->ln, "aprs end ok=");
   p = dec(p, s->ok, 1);
   p = kv(p, " bad=", s->bad);
@@ -1366,12 +1524,10 @@ static void df_sample(const k6_api_t *api, st_t *s, int32_t b) {
 
 /* the search for a sync word started again, with the other one; what the FIFO gives when empty */
 static uint32_t df_seek(const k6_api_t *api, uint32_t *sy) {
-  uint32_t i, w = 0;
   *sy ^= 1;
   api->fd_write(0x5A, *sy ? DF_SYNC_MK : DF_SYNC_SP);
   fsk_seek(api, DF_CFG);
-  for (i = 0; i < 8; i++) w = api->fd_read(0x5F);
-  return (w & 0xFF) << 8 | w >> 8;
+  return fsk_drain(api);
 }
 
 /* a word of the chip's, the rn-th of its packet, through the slicer */
@@ -1451,13 +1607,17 @@ int k6_main(const k6_api_t *api) {
            the two reads of the empty FIFO is taken for that next word: the reads are 20 us
            apart and such a read a packet or fewer) */
         uint32_t w2 = ~w;
-        while (rn >= 8 && v == s->fifo[rn & 7]) {
+        while (rn >= 8 && v == s->fifo[rn & 7] && got < DF_WORDS) {
           w2 = api->fd_read(0x5F);
           eq++;
           if (w2 == w) break;
           df_word(api, s, v, rn++);
           got++;
           w = w2, v = (w & 0xFF) << 8 | w >> 8, w2 = ~w;
+        }
+        if (got >= DF_WORDS) {
+          over = 1;
+          break;
         }
         if (w2 == w) {
           /* the chip has made the words taken and is in the next (the first one before tk0,

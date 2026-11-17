@@ -35,10 +35,11 @@ IMPORTS = [
     "ex_on_raster",
     "ex_over",
     "ex_own_clock",
+    "ex_seen",
     "ex_spur",
 ]
 PAGES = {
-    "sweep": ["xscan.c"],
+    "sweep": ["xscan.c", "xscan_hot.c"],
     "listen": ["xlisten.c", "xdmr.c"],
     "table": ["rt.c"],
     "edit": ["sted.c"],

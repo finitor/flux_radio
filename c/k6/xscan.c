@@ -3,6 +3,7 @@
    372-405 bins/s (docs/k6-scan.md); the comments there explain each rule.
    SPDX-License-Identifier: MIT */
 #include "xscan.h"
+#include "xscan_hot.h"
 #include "tonedet.h"
 
 #define FLMAX 1024
@@ -139,11 +140,7 @@ static uint32_t refine(xs_t *s, uint32_t hz, int g) {
 #endif
 
 static xs_hot_t *near(xs_t *s, uint32_t hz, uint32_t tol, int up) {
-  xs_hot_t *h = s->hot;
-  int i;
-  for (i = 0; i < XS_HOT; i++, h++)
-    if (h->hz && (!up || h->up) && (h->hz > hz ? h->hz - hz : hz - h->hz) <= tol) return h;
-  return 0;
+  return xs_hot_near(s->hot, XS_HOT, hz, tol, up);
 }
 
 static void starts(xs_hot_t *h, uint32_t now, int lvl, int r) {
@@ -184,14 +181,7 @@ static void ends(xs_t *s, xs_hot_t *h) {
 
 /* a free entry, else the one down longest, else the weakest if this hit is hit_db louder */
 static xs_hot_t *slot(xs_t *s, int lvl) {
-  xs_hot_t *h = s->hot, *o = 0, *w = 0;
-  int i;
-  for (i = 0; i < XS_HOT; i++, h++) {
-    if (!h->hz) return h;
-    if (!h->up && !h->spur && (!o || h->last < o->last)) o = h;
-    if (!w || h->lvl < w->lvl) w = h;
-  }
-  return o ? o : st8(lvl) >= w->lvl + s->hit_db ? w : 0;
+  return xs_hot_slot(s->hot, XS_HOT, lvl, s->hit_db);
 }
 
 /* h passes for a spur: the revisits leave it, it's never in xs_up, its slot stays taken (so it
@@ -220,7 +210,11 @@ static int new_hit(xs_t *s, int g, uint32_t b, uint32_t hz, int lvl, int r) {
 #endif
   }
   if (h) {
-    if (!h->up && !h->spur) starts(h, s->api->ms(), lvl, r);
+    if (!h->up && !h->spur) {
+      uint32_t now = s->api->ms();
+      starts(h, now, lvl, r);
+      if (s->ex) ex_seen(s->ex, h->hz, now, dbm8(h->lvl));
+    }
     return 1;
   }
   if (!(h = slot(s, lvl))) return 0;
@@ -229,7 +223,11 @@ static int new_hit(xs_t *s, int g, uint32_t b, uint32_t hz, int lvl, int r) {
     for (i = 0; i < (int)sizeof *h; i++) d[i] = 0;
   }
   h->hz = c, h->bin = (uint16_t)b;
-  starts(h, s->api->ms(), lvl, r);
+  {
+    uint32_t now = s->api->ms();
+    starts(h, now, lvl, r);
+    if (s->ex) ex_seen(s->ex, c, now, dbm8(h->lvl));
+  }
   if (s->news < 255) s->news++;
   p = num(fq(s->line, "N ", c), " ", lvl, 0);
   p = num(p, " fl", dbm8(s->sfl[g]), 0);
@@ -279,6 +277,7 @@ static void revisit(xs_t *s) {
   s->rev = api->ms();
 }
 
+#ifndef XS_MODULE_NO_PEEK
 /* The peek (xs_tone): one up carrier with no call, in turn, gets peek_ms of the tone detector,
    polled every 2 ms. Keyed = a tone in 3 polls and none in 3 (a steady tone, like a long
    courtesy beep, isn't an ID). */
@@ -324,6 +323,7 @@ uint32_t xs_tone(xs_t *s, unsigned peek_ms) {
   s->peek_ms = (uint16_t)peek_ms, s->tone_hz = 0;
   return hz;
 }
+#endif
 
 /* segment g's floors: full and quick reads on 8 of its bins, off the round frequencies (one
    segment a step: about 130 ms). Each quick read is one bin over a full read's settled tune, as in
@@ -443,11 +443,14 @@ static void sweep_start(xs_t *s) {
 }
 
 static void sweep_end(xs_t *s) {
+#ifndef XS_MODULE_NO_SWEEP_DIAG
   char *p;
+#endif
   uint32_t t = s->api->ms() - s->sweep_t0;
   s->bins += s->seg[s->g].nbins;
   s->last_ms = (uint16_t)(t > 65535 ? 65535 : t);
   s->last_g = s->g;
+#ifndef XS_MODULE_NO_SWEEP_DIAG
   if (s->say_rows) {
     uint32_t b;
     for (b = 0; b < s->cols;) {
@@ -463,6 +466,7 @@ static void sweep_end(xs_t *s) {
     p = num(p, " c", (int)s->conf, 0);
     say(s, num(p, " h", (int)s->hits, 0));
   }
+#endif
   s->base = (uint16_t)(s->base + s->seg[s->g].nbins);
   if (++s->g >= s->nseg) s->g = 0, s->base = 0, s->sweeps++;
 }
@@ -490,7 +494,12 @@ int xs_step(xs_t *s) {
   G = &s->seg[s->g];
   fl = s->fl + s->base;
   n = G->nbins, step = G->step_hz;
-  if (api->ms() - s->rev >= s->hot_ms) revisit(s), peek(s);
+  if (api->ms() - s->rev >= s->hot_ms) {
+    revisit(s);
+#ifndef XS_MODULE_NO_PEEK
+    peek(s);
+#endif
+  }
   end = s->b + XS_BLOCK;
   if (end > n) end = n;
   for (; s->b < end; s->b++, s->hz += step) {

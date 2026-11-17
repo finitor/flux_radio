@@ -171,7 +171,20 @@ $CC $CFLAGS -Os -c "$ROOT/c/k6/ifpager.c" -o "$OUT/ifpager.o"
 # the EXPLORE app's engine (docs/k6-explore-app.md): the sweep a block at a time, the candidate
 # list, the repeater table and Listen for ID. -Oz: none of it is hot next to a 1.5 ms read, and
 # only the images that call it link it (rt.c goes in as k6_rt.o: c/fixed/cm0/rt.c is the bench's)
-for f in xscan xlisten explore cwid; do $CC $CFLAGS -Oz -c "$ROOT/c/k6/$f.c" -o "$OUT/$f.o"; done
+for f in xscan xscan_hot xlisten explore cwid; do $CC $CFLAGS -Oz -c "$ROOT/c/k6/$f.c" -o "$OUT/$f.o"; done
+# The Aura Blowfang host exposes a compact scanner ABI to its sideloaded EXPLORE module.
+# Keep its exact module layout (4 hot entries, 1 waterfall column) but link this engine from
+# host flash instead of copying xscan.c into every module image.
+if [ "${K6_EXPLORE_HOST:-0}" = 1 ]; then
+  $CC $CFLAGS -Oz -DXS_HOT=4 -DXS_COLS=1 \
+    -DXS_MODULE_NO_PEEK -DXS_MODULE_NO_SWEEP_DIAG -DXS_MODULE_NO_REFINE \
+    -Dxs_defaults=kmx_xs_defaults -Dxs_mem_bytes=kmx_xs_mem_bytes \
+    -Dxs_init=kmx_xs_init -Dxs_step=kmx_xs_step -Dxs_resume=kmx_xs_resume \
+    -Dxs_close=kmx_xs_close -Dxs_summary=kmx_xs_summary \
+    -Dxs_state_bytes=kmx_xs_state_bytes -Dxs_info=kmx_xs_info \
+    -Dxs_up=kmx_xs_up -Dxs_tone=kmx_xs_tone -Dxs_level=kmx_xs_level \
+    -c "$ROOT/c/k6/xscan.c" -o "$OUT/xscan_modhost.o"
+fi
 $CC $CFLAGS -Oz -c "$ROOT/c/k6/rt.c" -o "$OUT/k6_rt.o"
 # the station editor (the release plan): only in the edit code page, never in the library
 $CC $CFLAGS -Oz -c "$ROOT/c/k6/sted.c" -o "$OUT/sted.o"
@@ -186,7 +199,8 @@ $CC $CFLAGS -DKP_PAGE=KP_LISTEN -c "$ROOT/c/k6/kp_tab.c" -o "$OUT/kp_listen.o"
 $CC $CFLAGS -DKP_PAGE=KP_TABLE -c "$ROOT/c/k6/kp_tab.c" -o "$OUT/kp_table.o"
 $CC $CFLAGS -DKP_PAGE=KP_EDIT -c "$ROOT/c/k6/kp_tab.c" -o "$OUT/kp_edit.o"
 LIBOBJS="$OUT/sotto_pager.o $OUT/k6_mod.o $OUT/sotto_fx_dec.o $OUT/sp_cb.o $OUT/sp_vlr.o $OUT/fx_math.o $OUT/fx_tables.o $OUT/ifpager.o
-  $OUT/xscan.o $OUT/xlisten.o $OUT/xdmr.o $OUT/explore.o $OUT/cwid.o $OUT/k6_rt.o $OUT/sted.o"
+  $OUT/xscan.o $OUT/xscan_hot.o $OUT/xlisten.o $OUT/xdmr.o $OUT/explore.o $OUT/cwid.o $OUT/k6_rt.o $OUT/sted.o"
+if [ "${K6_EXPLORE_HOST:-0}" = 1 ]; then LIBOBJS="$LIBOBJS $OUT/xscan_modhost.o"; fi
 LIBOBJS="$LIBOBJS $OUT/k6_lib.o $OUT/card_record.o $OUT/card_store.o $OUT/card_air.o"
 if [ -n "$LR" ]; then     # not hot (field unpacking and shape sums once per 40 ms): -Oz
   $CC $CFLAGS -Oz -Dcalloc=sp_calloc -Dfree=sp_free -c "$ROOT/c/fixed/sotto_fx_lr.c" -o "$OUT/sotto_fx_lr.o"

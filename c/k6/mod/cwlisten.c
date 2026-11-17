@@ -69,6 +69,18 @@ K6_MODULE_NAME(K6_NAME);
 #define NOINLINE __attribute__((noinline))   /* keeps their line buffers off run's frame */
 
 static char *put(char *p, const char *s) { while (*s) *p++ = *s++; return p; }
+static void cw_init_shared(const k6_api_t *api, cw_t *c) {
+  if (api->level >= 17) api->cw_init(c); else cw_init(c);
+}
+static int cw_feed_shared(const k6_api_t *api, cw_t *c, uint32_t ms, int keyed) {
+  return api->level >= 17 ? api->cw_feed(c, ms, keyed) : cw_feed(c, ms, keyed);
+}
+static int cw_flush_shared(const k6_api_t *api, cw_t *c, uint32_t ms) {
+  return api->level >= 17 ? api->cw_flush(c, ms) : cw_flush(c, ms);
+}
+static int cw_call_shared(const k6_api_t *api, const char *s, char call[11], uint8_t *flags) {
+  return api->level >= 17 ? api->cw_call(s, call, flags) : cw_call(s, call, flags);
+}
 static char *sdec(char *p, int32_t v) {
   if (v < 0) { *p++ = '-'; v = -v; }
   return cw_utoa(p, (uint32_t)v);
@@ -105,7 +117,7 @@ NOINLINE static int report(const k6_api_t *api, work_t *w) {
   const cw_t *c = &w->cw;
   uint32_t sum = 0, top = 0;
   uint8_t fl = 0;
-  int i, ok = 0, n = cw_call(c->text, call, &fl);
+  int i, ok = 0, n = cw_call_shared(api, c->text, call, &fl);
   if (!n && c->nd < LISTEN_MIN) { ok = -1; goto done; }
   for (i = 0; i < 16; i++) {
     sum += w->hist[i];
@@ -174,7 +186,7 @@ NOINLINE static int run(const k6_api_t *api, work_t *w) {
   int i, stop = 0, msgs = 0, junk = 0, ok = 0;
   uint32_t t, start;
 
-  cw_init(&w->cw);
+  cw_init_shared(api, &w->cw);
   for (i = 0; i < 16; i++) w->hist[i] = 0;
   w->last[0] = 0; w->seen = 0; w->fl = 0; w->tone = 0; w->q = 0;
 
@@ -214,7 +226,7 @@ NOINLINE static int run(const k6_api_t *api, work_t *w) {
     }
     if (keyed && w->hist[(b >> 8) & 15] < 0xFFFF) w->hist[(b >> 8) & 15]++;
     if (api->fd_read(0x0C) & 1) { api->fd_write(0x02, 0); (void)api->fd_read(0x02); }
-    if (stop ? cw_flush(&w->cw, t) : cw_feed(&w->cw, t, keyed)) {
+    if (stop ? cw_flush_shared(api, &w->cw, t) : cw_feed_shared(api, &w->cw, t, keyed)) {
       if (w->cw.nd) {
         int r = report(api, w);
         if (r < 0) junk++;

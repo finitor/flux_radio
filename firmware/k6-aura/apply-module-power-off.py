@@ -71,6 +71,17 @@ text = text.replace('''unsafe extern "C" fn mod_delay_us(mut us: u32) {
         if unsafe { mod_power_off_requested() } { return; }
         let n = us.min(100_000);''', 1)
 
+# Most modules use the original key_down callback rather than the newer key_poll.
+old_key_down = '''unsafe extern "C" fn mod_key_down() -> i32 {
+    mod_tx_guard();'''
+new_key_down = '''unsafe extern "C" fn mod_key_down() -> i32 {
+    if unsafe { mod_power_off_requested() } { return 1; }
+    mod_tx_guard();'''
+if new_key_down not in text:
+    if text.count(old_key_down) != 1:
+        raise SystemExit("missing module key_down callback")
+    text = text.replace(old_key_down, new_key_down, 1)
+
 if "mod_power_off_requested() } { return 1;" not in text:
     raise SystemExit("did not update mod_key_poll")
 source.write_text(text)

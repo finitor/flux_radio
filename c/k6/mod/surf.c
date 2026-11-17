@@ -41,8 +41,8 @@
                      only a coarse outer bin heard is refined after the next read of the lens:
                      the loudest channel within that bin's width. With no caret that way, line 5 says
                      "no peak" and the middle stays
-     A/B             how fast the carets fall: 1 min (the start), 5 min, 20 min, 15 s for the
-                     whole height (line 5: "fall 5m")
+     A/B short       change caret fall speed: 1 min, 5 min, 20 min, 15 s
+     A/B long        while listening to a signal, tune VFO B to it and return to Aura with B active
      BAND            next band: 2m, 1.25m, 70cm, GMRS, marine + NOAA WX, airband (AM, 118-137
                      MHz, receive only); each starts at its centre (MAR/WX: on NOAA weather's
                      162.475, with the marine coast channels below) with its default step and span
@@ -99,7 +99,7 @@
    Returns the sweeps done, -3 (an image below level 6) or -4 (too little free RAM for the state).
    SPDX-License-Identifier: MIT */
 #ifndef K6_MODULE_LEVEL
-#define K6_MODULE_LEVEL 6
+#define K6_MODULE_LEVEL 16
 #define K6_MODULE_OPT z
 #endif
 #include "../k6_mod.h"
@@ -267,12 +267,12 @@ typedef struct {
   const band_t *bd;             /* the band */
   uint8_t *bmp;
   uint32_t ch, cen, now;         /* channel step, the middle (listening) frequency */
-  uint32_t t_flush, t_open, t_full, t_sfl, t_msg, t_key, t_rep, t_auto, t_chk;
+  uint32_t t_flush, t_open, t_full, t_sfl, t_msg, t_key, t_rep, t_auto, t_chk, t_w;
   int next, sweeps, npm;
   int sfl, sel_dbm;
   uint8_t si, qfl, parked, tuned, check, mon, hold, audio, hush, key, raw, full, refine, stale;
   uint8_t st, gx;               /* the channel step (STEPS index); fixed gain GAINS[gx - 1], 0 auto */
-  uint8_t qk, k1;               /* a key caught during a long sweep or measure (kp_peek), the last peek */
+  uint8_t qk, k1, w_down, w_fired; /* key caught mid-sweep; A/B long-press tracking */
   uint8_t sc;                   /* surfkeys: the script's next key */
   uint8_t fall;                 /* FALL_MS index */
   uint8_t md, zif;              /* key 4: the demodulator (MD_FM, MD_DSB, MD_AM); REG_3D written */
@@ -281,7 +281,6 @@ typedef struct {
   pm_t *pm;                     /* the remembered peaks (npm of them; none with no room) */
   uint16_t af;                  /* REG_47 with the audio open: FM or AM */
   uint16_t off[C + 1];          /* bin C+-k's offset from the middle, x L_HZ */
-  uint32_t hz[NB];              /* each bin's frequency, 0 outside the band */
   uint32_t pk[NB];              /* where in its range a bin's loudest read was */
   uint32_t r47, odr, r13, r73, r7e, r3d;
   uint16_t sq[4];               /* monitor: the chip's squelch (SQ_REGS) as Aura had it */
@@ -296,8 +295,7 @@ typedef struct {
   uint16_t kslot[NK];
   int nk;
   /* (work space: the state lives in the module store's free RAM, not on the stack) */
-  uint32_t old[NV];             /* recentre: the old scale's loudest reads */
-  uint8_t lv[NV];               /* recentre: its levels */
+  int16_t old[NV];              /* recentre: peak offset from cen, in 500 Hz units */
   uint8_t tmp[NB];              /* floor_q's sort, draw's carets */
   uint8_t bm[16 * ROWS];        /* the bitmap (KM_WF_ROWS rows) */
 } sf_t;
@@ -378,6 +376,7 @@ static void hush(sf_t *s, int on) {
 }
 
 static void kp_peek(sf_t *s);
+static uint32_t bin_hz(sf_t *s, int i);
 
 /* the level at hz in dBm, us after its tune (the wide filter); a look at the keys too, so a
    press during a whole sweep (up to ~0.5 s at the wide spans) isn't lost */
@@ -389,7 +388,7 @@ static int read_hz(sf_t *s, uint32_t hz, uint32_t us) {
   return dbm(s);
 }
 
-static int read_at(sf_t *s, int i, uint32_t us) { return read_hz(s, s->hz[i], us); }
+static int read_at(sf_t *s, int i, uint32_t us) { return read_hz(s, bin_hz(s, i), us); }
 
 static void audio(sf_t *s, int on) {
   if (on == s->audio && !s->hush) return;
@@ -475,16 +474,48 @@ static int kp_scan(sf_t *s) {
   return k;
 }
 
+#define SURF_AB_HOLD_MS 600u
+
+/* A/B keeps its old short action. A held press becomes the VFO-B tune event, including when
+   the keypad is being sampled inside the sweep instead of the outer event loop. */
+static int kp_ab_update(sf_t *s, int stable, uint32_t now) {
+  if (stable == 'W') {
+    if (!s->w_down) {
+      s->w_down = 1;
+      s->w_fired = 0;
+      s->t_w = now;
+    } else if (!s->w_fired && (uint32_t)(now - s->t_w) >= SURF_AB_HOLD_MS) {
+      s->w_fired = 1;
+      return 'w';
+    }
+  } else if (s->w_down) {
+    int short_press = !s->w_fired;
+    s->w_down = s->w_fired = 0;
+    if (short_press) return 'W';
+  }
+  return 0;
+}
+
 /* between reads: a new key read the same twice in a row is kept for the main loop (once), and a
    release read twice lets the same key count again */
 static void kp_peek(sf_t *s) {
   int k = kp_scan(s);
   if (k == s->k1) {
     if (!k) {
+      int ev = kp_ab_update(s, 0, s->api->ms());
+      if (ev && !s->qk) s->qk = (uint8_t)ev;
       s->key = 0;
     } else if (k != s->key && !s->qk) {
-      s->qk = s->key = (uint8_t)k;
-      s->t_rep = s->now + 400;
+      if (k == 'W') {
+        (void)kp_ab_update(s, k, s->api->ms());
+        s->key = (uint8_t)k;
+      } else {
+        s->qk = s->key = (uint8_t)k;
+        s->t_rep = s->now + 400;
+      }
+    } else if (k == 'W') {
+      int ev = kp_ab_update(s, k, s->api->ms());
+      if (ev && !s->qk) s->qk = (uint8_t)ev;
     }
   }
   s->k1 = (uint8_t)k;
@@ -503,8 +534,10 @@ static int kp_event(sf_t *s) {
   if (k != s->key) {
     s->key = (uint8_t)k;
     s->t_rep = s->now + 400;
+    if (k == 'W' || s->w_down) return kp_ab_update(s, k, s->now);
     return k;
   }
+  if (k == 'W') return kp_ab_update(s, k, s->now);
   if ((k == 'U' || k == 'D') && (int32_t)(s->now - s->t_rep) >= 0) {
     s->t_rep = s->now + 120;
     return k;
@@ -529,6 +562,19 @@ static void lens(sf_t *s) {
 /* bin i's distance from the middle, in bins */
 static int dist(int i) { return i < C ? C - i : i - C; }
 
+/* A bin's current frequency is determined by the centre, lens and band. */
+static uint32_t bin_hz(sf_t *s, int i) {
+  uint32_t o = L_HZ * s->off[dist(i)], f;
+  if (i < C) {
+    if (s->cen < o) return 0;
+    f = s->cen - o;
+  } else {
+    f = s->cen + o;
+    if (f < s->cen) return 0;
+  }
+  return f >= s->bd->lo && f <= s->bd->hi ? f : 0;
+}
+
 /* the step around bin i, x L_HZ */
 static uint32_t spu(sf_t *s, int i) {
   int a = dist(i);
@@ -542,19 +588,22 @@ static uint32_t sp(sf_t *s, int i) { return L_HZ * spu(s, i); }
 static void cov(sf_t *s, int i, uint32_t *lo, uint32_t *hi) {
   int a = dist(i);
   uint32_t out = sp(s, i) / 2, in = a ? L_HZ * (s->off[a] - s->off[a - 1]) / 2 : out;
-  *lo = s->hz[i] - (i < C ? out : in);
-  *hi = s->hz[i] + (i < C ? in : out);
+  uint32_t hz = bin_hz(s, i);
+  *lo = hz - (i < C ? out : in);
+  *hi = hz + (i < C ? in : out);
 }
 
 /* the bin nearest f, if f is within half its step of it; -1 if none */
 static int bin_of(sf_t *s, uint32_t f) {
   int i, b = -1;
   uint32_t d, bd = ~0u;
-  for (i = 0; i < NV; i++)
-    if (s->hz[i]) {
-      d = s->hz[i] > f ? s->hz[i] - f : f - s->hz[i];
+  for (i = 0; i < NV; i++) {
+    uint32_t hz = bin_hz(s, i);
+    if (hz) {
+      d = hz > f ? hz - f : f - hz;
       if (d < bd) bd = d, b = i;
     }
+  }
   return b >= 0 && 2 * bd <= sp(s, b) ? b : -1;
 }
 
@@ -563,7 +612,7 @@ static void measure_sfl(sf_t *s) {
   int j, a = 999, b = 999;
   for (j = 3; j < NV; j += 8) {
     int d;
-    if (!s->hz[j]) continue;
+    if (!bin_hz(s, j)) continue;
     d = read_at(s, j, CHECK_US);
     if (d < a) b = a, a = d;
     else if (d < b) b = d;
@@ -588,8 +637,7 @@ static void moved(sf_t *s) {
    the loudest old bin whose loudest read falls in its range */
 static void recentre(sf_t *s, uint32_t hz) {
   const band_t *b = s->bd;
-  uint32_t *old = s->old, lo, hi;
-  uint8_t *lv = s->lv;
+  uint32_t lo, hi;
   int i, j;
   if (hz < b->lo) hz = b->lo;
   if (hz > b->hi) hz = b->hi;
@@ -597,19 +645,27 @@ static void recentre(sf_t *s, uint32_t hz) {
   if (s->cen > b->hi) s->cen -= s->ch;
   for (i = 0; i < NV; i++) {
     uint32_t o = L_HZ * s->off[dist(i)], f = i < C ? s->cen - o : s->cen + o;
-    s->cf[i] = 0;                       /* (the old scale's reads are not these bins') */
-    old[i] = s->pk[i];
-    lv[i] = s->lvl[i];
-    s->hz[i] = s->pk[i] = f >= b->lo && f <= b->hi ? f : 0;
+    {
+      int32_t delta = (int32_t)s->pk[i] - (int32_t)s->cen;
+      s->old[i] = (int16_t)(delta < 0 ? -(int32_t)udiv((uint32_t)-delta, L_HZ)
+                                      : (int32_t)udiv((uint32_t)delta, L_HZ));
+    }
+    s->cf[i] = s->lvl[i];         /* reuse this per-bin scratch until the remap is complete */
+    s->pk[i] = f >= b->lo && f <= b->hi ? f : 0;
     s->lvl[i] = 0;
   }
   s->stale = 1;
   for (i = 0; i < NV; i++) {
-    if (!s->hz[i]) continue;
+    if (!bin_hz(s, i)) continue;
     cov(s, i, &lo, &hi);
     for (j = 0; j < NV; j++)
-      if (lv[j] > s->lvl[i] && old[j] >= lo && old[j] < hi) s->lvl[i] = lv[j], s->pk[i] = old[j];
+      {
+        int32_t old_hz = (int32_t)s->cen + (int32_t)L_HZ * s->old[j];
+        if (s->cf[j] > s->lvl[i] && old_hz >= (int32_t)lo && old_hz < (int32_t)hi)
+          s->lvl[i] = s->cf[j], s->pk[i] = (uint32_t)old_hz;
+      }
   }
+  for (i = 0; i < NV; i++) s->cf[i] = 0;
 }
 
 /* a fresh scale on hz at the span SPANS[si] */
@@ -845,7 +901,7 @@ static void on_key(sf_t *s, int k) {
     break;
   case 'A': jump(s, 1); break;
   case 'B': jump(s, -1); break;
-  case 'W':                           /* A/B: how fast the carets fall */
+  case 'W':                           /* A/B short press: caret fall speed */
     s->fall = (uint8_t)(s->fall + 1 == NFALL ? 0 : s->fall + 1);
     put(put(s->msg, "fall "), FALL[s->fall])[0] = 0;
     s->t_msg = s->now + MSG_MS;
@@ -921,7 +977,7 @@ static int conf_now(sf_t *s, int r, int o, uint32_t f) {
 /* bin i's quick level: the loudest of reads SUB_HZ apart across its range (the wide filter's
    width: a coarse bin far out would miss a carrier between two bins), and where it was */
 static void sweep_bin(sf_t *s, int i) {
-  uint32_t lo, hi, f, at = s->hz[i];
+  uint32_t lo, hi, f, at = bin_hz(s, i);
   int r, o = s->lvl[i], v;
   cov(s, i, &lo, &hi);
   s->cf[i] = 0;
@@ -980,7 +1036,7 @@ static int refine_lens(sf_t *s) {
   uint32_t f;
   s->refine = 0;
   for (i = C - KI; i <= C + KI; i++)
-    if (s->hz[i] && (uint32_t)L_HZ * s->off[dist(i)] <= s->rw && s->lvl[i] > s->lvl[b]) b = i;
+    if (bin_hz(s, i) && (uint32_t)L_HZ * s->off[dist(i)] <= s->rw && s->lvl[i] > s->lvl[b]) b = i;
   if (b == C || s->lvl[b] <= s->lvl[C] + 1) return 0;
   /* a carrier fills the lens's bins inside the wide filter: its flat top's middle */
   for (a = b; a > C - KI && s->lvl[a - 1] + 2 >= s->lvl[b]; a--) {}
@@ -1016,7 +1072,7 @@ static void check_bar(sf_t *s) {
      audio and the keys 1-2 s: Jeff, 2026-11-11); sweeping, the next sweep replaces them all */
   if (s->stale && (d >= s->sfl + SQ_DB || s->refine)) {
     for (i = C - KI; i <= C + KI && !s->qk; i++)
-      if (s->hz[i]) sweep_bin(s, i);
+      if (bin_hz(s, i)) sweep_bin(s, i);
     if (s->qk) return;                  /* a key came: it goes first */
     if (s->refine && refine_lens(s)) return;   /* the middle moved again: check there */
     s->tuned = 0;
@@ -1034,7 +1090,7 @@ static void check_bar(sf_t *s) {
 }
 
 static void sweep_step(sf_t *s) {
-  if (s->hz[s->next]) {
+  if (bin_hz(s, s->next)) {
     sweep_bin(s, s->next);
     s->tuned = 0;
   }
@@ -1070,7 +1126,7 @@ static void park_step(sf_t *s) {
   if (!s->hold && (s->stale || (!s->mon && s->now - s->t_full >= REFRESH_MS))) {   /* (stale: a zoom) */
     int i;
     for (i = 0; i < NV && !s->qk; i++)   /* (read_hz hushes the speaker; the next read unhushes it) */
-      if (s->hz[i]) sweep_bin(s, i);
+      if (bin_hz(s, i)) sweep_bin(s, i);
     if (!s->qk) sweep_done(s);          /* (a key cut it short: it goes first) */
     s->tuned = 0;
     s->t_full = s->api->ms();
@@ -1143,7 +1199,7 @@ static int draw(sf_t *s) {
   s->t_flush = s->now;
   for (i = 0; i < 16 * ROWS; i++) b[i] = 0;
   for (i = 0; i < NV; i++) {
-    if (!s->hz[i]) continue;
+    if (!bin_hz(s, i)) continue;
     for (r = AX - bar_h(s, i); r < AX; r++) pair(b, i, r);
     pair(b, i, AX);                       /* the axis line */
   }
@@ -1338,6 +1394,17 @@ int k6_main(const k6_api_t *api) {
     }
 #endif
     if (k == 'X') break;
+    if (k == 'w' && s->parked && s->audio && s->sel_dbm >= s->sfl + SQ_DB &&
+        api->level >= 16) {
+      uint8_t mode = (uint8_t)(s->md == MD_AM ? 1 : s->md == MD_DSB ? 2 : 0);
+      if (api->level >= 22) api->action_chirp(0);
+      if (api->vfo_b_tune(s->cen, mode) == 0) {
+        api->say("surf tuned VFO B");
+        break;
+      }
+    }
+    if (k == 'w' && api->level >= 22) api->action_chirp(1);
+    if (k == 'w') k = 'W'; /* no parked signal: retain A/B's existing action */
     if (k) {
       on_key(s, k);
       s->now = api->ms();
@@ -1376,7 +1443,7 @@ int k6_main(const k6_api_t *api) {
   p = stepn(p, U_HZ * SPANS[s->si]);
   say_end(s, put(p, " lens"));
   for (p = s->ln, k = 0; k < NV;) {
-    *p++ = s->hz[k] ? (char)('a' - 1 + bar_h(s, k)) : '-';
+    *p++ = bin_hz(s, k) ? (char)('a' - 1 + bar_h(s, k)) : '-';
     if (!(++k & 31) || k == NV) say_end(s, p), p = s->ln;
   }
 #endif

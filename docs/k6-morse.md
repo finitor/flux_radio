@@ -22,7 +22,7 @@ on the 4 KB images it doesn't load.
  . . . . . . . . . . .
  -.- --... .-               send tape, the same for what the keyer sent
   K   7    A
- K7ABC DE AG7EW KN         the text sent
+ K7ABC DE <CALL> KN        the text sent (callsign from Menu > DIGI)
 ```
 
 The tapes are the module screen's waterfall rows (API level 6, 29 rows of 128 pixels): the
@@ -32,6 +32,7 @@ next mark would run off the right edge. The letters use a 3x5 font in the module
 
 State: `RX` listening (paddles key up), `TX.` keying up, `TX` sending, `ID` sending the ident,
 `PR` practice (the paddles drive the keyer, the sidetone and the send tape, but no transmitter).
+The header shows `ID+` when the automatic CWID is enabled and `ID-` when it is disabled.
 Keyer mode: `IB` iambic B, `IA` iambic A, `SK` straight key.
 
 A frame takes 20-40 ms to draw and send, and nothing else runs meanwhile. So the module never
@@ -77,15 +78,15 @@ key keys, debounced 5 ms. The element timing runs from absolute deadlines, so th
 whole dots (tests: each element and gap within 3 ms).
 
 **Over.** The first touch of a paddle keys the transmitter up (`tx_on`: the pager's own
-frequency only, and this module only when that is in 430-450 MHz; never while the channel reads
+frequency only, and this module only when that is in 144-148 or 420-450 MHz; never while the channel reads
 -90 dBm or more, which makes that over practice). On the radio `tx_on` takes 1.4-1.9 s; the
 paddle that started it is remembered and sent first once it returns (in straight-key mode the
 first touch only keys up). It sends MCW: the carrier stays up and the FD6818's tone oscillator
 (REG_70/71, as `wsprtx`) is keyed at 700 Hz, which an FM receiver hears as a tone and another
 K6 decodes with its tone detector.
 
-**Ident.** 3 s after the paddles go quiet the over ends with `DE AG7EW` at the send speed, unless
-AG7EW was sent in it, and the transmitter keys down (the project rule: every transmission carries
+**Ident.** 3 s after the paddles go quiet the over ends with `DE <CALL>` at the send speed, unless
+the configured callsign was sent in it, and the transmitter keys down (the project rule: every transmission carries
 the ident). The over is at most 60 s (18 s on images before level 7, whose transmit cap was 20 s);
 the paddles stop in time for the ident. EXIT while keyed sends the ident at once, keys down and
 ends the module. If the core's own limit keys down under it, the module says so and stays on
@@ -102,7 +103,8 @@ running, no sidetone.
 |---|---|
 | Side 1 / Side 2 | dit / dah paddle (either one for a straight key) |
 | UP / DOWN | send speed 5-40 wpm |
-| MENU | keyer mode: iambic B, iambic A, straight key |
+| MENU short press | keyer mode: iambic B, iambic A, straight key |
+| MENU hold for 0.8 s | toggle automatic `DE <CALL>` CWID at the end of an over |
 | `*` | swap the paddles |
 | EXIT | end the module (after the ident, if keyed) |
 
@@ -114,7 +116,7 @@ PB11 driven low for MENU, UP, EXIT and DOWN, row PB10 for `*`.
 ```
 K6 MOD say morse 20wpm IB tone=700 rx=440850000 tx=on
 K6 MOD say rx 17wpm CQ CQ DE K7ABC K                      (sent at 18 wpm: within 1 wpm)
-K6 MOD say tx 20wpm ms=12480 id=own K7ABC DE AG7EW KN       (id=auto: the module added DE AG7EW)
+K6 MOD say tx 20wpm ms=12480 id=own K7ABC DE <CALL> KN      (id=auto: the module added DE <CALL>)
 K6 MOD say morse end overs=1
 ```
 

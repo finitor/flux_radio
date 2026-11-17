@@ -50,17 +50,35 @@ if ! grep -q 'PXK6 card data uses explicit commands' "$WORK/src/cps/mod.rs"; the
   git -C "$WORK" apply "$HERE/aura-card-cable.patch"
 fi
 python3 "$HERE/apply-fd6818b-fsk-tx-api.py"
+python3 "$HERE/apply-fd6818b-afsk-module-api.py"
+python3 "$HERE/apply-fd6818b-kiss-api.py"
+python3 "$HERE/apply-module-settings-api.py"
+python3 "$HERE/apply-action-beep.py"
+python3 "$HERE/apply-surf-vfo-b.py"
+python3 "$HERE/apply-managed-signal-api.py"
+python3 "$HERE/apply-explore-header-api.py"
+python3 "$HERE/apply-explore-engine-api.py"
+python3 "$HERE/apply-vfo-repeater-hint.py"
 python3 "$HERE/apply-module-run-diag.py"
+python3 "$HERE/apply-cw-bk-in-only.py"
+python3 "$HERE/apply-cw-hang-timing.py"
 python3 "$HERE/apply-module-power-off.py"
 python3 "$HERE/apply-host-module-screen.py"
+python3 "$HERE/apply-explore-ui-api.py"
 python3 "$HERE/apply-boot-app-stack.py"
 python3 "$HERE/apply-cardlink-stack.py"
 python3 "$HERE/apply-cable-stack.py"
+python3 "$HERE/trim-generated-host.py"
 if [ "${K6_MODULE_REMOVE:-0}" = 1 ]; then
   python3 "$HERE/apply-library-erase.py"
 fi
 case ",$FEATURES," in
-  *,blowfang-host,*) python3 "$HERE/apply-blowfang-host.py" ;;
+  *,blowfang-host,*)
+    python3 "$HERE/apply-blowfang-host.py"
+    python3 "$HERE/apply-vfo-focus.py"
+    python3 "$HERE/apply-band-surf-shortcut.py"
+    python3 "$HERE/apply-status-callsign.py"
+    ;;
 esac
 grep -q 'FD6818B FSK TBD' "$WORK/src/ui/pager.rs" || {
   echo "FD6818B overlay is missing from $WORK; inspect that checkout before building" >&2
@@ -68,7 +86,10 @@ grep -q 'FD6818B FSK TBD' "$WORK/src/ui/pager.rs" || {
 }
 
 mkdir -p "$OUT"
-K6_PKT_YIELD=0 K6_VOICE=0 K6_CB=spi K6_OUT="$OUT/c-build" sh "$ROOT/tools/k6_build.sh"
+K6_EXPLORE_HOST=0
+case ",$FEATURES," in *,blowfang-host,*) K6_EXPLORE_HOST=1 ;; esac
+K6_EXPLORE_HOST="$K6_EXPLORE_HOST" K6_PKT_YIELD=0 K6_VOICE=0 K6_CB=spi \
+  K6_OUT="$OUT/c-build" sh "$ROOT/tools/k6_build.sh"
 mkdir -p "$WORK/lib"
 cp "$OUT/c-build/libsotto_k6.a" "$WORK/lib/libsotto_k6.a"
 (cd "$WORK" && cargo build --release --features "$FEATURES")

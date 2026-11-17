@@ -48,8 +48,9 @@ extern "C" {
 #define KM_HDR 16
 #define KM_TAG 8
 #define KM_ABI 1
-#define KM_LEVEL 12
+#define KM_LEVEL 22
 
+struct km_explore_frame;
 typedef struct k6_api {
   uint16_t abi, level;              /* KM_ABI, KM_LEVEL */
   void (*say)(const char *s);       /* a serial report line, "K6 MOD say <s>" (up to 60 chars) */
@@ -167,7 +168,110 @@ typedef struct k6_api {
   /* level 12: append a validated PXK6 card to the non-executable card store.
      Available only in the SPI-library/full firmware. */
   int (*card_store)(const uint8_t *record, uint32_t bytes);
+  /* level 13 (FD6818B only): bounded Bell 202 1200-baud AFSK modulation of
+     NRZI bits at the already selected RX frequency. Requires tx_on(); at most
+     1024 bits per call. The host owns PA/tone setup and teardown. */
+  int (*afsk_tx_send)(const uint8_t *nrzi_msb_first, uint16_t bit_count);
+  /* level 14: exclusive KISS byte stream on the programming-cable UART while
+     a module runs. Enter suppresses text diagnostics; read is -1 when empty. */
+  int (*kiss_mode)(int on);
+  int (*serial_read)(void);
+  int (*serial_write)(const uint8_t *bytes, uint16_t count);
+  /* level 15: read a 212-byte serialized snapshot of Aura's live radio settings.
+     Returns 212, or -1 if out is NULL or cap is too small. Offsets and field encoding
+     are documented below; this is read-only and independent of Rust struct layout. */
+  int (*settings_read)(uint8_t *out, uint16_t cap);
+  /* level 16: install a receive-only SURF find in Aura VFO B and return to Aura B. mode:
+     0 FM, 1 AM, 2 USB; accepts frequency in Hz. */
+  int (*vfo_b_tune)(uint32_t hz, uint8_t mode);
+  /* level 17: shared, stateless signal decoders. cw_* use caller-owned cw_t state from cwid.h;
+     tone_decode converts one sample of FD6818 REG_68/69/6A into a standard CTCSS value in
+     tenths of Hz or DCS code | RT_TONE_DCS | optional RT_TONE_DCS_INV. The caller owns detector
+     setup, sampling cadence, and debounce. */
+  void (*cw_init)(void *state);
+  int (*cw_feed)(void *state, uint32_t ms, int keyed);
+  int (*cw_flush)(void *state, uint32_t ms);
+  int (*cw_call)(const char *text, char *call, uint8_t *flags);
+  uint16_t (*tone_decode)(uint16_t r68, uint16_t r69, uint16_t r6a);
+  /* level 18: managed FD6818 sub-audio scan. start saves/configures REG_51; step returns 0
+     until two matching standard samples, then CTCSS tenths-Hz or DCS flags/code; stop restores
+     REG_51. The host also stops it when the module exits. FD6818B only. */
+  int (*tone_start)(void);
+  int (*tone_step)(void);
+  void (*tone_stop)(void);
+  /* level 19: firmware-rendered EXPLORE header and animated eyes. */
+  void (*lcd_explore_header)(const char *band, uint32_t found, int gaze);
+  /* level 20: shared EXPLORE scan/ranking engine. State and bin floors remain in the
+     module's scratch arena; these callbacks execute the common engine from host flash. */
+  void (*explore_xs_defaults)(void *scan);
+  int (*explore_xs_init)(void *scan, const struct k6_api *api, void *candidates,
+                         uint8_t *mem, uint32_t bytes);
+  int (*explore_xs_step)(void *scan);
+  void (*explore_xs_close)(void *scan);
+  void (*explore_xs_resume)(void *scan);
+  void (*explore_ex_init)(void *state, void *entries, unsigned cap);
+  void *(*explore_ex_view)(void *state, unsigned index);
+  unsigned (*explore_ex_view_n)(const void *state);
+  void (*explore_ex_tone)(void *state, uint32_t hz, uint16_t tone);
+  void (*explore_ex_cw)(void *state, uint32_t hz, const char *call);
+  /* level 21: compact host-rendered EXPLORE screen frame (7-row list, bars, eyes). */
+  void (*lcd_explore_frame)(const struct km_explore_frame *frame);
+  /* level 22: local action feedback; kind 0 success, 1 unavailable. */
+  int (*action_chirp)(uint8_t kind);
 } k6_api_t;
+
+#define KM_SETTINGS_BYTES 212u
+#define KM_SETTINGS_SQL_LEVEL 0u
+#define KM_SETTINGS_TAIL_ELIMINATION 1u
+#define KM_SETTINGS_BUSY_LOCK 2u
+#define KM_SETTINGS_TX_FORBID 3u
+#define KM_SETTINGS_KEY_AUTOLOCK 4u
+#define KM_SETTINGS_DUAL_STANDBY 5u
+#define KM_SETTINGS_VOX_SWITCH 6u
+#define KM_SETTINGS_VOX_LEVEL 7u
+#define KM_SETTINGS_TOT_LEVEL 8u
+#define KM_SETTINGS_BEEPS 9u
+#define KM_SETTINGS_ROGER_TONE 10u
+#define KM_SETTINGS_SCRAMBLE 11u
+#define KM_SETTINGS_CONTRAST 12u
+#define KM_SETTINGS_RTONE 13u
+#define KM_SETTINGS_SCAN_MODE 14u
+#define KM_SETTINGS_RIT_OFFSET 15u
+#define KM_SETTINGS_SAVE_LEVEL 16u
+#define KM_SETTINGS_BACKLIGHT_TIME 17u
+#define KM_SETTINGS_CHANNEL_DISPLAY 18u
+#define KM_SETTINGS_SIDE1_SHORT 19u
+#define KM_SETTINGS_SIDE1_LONG 20u
+#define KM_SETTINGS_SIDE2_SHORT 21u
+#define KM_SETTINGS_SIDE2_LONG 22u
+#define KM_SETTINGS_BAND_SHORT 23u
+#define KM_SETTINGS_BAND_LONG 24u
+#define KM_SETTINGS_ANI_TX 25u
+#define KM_SETTINGS_RPTR_DELAY 26u
+#define KM_SETTINGS_VOX_DELAY 27u
+#define KM_SETTINGS_BOOT_DISPLAY 28u
+#define KM_SETTINGS_BOOT_SOUND 29u
+#define KM_SETTINGS_BOOT_TEXT1 30u /* 16 bytes */
+#define KM_SETTINGS_BOOT_TEXT2 46u /* 16 bytes */
+#define KM_SETTINGS_BOOT_TUNE 62u  /* 48 pairs: tone index, duration */
+#define KM_SETTINGS_BATTERY_CAL 158u /* uint16 LE */
+#define KM_SETTINGS_BAND_LOCK 160u
+#define KM_SETTINGS_BK_RESERVED 161u
+#define KM_SETTINGS_BK_IN 162u
+#define KM_SETTINGS_APRS_CALLSIGN 163u /* 7 bytes, NUL terminated */
+#define KM_SETTINGS_APRS_LAT 170u      /* signed int32 LE, degrees * 100000 */
+#define KM_SETTINGS_APRS_LON 174u      /* signed int32 LE, degrees * 100000 */
+#define KM_SETTINGS_APRS_PATH 178u
+#define KM_SETTINGS_APRS_FREQ 179u     /* uint32 LE, Hz */
+#define KM_SETTINGS_APRS_DEV_INFO 183u
+#define KM_SETTINGS_APRS_DEV_NAME 184u /* 7 bytes, NUL terminated */
+#define KM_SETTINGS_APRS_BAT_VOLT 191u
+#define KM_SETTINGS_APRS_COMMENT 192u  /* 17 bytes, NUL terminated */
+#define KM_SETTINGS_APRS_SSID 209u
+#define KM_SETTINGS_APRS_SYMBOL 210u
+#define KM_SETTINGS_APRS_POWER 211u
+/* Scalar booleans are 0/1. Multi-byte integers are little-endian; APRS coordinates
+   are signed int32 in degrees * 100000. Unused/reserved bytes are preserved as-is. */
 
 #define KM_GLYPH_COLS 6
 #define KM_GLYPHS 8
@@ -177,6 +281,26 @@ typedef struct k6_api {
 
 #define KM_WF_TOP 21                /* lcd_wf's first pixel row */
 #define KM_WF_ROWS 30
+
+/* API 21 EXPLORE view frame. The module owns this record until the next lcd_explore_frame
+   call; the host renders it through the normal LCD flush path. */
+#define KM_EXPLORE_ROWS 7
+typedef struct km_explore_row {
+  uint32_t hz;
+  int32_t off_hz;
+  uint16_t overs, tone;
+  int16_t hi;
+  int8_t score;
+  uint8_t flags, grade;
+  char call[10];
+} km_explore_row_t;
+typedef struct km_explore_frame {
+  uint8_t view, band, gaze, selected, count;
+  uint32_t found, sweeps, scan_hz;
+  int16_t level;
+  uint8_t pad[2];
+  km_explore_row_t rows[KM_EXPLORE_ROWS];
+} km_explore_frame_t;
 
 #define KM_FL_LO 0x0F0000u          /* the repeater table: fl_prog and fl_erase */
 #define KM_FL_HI 0x100000u
@@ -252,7 +376,7 @@ int km_run(void *arena, const k6_api_t *api);
 /* Run a checked module on a caller-provided, word-aligned stack top. */
 int km_run_on_stack(void *arena, const k6_api_t *api, void *stack_top);
 /* Call a host callback on the suspended caller stack while a module runs on its own stack. */
-void km_call_host_stack(void (*fn)(void *), void *arg);
+void km_call_host_stack(void (*fn)(void *), void *arg, void *stack_top);
 void km_call_on_stack(void *stack_top, void (*fn)(void *), void *arg);
 void km_reset(void);                  /* drop a transfer partway */
 void km_cable_begin(void);             /* reset the loader and clear radio packet-yield hook */

@@ -103,6 +103,9 @@ uint32_t xd_tone(const xd_t *s);    /* the carrier's CTCSS tone in 0.1 Hz, or a 
                                        it was sent inverted; 0 = none yet */
 #define XD_DCS_INV 0x4000u
 uint32_t xd_state_bytes(void);
+/* Decode one FD6818 sub-audio scan sample using the same standard CTCSS/DCS tables as Listen
+   for ID. Returns 0 for no standard code; caller owns sample cadence and debounce. */
+uint16_t xd_tone_decode(uint16_t r68, uint16_t r69, uint16_t r6a);
 
 #ifdef __cplusplus
 }

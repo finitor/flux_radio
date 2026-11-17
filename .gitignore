@@ -64,3 +64,19 @@ c/common/fsk_rx_host
 /blowfang-k6-mine/
 # Local emulator state, including optional SPI data and freeze-debug captures.
 /sim/k6emu/runs/
+
+# Local exploratory APRS/IF capture variants; promote deliberately after validation.
+/c/k6/mod/afskprobe.c
+/c/k6/mod/aprsdfskcap.c
+/c/k6/mod/aprsfskbcap.c
+/c/k6/mod/aprsfskbstream.c
+/c/k6/mod/aprsfskbstream7e.c
+/c/k6/mod/aprsfskbstream7ediag.c
+/c/k6/mod/aprsfskcap1200.c
+/c/k6/mod/aprsfskformat2.c
+/c/k6/mod/aprsfskstreamcap.c
+/c/k6/mod/aprsifbcap.c
+/c/k6/mod/aprsifbcaplate.c
+/c/k6/mod/aprsifbcapwide.c
+/c/k6/mod/aprsifbrx.c
+/c/k6/mod/kissprobe.c

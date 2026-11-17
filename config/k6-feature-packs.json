@@ -1,0 +1,31 @@
+{
+  "format": 1,
+  "target": "fd6818b",
+  "packs": {
+    "base": {
+      "requires": [],
+      "cargo_features": ["fd6818b", "spilib", "txdog", "blowfang-host"],
+      "capabilities": ["module-loader"],
+      "modules": ["vfo", "cardlink"]
+    },
+    "scan": {
+      "requires": ["base"],
+      "cargo_features": [],
+      "capabilities": ["explore-scanner-api", "candidate-ranking", "cw-tone-observation"],
+      "modules": ["surf", "explore_scan"]
+    },
+    "aprs": {
+      "requires": ["base"],
+      "cargo_features": [],
+      "capabilities": ["fd6818-fsk-rx"],
+      "modules": ["aprsdfsk"]
+    },
+    "sotto": {
+      "requires": ["base"],
+      "cargo_features": [],
+      "capabilities": ["sotto-decoder"],
+      "modules": [],
+      "status": "planned; requires decoder/build integration and pager module"
+    }
+  }
+}

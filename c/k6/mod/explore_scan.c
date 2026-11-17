@@ -1,37 +1,20 @@
 /* EXPLORE: a sideloadable scan-and-rank module for Aura's module host.
-   Reuses the original explorer's two-stage scanner and candidate grader, while keeping the
-   whole UI and state in module memory. It scans receive-only and integrates the persistent
-   repeater table through the host's bounded flash API.
+   The host supplies the original two-stage scanner and candidate grader from firmware flash;
+   this module keeps the UI and all live scan state in the module arena. Receive only.
    SPDX-License-Identifier: MIT */
-#define K6_MODULE_LEVEL 6
+#define K6_MODULE_LEVEL 21
 #define K6_MODULE_OPT z
 #include "../k6_mod.h"
+#include "../cwid.h"
+#include "../tonedet.h"
+#define XS_COLS 1 /* no waterfall in the compact UI; keep just the scanner's required row byte */
+#define XS_HOT 4 /* keep scanner state small enough for the shared decoder working set */
 #include "../xscan.h"
-#define XS_MODULE_NO_REFINE
-#define known rt_known_state
-#include "../rt.c" /* rt_crc validates saved rows; the table journal stays in firmware images. */
-#undef known
-
-/* xscan.c and explore.c were separate core objects. Give xscan's private helpers a namespace
-   when embedding both translation units into this one position-independent module. */
-#define put xs_put
-#define num xs_num
-#define udiv xs_udiv
-#define slot xs_slot
-#include "../xscan.c"
-#undef put
-#undef num
-#undef udiv
-#undef slot
-#include "../explore.c"
 
 K6_MODULE_NAME("EXPLORE");
 
-#define EX_CANDIDATES 6
-#define EX_KNOWN 16
+#define EX_CANDIDATES 7
 #define BAND_COUNT 3
-#define WF_ROWS 1
-#define WF_BYTES (WF_ROWS * 16)
 #define GPIOB 0x48000400u
 #define GPIOC 0x48000800u
 #define GPIOF 0x48001400u
@@ -45,15 +28,19 @@ typedef struct {
   xs_t scan;
   ex_t candidates;
   ex_cand_t entries[EX_CANDIDATES];
-  uint32_t known_hz[EX_KNOWN];
-  /* Original ALL set: 400 + 60 + 400 bins and one 128-column scan trace. */
-  uint8_t scan_mem[988];
-  uint8_t waterfall[WF_BYTES];
-  uint32_t now, last_flush;
-  uint8_t head, band, list, selected, raw_key, stable_key, key_reads;
-  char line[28];
+  /* Scanner is parked during Try. Reuse its 401-byte floor buffer for the CW decoder state;
+     xs_resume rereads the segment floor before the scan judges bins again. */
+  union {
+    uint8_t scan_mem[401];
+    cw_t cw;
+  } work;
+  uint32_t now, last_flush, parked_hz;
+  uint8_t band, part, part_sweeps, list, selected, stable_key, eyes_right;
+  uint8_t ab_down, ab_fired;
+  uint32_t ab_since;
+  char line[24];
+  km_explore_frame_t frame;
 } explore_t;
-
 
 typedef struct {
   uint32_t lo, step, count;
@@ -143,6 +130,18 @@ static int save_candidate(const k6_api_t *api, const ex_cand_t *c) {
 static uint32_t mmio_read(uint32_t addr) { return *(volatile uint32_t *)addr; }
 static void mmio_write(uint32_t addr, uint32_t value) { *(volatile uint32_t *)addr = value; }
 
+/* Tiny local divider for UI formatting; the large scanner and ranking engines live in host flash. */
+static uint32_t udiv32(uint32_t n, uint32_t d) {
+  uint32_t q = 0, bit = 1;
+  if (!d) return 0;
+  while (d < n && !(d & 0x80000000u)) d <<= 1, bit <<= 1;
+  while (bit) {
+    if (n >= d) n -= d, q |= bit;
+    d >>= 1, bit >>= 1;
+  }
+  return q;
+}
+
 static int keypad_scan(const k6_api_t *api) {
   int phase, key = 0;
   for (phase = 0; phase < 6 && !key; phase++) {
@@ -161,20 +160,35 @@ static int keypad_scan(const k6_api_t *api) {
   return key;
 }
 
-/* Require two identical scans before accepting a press or release. */
-static int keypad_event(explore_t *s, const k6_api_t *api) {
-  int key = keypad_scan(api);
-  if (key != s->raw_key) {
-    s->raw_key = (uint8_t)key;
-    s->key_reads = 1;
-    return 0;
-  }
-  if (s->key_reads < 2) s->key_reads++;
-  if (s->key_reads == 2 && key != s->stable_key) {
-    s->stable_key = (uint8_t)key;
-    return key;
+#define EXPLORE_AB_HOLD_MS 600u
+
+/* Surf-style A/B hold: report 'w' once after 600 ms, never on a short press.
+   The existing side-B ('B') handoff remains independent. */
+static int explore_ab_event(explore_t *s, int key, uint32_t now) {
+  if (key == 'W') {
+    if (!s->ab_down) {
+      s->ab_down = 1;
+      s->ab_fired = 0;
+      s->ab_since = now;
+    } else if (!s->ab_fired && (uint32_t)(now - s->ab_since) >= EXPLORE_AB_HOLD_MS) {
+      s->ab_fired = 1;
+      return 'w';
+    }
+  } else if (s->ab_down) {
+    s->ab_down = s->ab_fired = 0;
   }
   return 0;
+}
+
+/* Accept non-A/B keys on their press edge, and a long A/B hold once. */
+static int keypad_event(explore_t *s, const k6_api_t *api) {
+  int key = keypad_scan(api);
+  int held = explore_ab_event(s, key, api->ms());
+  if (key != s->stable_key) {
+    s->stable_key = (uint8_t)key;
+    if (key != 'W') return key;
+  }
+  return held;
 }
 
 static char *append(char *p, const char *text) {
@@ -186,7 +200,7 @@ static char *decimal(char *p, uint32_t value, unsigned min_digits) {
   char tmp[10];
   unsigned n = 0;
   do {
-    uint32_t q = xs_udiv(value, 10u);
+    uint32_t q = udiv32(value, 10u);
     tmp[n++] = (char)('0' + value - q * 10u);
     value = q;
   } while (value || n < min_digits);
@@ -194,79 +208,63 @@ static char *decimal(char *p, uint32_t value, unsigned min_digits) {
   return p;
 }
 
-static char *frequency(char *p, uint32_t hz) {
-  uint32_t mhz = xs_udiv(hz, 1000000u);
-  uint32_t khz = xs_udiv(hz - mhz * 1000000u, 1000u);
-  p = decimal(p, mhz, 1);
-  *p++ = '.';
-  p = decimal(p, khz, 3);
-  return p;
-}
-
 static void line_end(char *p) { *p = 0; }
 
-static void screen_scan(explore_t *s, const k6_api_t *api) {
-  xs_info_t info;
-  char *p;
-  unsigned i;
-  if (api->level < 6) return;
-  xs_info(&s->scan, &info);
-  api->lcd_wf(s->waterfall, WF_ROWS, s->head);
-  api->lcd_text(0, "EXPLORE / BAND SCAN");
-  p = append(s->line, BANDS[s->band].name);
-  p = append(p, " ");
-  p = frequency(p, api->rx_hz());
-  p = append(p, " SW");
-  p = decimal(p, info.sweeps, 1);
-  line_end(p);
-  api->lcd_text(1, s->line);
-  for (i = 2; i <= 4; i++) api->lcd_text((int)i, "");
-  api->lcd_text(5, "MENU list BAND next");
-  api->lcd_flush();
-  s->last_flush = api->ms();
+static void zero_bytes(void *mem, unsigned bytes) {
+  uint8_t *p = (uint8_t *)mem;
+  while (bytes--) *p++ = 0;
 }
 
-static void screen_list(explore_t *s, const k6_api_t *api) {
+/* Keep this early diagnostic while the compact host is being validated. It reports the actual
+   scratch extent the module receives and the complete state block it needs, before rejecting. */
+static void report_scratch(const k6_api_t *api, uint32_t have, uint32_t need) {
+  char line[32];
+  char *p = append(line, "EXP RAM ");
+  p = decimal(p, have, 1);
+  p = append(p, " need ");
+  p = decimal(p, need, 1);
+  line_end(p);
+  api->say(line);
+}
+
+static void screen_frame(explore_t *s, const k6_api_t *api, unsigned view) {
+  unsigned i, total, first;
   ex_cand_t *c;
-  char *p;
-  unsigned i, first = s->selected > 4 ? s->selected - 4 : 0;
-  if (api->level < 6) return;
-  api->lcd_wf(0, 0, 0);
-  api->lcd_text(0, "EXPLORE / REPEATERS");
-  for (i = 0; i < 5; i++) {
-    c = ex_view(&s->candidates, first + i);
-    if (!c) {
-      api->lcd_text((int)i + 1, i == 0 ? "No candidates yet" : "");
-      continue;
-    }
-    char *p = s->line;
-    *p++ = s->selected == first + i ? '>' : ' ';
-    *p++ = c->grade;
-    *p++ = ' ';
-    p = frequency(p, c->hz);
-    *p++ = ' ';
-    p = decimal(p, c->overs, 1);
-    *p++ = 'x';
-    if (c->flags & EX_F_KNOWN) *p++ = '*';
-    if (c->call[0]) {
-      *p++ = ' ';
-      p = append(p, c->call);
-    }
-    line_end(p);
-    api->lcd_text((int)i + 1, s->line);
+  if (api->level < 21 || !api->lcd_explore_frame) return;
+  zero_bytes(&s->frame, sizeof s->frame);
+  s->frame.view = (uint8_t)view;
+  s->frame.band = s->band;
+  s->frame.gaze = s->eyes_right;
+  first = s->selected > KM_EXPLORE_ROWS - 1 ? s->selected - (KM_EXPLORE_ROWS - 1) : 0;
+  s->frame.selected = (uint8_t)(s->selected - first);
+  s->frame.found = total = api->explore_ex_view_n(&s->candidates);
+  s->frame.sweeps = s->scan.sweeps;
+  s->frame.scan_hz = view == 2 ? s->parked_hz : api->rx_hz();
+  s->frame.level = (int16_t)(((api->fd_read(0x67) >> 1) & 0x1ffu) - 174);
+  for (i = 0; i < KM_EXPLORE_ROWS && first + i < total; i++) {
+    km_explore_row_t *r = &s->frame.rows[i];
+    c = (ex_cand_t *)api->explore_ex_view(&s->candidates, first + i);
+    if (!c) break;
+    r->hz = c->hz; r->off_hz = c->off_hz; r->overs = c->overs;
+    r->tone = c->tone; r->hi = c->hi; r->score = c->score;
+    r->flags = c->flags; r->grade = (uint8_t)c->grade;
+    for (unsigned j = 0; j < sizeof r->call; j++) r->call[j] = c->call[j];
+    s->frame.count++;
   }
-  p = append(s->line, "UP/DN MENU EXIT; SAVE pending");
-  line_end(p);
-  api->lcd_text(5, s->line);
+  api->lcd_explore_frame(&s->frame);
   api->lcd_flush();
   s->last_flush = api->ms();
 }
 
-static int start_band(explore_t *s, const k6_api_t *api, unsigned mode) {
+static void screen_scan(explore_t *s, const k6_api_t *api) { screen_frame(s, api, 0); }
+static void screen_list(explore_t *s, const k6_api_t *api) { screen_frame(s, api, 1); }
+
+static int start_band(explore_t *s, const k6_api_t *api, unsigned mode, unsigned part) {
   unsigned i;
   const band_t *b = &BANDS[mode];
-  unsigned n = b->nseg;
-  xs_defaults(&s->scan);
+  unsigned n = 1;
+  if (part >= b->nseg) part = 0;
+  api->explore_xs_defaults(&s->scan);
   s->scan.nseg = (uint8_t)n;
   /* All configured ranges already use their intended channel raster. Skip the optional
      31-sample frequency refinement to keep the module's 1,152-byte execution stack generous. */
@@ -275,50 +273,85 @@ static int start_band(explore_t *s, const k6_api_t *api, unsigned mode) {
   s->scan.say_rows = 0;
   s->scan.peek_ms = 0;
   for (i = 0; i < n; i++) {
-    s->scan.seg[i].lo_hz = b->seg[i].lo;
-    s->scan.seg[i].step_hz = b->seg[i].step;
-    s->scan.seg[i].nbins = (uint16_t)b->seg[i].count;
-    s->scan.seg[i].snap_hz = b->seg[i].snap;
+    const segment_t *g = &b->seg[part + i];
+    s->scan.seg[i].lo_hz = g->lo;
+    s->scan.seg[i].step_hz = g->step;
+    s->scan.seg[i].nbins = (uint16_t)g->count;
+    s->scan.seg[i].snap_hz = g->snap;
   }
-  s->band = (uint8_t)mode;
-  return xs_init(&s->scan, api, &s->candidates, s->scan_mem, sizeof s->scan_mem);
+  s->band = (uint8_t)mode, s->part = (uint8_t)part;
+  return api->explore_xs_init(&s->scan, api, &s->candidates,
+                              s->work.scan_mem, sizeof s->work.scan_mem);
 }
 
-static void waterfall_row(explore_t *s) {
-  uint8_t *dst = s->waterfall + (unsigned)s->head * 16u;
-  unsigned x;
-  for (x = 0; x < 16; x++) dst[x] = 0;
-  for (x = 0; x < s->scan.cols && x < 128; x++) {
-    /* A confirmed/stronger scan bin is a bright pixel in the rolling waterfall. */
-    if (s->scan.row[x] >= 5) dst[x >> 3] |= (uint8_t)(0x80u >> (x & 7));
-  }
-  s->head = 0;
-}
-
-/* Park on a candidate while retaining the scan state. The keypad remains live and returns to
-   the current scan; xs_resume refreshes the segment floor before judging further bins. */
+/* Park on a candidate while retaining the scan state. Use the host's shared CW and sub-audio
+   decoders to identify its repeater ID/tone during the manual listen; xs_resume refreshes the
+   segment floor before judging further bins. */
 static void try_frequency(explore_t *s, const k6_api_t *api, ex_cand_t *c) {
-  char *p;
+  char last_call[11] = {0};
+  uint8_t last_flags = 0, same = 0, confirmed = 0;
+  uint32_t found_tone = 0, last_draw = 0;
+  int tone_active;
+  cw_t *cw = &s->work.cw;
+  int i;
+  s->parked_hz = c->hz;
   api->tune(c->hz, 1);
+  c->flags |= EX_F_TRIED;
+  api->cw_init(cw);
+  td_on(api);
+  tone_active = api->tone_start() == 0;
+  last_draw = api->ms();
   api->say("EXPLORE Try; key to resume scan");
-  if (api->level >= 6) {
-    api->lcd_wf(0, 0, 0);
-    api->lcd_text(0, "EXPLORE / TRY");
-    p = frequency(s->line, c->hz);
-    line_end(p);
-    api->lcd_text(1, s->line);
-    api->lcd_text(5, "Key resumes scan");
-    api->lcd_flush();
-  }
+  screen_frame(s, api, 2);
   /* Let the key that opened Try be released before accepting its return key. */
   while (keypad_event(s, api) != 0) api->delay_us(10000);
   for (;;) {
     if (keypad_event(s, api) != 0) break;
-    api->delay_us(10000);
+    {
+      uint32_t now = api->ms();
+      uint16_t b = td_read(api);
+      int keyed = (b & TD_ON) != 0;
+      if (now - last_draw >= 250u) {
+        screen_frame(s, api, 2);
+        last_draw = now;
+      }
+      if (tone_active) {
+        int tone = api->tone_step();
+        if (tone > 0 && (uint32_t)tone != found_tone) {
+          found_tone = (uint32_t)tone;
+          api->explore_ex_tone(&s->candidates, c->hz, (uint16_t)tone);
+          api->say("EXPLORE repeater tone found");
+        }
+      }
+      if (api->cw_feed(cw, now, keyed) && cw->nd) {
+        char call[11] = {0};
+        uint8_t flags = 0;
+        if (api->cw_call(cw->text, call, &flags)) {
+          for (i = 0; i < 11 && call[i] == last_call[i] && call[i]; i++) {}
+          if (i == 11 || (call[i] == last_call[i] && flags == last_flags)) {
+            if (same < 255) same++;
+          } else {
+            for (i = 0; i < 11; i++) last_call[i] = call[i];
+            last_flags = flags;
+            same = 1;
+          }
+          if (same >= 2 && !confirmed) {
+            api->explore_ex_cw(&s->candidates, c->hz, call);
+            confirmed = 1;
+            api->say("EXPLORE CW ID confirmed");
+            screen_frame(s, api, 2);
+          }
+        }
+      }
+      api->delay_us(2000);
+    }
   }
-  xs_resume(&s->scan);
+  if (tone_active) api->tone_stop();
+  td_off(api);
+  api->explore_xs_resume(&s->scan);
   api->say("EXPLORE scan resumed");
-  screen_scan(s, api);
+  if (s->list) screen_list(s, api);
+  else screen_scan(s, api);
 }
 
 int k6_main(const k6_api_t *api) {
@@ -326,12 +359,13 @@ int k6_main(const k6_api_t *api) {
   uint32_t bytes;
   uint8_t *mem;
   int result, key;
-  if (api->level < 6) return -3;
+  if (api->level < 21) return -3;
   mem = api->scratch(&bytes);
+  report_scratch(api, bytes, sizeof(explore_t));
   if (!mem || bytes < sizeof(explore_t)) return -8;
   s = (explore_t *)mem;
   for (uint32_t i = 0; i < sizeof *s; i++) ((uint8_t *)s)[i] = 0;
-  ex_init(&s->candidates, s->entries, EX_CANDIDATES);
+  api->explore_ex_init(&s->candidates, s->entries, EX_CANDIDATES);
 #ifdef K6_EXPLORE_SIM_FIXTURE
   /* Deterministic UI fixture only: the simulator has no RF stimulus source. */
   s->entries[0].hz = 146940000u;
@@ -343,62 +377,83 @@ int k6_main(const k6_api_t *api) {
   s->entries[0].last_ms = api->ms();
   s->candidates.n = 1;
 #endif
-  if (api->level >= 5 && api->fl_read) {
-    rt_rec_t rec;
-    ex_known_store(&s->candidates, s->known_hz, EX_KNOWN);
-    for (uint32_t addr = RT_BASE; addr < RT_BASE + RT_SLOTS * RT_REC; addr += RT_REC) {
-      if (api->fl_read(addr, &rec, sizeof rec) < 0) break;
-      if ((rec.state & 0xFFu) == RT_ST_VALID && rt_crc(&rec) == rec.crc && rec.rx_hz)
-        ex_know(&s->candidates, rec.rx_hz);
-    }
-    api->say("EXPLORE saved repeater scan ready");
-  } else api->say("EXPLORE table read unavailable");
-  result = start_band(s, api, 0);
+  api->say("EXPLORE scan ready");
+  result = start_band(s, api, 0, 0);
   if (result) return result;
   api->say("EXPLORE band ALL");
   api->say("EXPLORE scan/list started; RX only");
   screen_scan(s, api);
   for (;;) {
-    result = xs_step(&s->scan);
+    result = api->explore_xs_step(&s->scan);
     if (result == XS_ROW) {
-      waterfall_row(s);
+      s->eyes_right ^= 1u;
       s->now = api->ms();
       if (s->list) screen_list(s, api);
       else if (s->now - s->last_flush >= 250) screen_scan(s, api);
+      /* The built-in Explore borrows a large multi-band floor table. A sideload cannot, so
+         rotate the same band-set segments one sweep at a time and reuse one 400-bin buffer. */
+      /* xs_init() clears the per-bin floor table. xscan intentionally uses its first sweep
+         only to seed those floors; carrier confirmation starts on the next sweep. Keep each
+         range alive for several sweeps before rotating, or ALL/70CM would perpetually restart
+         at sweeps=0 and never report a candidate. */
+      if ((s->band == 0 || s->band == 2) && ++s->part_sweeps >= 3) {
+        s->part_sweeps = 0;
+        unsigned parts = BANDS[s->band].nseg;
+        unsigned next_part = (unsigned)s->part + 1u;
+        if (next_part >= parts) next_part = 0;
+        api->explore_xs_close(&s->scan);
+        result = start_band(s, api, s->band, next_part);
+        if (result) break;
+      }
     }
     key = keypad_event(s, api);
+    if (key == 'w' && !s->list && api->level >= 22) api->action_chirp(1);
     if (key == 'X') break;
     if (key == 'M') {
       s->list = (uint8_t)!s->list;
-      api->say(s->list ? "EXPLORE candidate list" : "EXPLORE waterfall scan");
+      api->say(s->list ? "EXPLORE candidate list" : "EXPLORE band scan");
+      if (s->list) api->say("EXPLORE A try; * ignore; saved list limited");
       if (s->list) screen_list(s, api);
       else screen_scan(s, api);
-    } else if (key == 'N') {
-      xs_close(&s->scan);
+    } else if (key == '#' || key == 'N') {
+      api->explore_xs_close(&s->scan);
       unsigned next_band = (unsigned)s->band + 1u;
       if (next_band > BAND_COUNT) next_band = 0;
-      result = start_band(s, api, next_band);
+      result = start_band(s, api, next_band, 0);
       if (result) break;
       api->say(next_band == 0 ? "EXPLORE band ALL" :
                next_band == 1 ? "EXPLORE band 2M" :
                next_band == 2 ? "EXPLORE band 70CM" : "EXPLORE band 1.25M");
-      s->head = 0;
-      for (uint32_t i = 0; i < sizeof s->waterfall; i++) s->waterfall[i] = 0;
-      screen_scan(s, api);
+      if (s->list) screen_list(s, api);
+      else screen_scan(s, api);
     } else if (s->list && key == 'U' && s->selected) {
       s->selected--;
       screen_list(s, api);
-    } else if (s->list && key == 'D' && s->selected + 1 < ex_view_n(&s->candidates)) {
+    } else if (s->list && key == 'D' &&
+               s->selected + 1 < api->explore_ex_view_n(&s->candidates)) {
       s->selected++;
       screen_list(s, api);
     } else if (s->list && key == 'A') {
-      ex_cand_t *c = ex_view(&s->candidates, s->selected);
+      ex_cand_t *c = (ex_cand_t *)api->explore_ex_view(&s->candidates, s->selected);
       if (c) try_frequency(s, api, c);
       else api->say("EXPLORE select a candidate first");
+    } else if (s->list && (key == 'B' || key == 'w')) {
+      ex_cand_t *c = (ex_cand_t *)api->explore_ex_view(&s->candidates, s->selected);
+      if (key == 'w' && api->level >= 22) api->action_chirp(c ? 0 : 1);
+      if (c && api->vfo_b_tune(c->hz, 0) == 0) return 0;
+      api->say(c ? "EXPLORE VFO handoff failed" : "EXPLORE select a candidate first");
+    }
+    else if (s->list && key == '*') {
+      ex_cand_t *c = (ex_cand_t *)api->explore_ex_view(&s->candidates, s->selected);
+      if (c) {
+        c->flags ^= EX_F_IGNORED;
+        api->say((c->flags & EX_F_IGNORED) ? "EXPLORE ignored" : "EXPLORE unignored");
+        screen_list(s, api);
+      }
     }
 #ifdef K6_EXPLORE_ENABLE_TABLE_SAVE
     else if (s->list && key == '5') {
-      ex_cand_t *c = ex_view(&s->candidates, s->selected);
+      ex_cand_t *c = (ex_cand_t *)api->explore_ex_view(&s->candidates, s->selected);
       if (!c) api->say("EXPLORE select a candidate first");
       else if (!api->fl_prog || !api->fl_read) api->say("EXPLORE table unavailable");
       else if (c->flags & EX_F_KNOWN)
@@ -415,12 +470,14 @@ int k6_main(const k6_api_t *api) {
         else api->say("EXPLORE table save failed");
       }
     }
+#else
+    else if (s->list && key == '5') {
+      api->say("EXPLORE save unavailable: module RAM limit");
+    }
 #endif
   }
-  xs_close(&s->scan);
-  xs_summary(&s->scan);
+  api->explore_xs_close(&s->scan);
   if (api->level >= 6) {
-    api->lcd_wf(0, 0, 0);
     api->lcd_text(0, "EXPLORE stopped");
     api->lcd_text(1, "MENU opens list");
     api->lcd_text(5, "Exit returns to Aura");

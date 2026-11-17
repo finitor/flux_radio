@@ -209,8 +209,8 @@ static void gain(const k6_api_t *api, const saved_t *sv, int g) {
   api->delay_us(30000);
 }
 
-NOINLINE static void one(const k6_api_t *api, saved_t *sv, uint8_t *ring, int pass, int g) {
-  int8_t buf[NCAP];
+NOINLINE static void one(const k6_api_t *api, saved_t *sv, uint8_t *ring, int8_t *buf,
+                         int pass, int g) {
   cap_t c;
   char line[64], *p;
   uint32_t t = api->ticks() & 0xFFFF;
@@ -235,6 +235,7 @@ NOINLINE static void one(const k6_api_t *api, saved_t *sv, uint8_t *ring, int pa
   dump(api, buf, sv->k++);
 }
 
+#ifndef CAP_B_APRS
 static int wait_level(const k6_api_t *api, int above, int lvl, uint32_t ms) {
   uint32_t t0 = api->ms();
   while ((rssi(api) >= lvl) != above) {
@@ -244,20 +245,32 @@ static int wait_level(const k6_api_t *api, int above, int lvl, uint32_t ms) {
   }
   return 0;
 }
+#endif
 
 int k6_main(const k6_api_t *api) {
   saved_t sv;
   uint8_t *ring;
+  int8_t *buf;
   uint32_t room;
-  int ret = 0, pass, g, i;
+  int ret = 0, i;
+#ifndef CAP_B_APRS
+  int pass, g;
+#endif
   char line[64], *p;
   if (api->abi != 1 || api->level < 2) return -3;
+#ifdef CAP_B_APRS
+  api->tune(144390000u, 1);
+  api->delay_us(50000);
+#endif
+#ifndef CAP_B_APRS
   if (wait_level(api, 0, -80, 30000) == -2) return -2;
+#endif
   api->delay_us(300000);
   sv.floor = rssi(api);
   sv.k = 0;
   ring = (uint8_t *)(((uint32_t)api->scratch(&room) + 3) & ~3u);
-  if (room < RSZ + 4) return -8;
+  if (room < RSZ + NCAP + 4) return -8;
+  buf = (int8_t *)(ring + RSZ);
   if (rd(GPIOB) & (3u << 2)) {
     api->say("cap PB1 is not an input: no writes");
     return -4;
@@ -280,6 +293,15 @@ int k6_main(const k6_api_t *api) {
     return -5;
   }
   api->fd_write(0x34, (uint16_t)((sv.r34 & 0xFFF0) | 13));
+#ifdef CAP_B_APRS
+  if ((api->fd_read(0x34) & 15u) != 13u) {
+    api->fd_write(0x34, sv.r34);
+    api->fd_write(0x33, sv.r33);
+    wr(RCC_AHBENR, sv.ahb);
+    api->say("B IF probe: GP0 route 13 did not read back");
+    return -9;
+  }
+#endif
   sv.r73 = api->fd_read(0x73);
 #ifdef CAP_AFC_OFF
   /* AFC off, then RX on again for it to take hold (the FT8 thread's run 3: the AFC pulls a
@@ -300,6 +322,46 @@ int k6_main(const k6_api_t *api) {
   p = hex4(p, api->fd_read(0x73));
   *p = 0;
   api->say(line);
+#ifdef CAP_B_APRS
+  /* A short B-chip input-path check. Capture silence first, then the first RSSI rise.
+     No UART writes occur during either DMA capture. This is deliberately a sample
+     probe, not a claim that the B chip exposes the legacy IF or that APRS decodes. */
+  one(api, &sv, ring, buf, 0, 0);
+  api->say("B IF probe: listening for APRS at 144.390; key to stop");
+  {
+    /* Report the strongest RSSI even when the user stops before the trigger.
+       Two samples 5 ms apart above the threshold reject a lone noisy read. */
+    int threshold = sv.floor + 8, peak = -127, consecutive = 0;
+    uint32_t begun = api->ms();
+    for (;;) {
+      int level = rssi(api);
+      if (level > peak) peak = level;
+      consecutive = level >= threshold ? consecutive + 1 : 0;
+      if (consecutive >= 2) break;
+      if (api->key_down()) { ret = -2; break; }
+      if (api->ms() - begun > WAIT_S * 1000u) { ret = -6; break; }
+      api->delay_us(5000);
+    }
+    p = put(line, "B IF probe: trigger=");
+    p = sdec(p, threshold);
+    p = put(p, " peak=");
+    p = sdec(p, peak);
+    *p = 0;
+    api->say(line);
+  }
+  if (ret) goto out;
+#ifdef CAP_B_DELAY_US
+  /* The first RSSI rise may be the sender's TX delay, before AX.25 data.
+     Keep the DMA idle until the requested point in that same transmission. */
+  api->delay_us(CAP_B_DELAY_US);
+  if (api->key_down()) { ret = -2; goto out; }
+#endif
+  for (i = 0; i < K; i++) {
+    one(api, &sv, ring, buf, 1, 0);
+    if (api->key_down()) { ret = -2; goto out; }
+  }
+  ret = 1;
+#else
   for (pass = 0; pass < 3; pass++) {
     if (pass) {
       gain(api, &sv, 0);
@@ -318,7 +380,7 @@ int k6_main(const k6_api_t *api) {
     }
     for (g = 0; g < (pass ? NG : 3); g++) {
       gain(api, &sv, g);
-      for (i = 0; i < (pass ? K : NOISE); i++) one(api, &sv, ring, pass, g);
+      for (i = 0; i < (pass ? K : NOISE); i++) one(api, &sv, ring, buf, pass, g);
       if (api->key_down()) {
         ret = -2;
         goto out;
@@ -326,6 +388,7 @@ int k6_main(const k6_api_t *api) {
     }
     ret = pass;
   }
+#endif
 out:
   stop();
   gain(api, &sv, 0);
