@@ -306,6 +306,35 @@ def create_app(store: ModuleStore | None = None):
             flash(str(exc), "error")
         return render_template("index.html", repos=repos)
 
+    @app.get("/profiles")
+    def profiles():
+        from k6_feature_packs import DEFAULT, resolve
+        from k6_pack_policy import POLICY, validate, gate_environment
+        spec = json.loads(DEFAULT.read_text())
+        policy = json.loads(POLICY.read_text())
+        validate(spec, policy)
+        choices = {name: item for name, item in spec['packs'].items() if name != 'base'}
+        return render_template("profiles.html", choices=choices, result=None, selected=['base'])
+
+    @app.post("/profiles")
+    def plan_profile():
+        from k6_feature_packs import DEFAULT, resolve
+        from k6_pack_policy import POLICY, validate, gate_environment
+        spec = json.loads(DEFAULT.read_text())
+        policy = json.loads(POLICY.read_text())
+        choices = {name: item for name, item in spec['packs'].items() if name != 'base'}
+        selected = request.form.getlist('pack')
+        if any(name not in choices for name in selected):
+            abort(400)
+        try:
+            validate(spec, policy)
+            plan = resolve(spec, selected or ['base'])
+            result = {'ok': True, 'plan': plan, 'gates': gate_environment(plan, policy)}
+        except (ValueError, KeyError) as exc:
+            result = {'ok': False, 'error': str(exc)}
+        return render_template('profiles.html', choices=choices, result=result,
+                               selected=selected), (200 if result['ok'] else 400)
+
     @app.get("/radio")
     def radio():
         return render_template("radio.html", inventory=None, action_result=None)

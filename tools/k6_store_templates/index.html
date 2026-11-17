@@ -10,7 +10,7 @@
 <body>
   <header class="topbar">
     <a class="brand" href="{{ url_for('index') }}"><span class="brand-mark">B</span> Blowfang <span>Module Store</span></a>
-    <nav class="top-actions"><a href="#catalog">Catalog</a><a href="{{ url_for('radio') }}">My radio</a><a href="{{ url_for('settings_page') }}">Device settings{% if radio_settings.port %} · {{ radio_settings.port }}{% endif %}</a><span class="connection"><i></i> Local catalog</span>
+    <nav class="top-actions"><a href="{{ url_for('profiles') }}">Feature packs</a> <a href="#catalog">Catalog</a><a href="{{ url_for('radio') }}">My radio</a><a href="{{ url_for('settings_page') }}">Device settings{% if radio_settings.port %} · {{ radio_settings.port }}{% endif %}</a><span class="connection"><i></i> Local catalog</span>
       <form method="post" action="{{ url_for('refresh_all') }}"><button class="quiet" type="submit">↻ <span>Refresh</span></button></form>
     </nav>
   </header>
