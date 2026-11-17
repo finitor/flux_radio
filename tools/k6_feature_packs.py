@@ -24,15 +24,22 @@ THEME_EDITOR_PRESETS = {
 
 
 def validate_theme(theme):
-    if not isinstance(theme, str) or (theme not in THEMES and not re.fullmatch(r'custom-[01][01]-[0-9a-f]{16}', theme)):
+    if not isinstance(theme, str) or (theme not in THEMES and not re.fullmatch(r'custom-[01][01]-[0-9a-f]{16}(?:-[01][0-3][0-2][0-2])?', theme)):
         raise ValueError(f'unknown firmware theme: {theme}')
     if theme.startswith("custom-"):
-        flags, bitmap = theme.split("-")[1:]
+        flags, bitmap = theme.split("-")[1:3]
         if not (int(flags) or int(bitmap, 16)):
             raise ValueError("custom theme needs a visible active VFO indicator")
         if any(int(bitmap[i:i+2], 16) & 1 for i in range(0, 16, 2)):
             raise ValueError("custom marker must be seven pixels wide")
     return theme
+
+
+def theme_layout(theme):
+    """Font, horizontal inset, meter style, splash logo; legacy defaults unchanged."""
+    validate_theme(theme)
+    parts = theme.split("-")
+    return tuple(map(int, parts[3])) if len(parts) == 4 else (0, 0, 0, 0)
 
 
 def resolve(spec, selected, theme=DEFAULT_THEME):

@@ -77,7 +77,7 @@ elif theme == "classic":
 """
 
 elif theme.startswith("custom-"):
-    flags, bitmap = theme.split("-")[1:]
+    flags, bitmap = theme.split("-")[1:3]
     start = helper.index("    Rectangle::new(Point::new(0, top),")
     rail = helper.index("    // x=1", start)
     end = helper.index("\n}", rail)
