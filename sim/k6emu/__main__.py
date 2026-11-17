@@ -359,16 +359,17 @@ class K6Board:
         """Queue bytes from the programming-cable host for the virtual USART1 receiver."""
         self.uart_rx.extend(data)
 
-    def _service_uart_rx_irq(self):
-        """Deliver queued USART1 RX bytes through Aura's real ISR.
+    def _service_uart_irq(self):
+        """Run Aura's USART1 ISR for pending receive or transmit work.
 
-        The board model previously exposed RDR/RXNE but never entered exception handlers, so
-        Aura's interrupt-backed RX ring stayed empty forever. This targeted ISR call models the
-        level-triggered USART1 interrupt while preserving the interrupted CPU context. Other
-        peripheral interrupts remain outside this emulator milestone.
+        The virtual transmitter is always ready. The ISR drains one queued
+        byte per call and disables TXEIE when its transmit ring is empty.
+        Preserve the interrupted CPU context across the targeted ISR call.
         """
-        if (not self.uart_rx or not (self.nvic_enabled & USART1_IRQ_BIT)
-                or not (self.regs.get(USART1, 0) & (1 << 5))):
+        control = self.regs.get(USART1, 0)
+        rx_pending = bool(self.uart_rx) and bool(control & (1 << 5))
+        tx_pending = bool(control & (1 << 7))
+        if not (rx_pending or tx_pending) or not (self.nvic_enabled & USART1_IRQ_BIT):
             return
         if self.uc.reg_read(self.arm.UC_ARM_REG_PRIMASK) & 1:
             return
@@ -743,7 +744,7 @@ class K6Board:
             if self.rx_dma is not None:
                 self.rx_dma.advance(n * self.cpi)
             self._apply_due_events()
-            self._service_uart_rx_irq()
+            self._service_uart_irq()
             self.last_pc = self.uc.reg_read(arm.UC_ARM_REG_PC) & ~1
             remaining -= n
         return self.uc.reg_read(arm.UC_ARM_REG_PC)
