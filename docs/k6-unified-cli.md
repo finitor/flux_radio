@@ -38,3 +38,9 @@ First measured four-profile matrix (FD6818B, local workstation):
 | Base+Scan+APRS | 98,424 | pass |
 
 The catalog `/profiles` page now offers **Build this profile** after previewing the plan. It starts a single local background subprocess, redirects compiler output to a per-job log, and shows a status page that refreshes every four seconds. Only one browser-started build runs at a time. This is a prototype: jobs are in memory and do not survive web-server restarts, and CLI builds are not coordinated with browser builds. The output is a staged unverified pack, not a flashable, attested release. No serial commands are run by the job manager.
+
+### Shared firmware build serialization
+
+Pack builds and matrix builds now take the same OS-level `flock` lock around the shared Aura build output, including the image-copy and size-verification stages. This prevents two `k6.py build` / `k6.py matrix --build` invocations (including those launched by the catalog) from reading each other's generated images. Builds started directly via the lower-level shell script do not participate in this lock and must not be run concurrently. The catalog's in-memory job queue remains a UI concern; the filesystem lock is the cross-process safety boundary.
+
+Muse Delegate read-only audit `8e2741232680` completed. Its findings on serial handshake identity, module-bundle trust, and rollback need independent verification against the full firmware and pack-install code before enabling any writes. No firmware attestation is claimed by the shared build lock.

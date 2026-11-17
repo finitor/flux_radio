@@ -8,6 +8,7 @@ import subprocess
 import os
 import shutil
 from k6_pack_policy import POLICY, validate, gate_environment
+from k6_build_lock import exclusive_build
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -60,13 +61,14 @@ def main():
             env['K6_IMAGE_NAME'] = f'aura-matrix-{label}'
             env.update(gate_environment(plan, policy))
             print(f'Building {label}: {gate_environment(plan, policy)}', file=sys.stderr, flush=True)
-            subprocess.run(['sh', str(ROOT / 'firmware/k6-aura/build-fd6818b.sh')],
-                           cwd=ROOT, env=env, check=True)
-            source = ROOT / 'firmware/k6-aura/out-fd6818b'
-            dest = args.build_dir / label
-            dest.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source / 'size.txt', dest / 'size.txt')
-            shutil.copy2(source / f'aura-matrix-{label}.bin', dest / 'firmware.bin')
+            with exclusive_build():
+                subprocess.run(['sh', str(ROOT / 'firmware/k6-aura/build-fd6818b.sh')],
+                               cwd=ROOT, env=env, check=True)
+                source = ROOT / 'firmware/k6-aura/out-fd6818b'
+                dest = args.build_dir / label
+                dest.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source / 'size.txt', dest / 'size.txt')
+                shutil.copy2(source / f'aura-matrix-{label}.bin', dest / 'firmware.bin')
             (dest / 'plan.json').write_text(json.dumps(plan, indent=2) + '\n')
             size = dest / 'size.txt'
         elif args.size_dir:

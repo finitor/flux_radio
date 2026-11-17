@@ -16,6 +16,7 @@ from k6_feature_packs import DEFAULT, resolve
 import k6_install
 from k6_flash_policy import assess, flash_bytes
 from k6_pack_policy import POLICY, validate, gate_environment
+from k6_build_lock import exclusive_build
 
 
 def digest(path):
@@ -90,14 +91,18 @@ def main():
             env['K6_AURA_FEATURES'] = ','.join(['pager-explore'] + plan['cargo_features'])
             env['K6_IMAGE_NAME'] = 'aura-fd6818b-pack'
             env.update(gate_environment(plan, policy))
-            subprocess.run(['sh', str(ROOT / 'firmware/k6-aura/build-fd6818b.sh')],
-                           cwd=ROOT, env=env, check=True)
-            image = ROOT / 'firmware/k6-aura/out-fd6818b/aura-fd6818b-pack.bin'
-            size_file = ROOT / 'firmware/k6-aura/out-fd6818b/size.txt'
-            budget = assess(flash_bytes(size_file.read_text()), plan['packs'])
-            if not budget['pass']:
-                raise ValueError(f'firmware exceeds {budget["policy"]}: {budget["used"]} > {budget["limit"]}')
-        lock = assemble(plan, args.output, image, verified_firmware=False)
+            with exclusive_build():
+                subprocess.run(['sh', str(ROOT / 'firmware/k6-aura/build-fd6818b.sh')],
+                               cwd=ROOT, env=env, check=True)
+                image = ROOT / 'firmware/k6-aura/out-fd6818b/aura-fd6818b-pack.bin'
+                size_file = ROOT / 'firmware/k6-aura/out-fd6818b/size.txt'
+                budget = assess(flash_bytes(size_file.read_text()), plan['packs'])
+                if not budget['pass']:
+                    raise ValueError(f'firmware exceeds {budget["policy"]}: {budget["used"]} > {budget["limit"]}')
+                lock = assemble(plan, args.output, image, verified_firmware=False)
+            image = None
+        if args.skip_firmware_build:
+            lock = assemble(plan, args.output, image, verified_firmware=False)
         print(json.dumps({'lockfile': str(args.output / 'pack.lock.json'),
                           'firmware_bytes': lock['firmware']['bytes'],
                           'modules': [m['name'] for m in lock['modules']],
