@@ -7,6 +7,8 @@ import threading
 import time
 from pathlib import Path
 from typing import Protocol
+import sys
+
 
 from sim.k6emu.__main__ import K6Board, overlay_module_bundle
 from sim.k6emu.aprs_signal import ui_frame
@@ -21,6 +23,11 @@ DEFAULT_IMAGE = ROOT / "firmware/k6-aura/out-fd6818b/flux-fd6818b.bin"
 if not DEFAULT_IMAGE.is_file():
     DEFAULT_IMAGE = ROOT / "firmware/k6-aura/out-fd6818b/aura-fd6818b-blowfang-host.bin"
 TEMPLATES = ROOT / "sim/k6ide_templates"
+sys.path.insert(0, str(ROOT / "tools"))
+from k6_theme_package import pack as pack_theme, unpack as unpack_theme
+from k6_feature_packs import encode_layer
+DESIGNER_SLOT = 31  # explicit read-only firmware bench slot
+DESIGNER_BASE = 0x110000 + DESIGNER_SLOT * 0x4000
 KEYS = ("MENU", "UP", "DOWN", "EXIT", "VM", "AB", "BAND", "SIDE1", "SIDE2",
         "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "#")
 
@@ -163,6 +170,50 @@ class K6Workbench:
             else:
                 raise ValueError("unknown switch")
 
+    def preview_theme(self, token=None, blob=None):
+        """Stage only virtual SPI. Never replace a module or unknown data."""
+        if "designer" not in self.image.name:
+            raise ValueError("boot a Designer bench firmware image first")
+        if token == "demo":
+            layers = [bytearray(8192) for _ in range(3)]
+            for y in range(10, 31, 2):
+                layers[1][y*128+127] = 1
+            for y in range(42, 63, 2):
+                layers[2][y*128+127] = 1
+            for y in (15, 23, 47, 55):
+                layers[0][y*128+1] = 1
+            # Five distinct battery states; all retain an outline, with
+            # progressive fill. Draw a lightning-like zigzag inside.
+            battery = bytearray()
+            for bars in range(5):
+                for y in range(8):
+                    row = 0
+                    for x in range(17):
+                        on = (x in (1,15) and 1 <= y <= 6) or (y in (1,6) and 1 <= x <= 15)
+                        on |= x == 0 and y in (3,4)
+                        on |= 3 <= x < 3+bars*3 and 2 <= y <= 5 and (x+y)%3 != 0
+                        if on: row |= 1 << (23-x)
+                    battery.extend(row.to_bytes(3,"big"))
+            token = "custom-11-c0f0fcfefcf0c000-b" + battery.hex() + "-l" + ".".join(map(encode_layer,layers))
+        if blob is None and token is not None:
+            blob = pack_theme(token)
+        if blob is not None:
+            blob = pack_theme(unpack_theme(blob))
+        with self.lock:
+            if self.board.gpio_external[("A",15)]:
+                raise ValueError("turn on virtual radio first")
+            self.spi_data[:] = self.board.flash_data
+            at = DESIGNER_BASE
+            old = bytes(self.spi_data[at:at+0x4000])
+            if old != b"\xff"*0x4000 and old[:4] not in (b"K6T\x01",b"K6T\x02",b"K6T\x03",b"K6T\x04",b"K6T\x05",b"K6T\x06"):
+                raise ValueError("slot 31 is occupied by non-theme data")
+            self.spi_data[at:at+0x4000] = b"\xff"*0x4000
+            if blob is not None:
+                self.spi_data[at:at+len(blob)] = blob
+            self._boot()
+            return {"slot": DESIGNER_SLOT, "bytes": len(blob) if blob else 0,
+                    "mode": "theme" if blob else "factory"}
+
     def modules(self):
         flash = self.board.flash_data if self.board else self.spi_data
         found = []
@@ -170,6 +221,10 @@ class K6Workbench:
         for slot in range(32):
             at = 0x110000 + slot * 0x4000
             header = bytes(flash[at:at + 16])
+            if header[:4] in (b"K6T\x01",b"K6T\x02",b"K6T\x03",b"K6T\x04",b"K6T\x05",b"K6T\x06"):
+                found.append({"slot": slot, "name": "Designer theme", "bytes": 12+int.from_bytes(header[4:6],"little"),
+                              "serial": 0, "type": "protected data"})
+                continue
             if len(header) < 16 or header[:3] != b"K6M" or header[13] != 1:
                 continue
             code_len = int.from_bytes(header[4:6], "little")
@@ -391,6 +446,21 @@ def create_app(workbench: RadioAdapter):
             return jsonify(ok=True, **workbench.import_if_capture(body["log"]))
         except (ValueError, TypeError, KeyError) as exc:
             return jsonify(ok=False, error=str(exc)), 400
+
+    @app.post("/api/theme/preview")
+    def api_theme_preview():
+        try:
+            body = request.get_json(force=True)
+            if body.get("file") is not None:
+                raw = body["file"]
+                if not isinstance(raw,str) or len(raw)>16384:
+                    raise ValueError("theme file exceeds 8 KiB")
+                result = workbench.preview_theme(blob=bytes.fromhex(raw))
+            else:
+                result = workbench.preview_theme(token=body.get("theme"))
+            return jsonify(ok=True, **result)
+        except (ValueError, TypeError, RuntimeError) as exc:
+            return jsonify(ok=False,error=str(exc)),400
 
     @app.post("/api/modules/load")
     def api_load():

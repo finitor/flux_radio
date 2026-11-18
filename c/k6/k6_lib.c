@@ -16,9 +16,11 @@ int kl_install(const uint8_t *img, const kl_flash_t *fl) {
   unsigned total = hdr_len(img), slot = img[15], off, n;
   uint32_t base;
   uint8_t back[64];
-  if (!total || !(img[13] & KM_F_LIB) || (img[13] & KM_F_REMOVE)) return KL_BAD_HDR;
+  if (!total || !(img[13] & KM_F_LIB) || (img[13] & (KM_F_REMOVE | KM_F_THEME))) return KL_BAD_HDR;
   if (slot >= KL_SLOTS) return KL_SLOT;
   base = KL_SLOT_ADDR(slot);
+  if (fl->read(base, back, 4)) return KL_IO;
+  if (back[0]=='K' && back[1]=='6' && back[2]=='T') return KL_NOT_MODULE;
   /* only the sectors the image needs; a shorter image leaves 0xFF behind it in the last one */
   for (off = 0; off < total; off += KL_SECTOR)
     if (fl->erase(base + off)) return KL_IO;
@@ -87,7 +89,7 @@ static int load(int slot, const kl_flash_t *fl, uint8_t *dst, unsigned cap, unsi
   if (!total) return KL_BAD_HDR;
   code = u16le(dst + 4);
   flags = dst[13];
-  if (!!(flags & KM_F_PAGE) != !!page || (flags & KM_F_CARDS)) return KL_BAD_HDR;
+  if (!!(flags & KM_F_PAGE) != !!page || (flags & (KM_F_CARDS | KM_F_THEME))) return KL_BAD_HDR;
   if (total > cap) return KL_BAD_HDR;
   if (fl->read(KL_SLOT_ADDR(slot), dst, total)) return KL_IO;
   if (!hdr_len(dst) || dst[13] != flags) return KL_BAD_HDR;       /* changed between the two reads */

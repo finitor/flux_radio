@@ -61,6 +61,12 @@ def assemble(plan, output, firmware, *, module_builder=None, verified_firmware=F
                          'capabilities_verified': verified_firmware},
             'modules': modules, 'install': {'automatic': False,
                 'note': 'Flash firmware and install modules separately with explicit approval; unkeyed firmware rejects modules.'}}
+    if 'designer' in plan['packs']:
+        from k6_theme_package import pack
+        theme_path = output / 'theme.fluxtheme'
+        theme_path.write_bytes(pack(plan.get('theme', DEFAULT_THEME)))
+        lock['theme_package'] = {'path': theme_path.name, 'sha256': digest(theme_path),
+                                 'bytes': theme_path.stat().st_size, 'install': 'simulator-only until radio installer is available'}
     (output / 'pack.lock.json').write_text(json.dumps(lock, indent=2) + '\n')
     return lock
 
@@ -93,7 +99,8 @@ def main():
             env = os.environ.copy()
             env.pop('K6_MOD_KEY_FILE', None)
             env['K6_AURA_FEATURES'] = ','.join(plan['cargo_features'])
-            env['K6_THEME'] = plan['theme']
+            env['K6_THEME'] = DEFAULT_THEME if 'designer' in plan['packs'] else plan['theme']
+            env.pop('K6_DESIGNER_TEST_SLOT', None)
             env['K6_IMAGE_NAME'] = 'flux-fd6818b-pack'
             env.update(gate_environment(plan, policy))
             with exclusive_build():

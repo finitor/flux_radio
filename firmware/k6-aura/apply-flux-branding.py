@@ -146,7 +146,12 @@ where
         ui::boot::draw_logo_with_text(lcd, &logo, settings);
     }
 }'''
-    return replace_once(text, old_logo, new_logo, "stored-logo renderer")
+    # Keep the optional hook stable across every branding/size pass.
+    hook = "\n        #[cfg(k6_designer)]\n        ui::designer_boot_logo(lcd,storage,settings.theme_selection);"
+    text = text.replace("\n        #[cfg(k6_designer)]\n        ui::designer_boot_logo(lcd,storage);","").replace(hook, "").replace("\n        #[cfg(k6_designer)]\n        ui::designer_boot_logo(lcd,storage,settings.theme_selection);","")
+    text = replace_once(text, old_logo, new_logo, "stored-logo renderer")
+    return text.replace("        ui::boot::draw_flux_splash(lcd, settings);",
+                        "        ui::boot::draw_flux_splash(lcd, settings);" + hook, 1)
 
 
 def settings(text):

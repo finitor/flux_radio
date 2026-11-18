@@ -27,7 +27,7 @@ new = '''        let call = &app.settings().aprs_callsign;
                 .ok();
         }
 '''
-if new not in text:
+if "fn draw_status_bar_children<D>" not in text and new not in text and new.replace("FONT_5X8.baseline as i32)", "row_y + FONT_5X8.baseline as i32)") not in text:
     if text.count(old) != 1:
         raise SystemExit("standby.rs: cannot find unique DWR status indicator")
     text = text.replace(old, new, 1)

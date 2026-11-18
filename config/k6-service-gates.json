@@ -43,6 +43,14 @@
       "enabled": "1",
       "disabled": "0",
       "implementation": "planned; no selective linking implemented"
+    },
+    "designer": {
+      "pack": "designer",
+      "capability": "theme-renderer",
+      "environment": "K6_DESIGNER_SERVICE",
+      "enabled": "1",
+      "disabled": "0",
+      "implementation": "experimental SPI theme reader and renderer; production installation pending"
     }
   }
 }

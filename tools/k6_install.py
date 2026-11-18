@@ -1020,6 +1020,10 @@ def main(argv=None, log=None, ask=input):
     rm = sub.add_parser("remove-slot", help="erase one module slot from the radio")
     rm.add_argument("slot", type=int, help="module slot number; firmware pages and decks are protected")
     rm.add_argument("--yes", action="store_true", help="confirm erasing this occupied module slot")
+    th = sub.add_parser("install-theme", help="install authenticated data-only theme in an empty library slot")
+    th.add_argument("theme")
+    th.add_argument("--slot", type=int, required=True)
+    th.add_argument("--yes", action="store_true")
     sub.add_parser("status", help="what the radio runs, its codebooks and its library")
     sub.add_parser("key", help="make your module key")
     bd = sub.add_parser("bundle", help="a release folder from build.sh's or CI's out/")
@@ -1043,7 +1047,7 @@ def main(argv=None, log=None, ask=input):
             return cmd_module_bundle(a, log)
         create_key = a.cmd == "install" or (a.cmd == "flash" and
                      open(a.image, "rb").read().count(k6mod.PLACEHOLDER) == 1)
-        key_path = find_key(a.key_file, create=create_key, log=log) if a.cmd in ("install", "flash", "load", "remove-slot") else None
+        key_path = find_key(a.key_file, create=create_key, log=log) if a.cmd in ("install", "flash", "load", "remove-slot", "install-theme") else None
         key = k6mod.read_key(key_path) if key_path else None
         bundle = load_bundle(a.bundle) if a.cmd in ("install", "load") else None
         port = open_port(a)
@@ -1080,6 +1084,25 @@ def main(argv=None, log=None, ask=input):
                     # next attempt starts from a fresh radio state instead of inheriting it.
                     c.end()
                     raise
+            elif a.cmd == "install-theme":
+                from k6_theme_package import pack,unpack
+                blob=pack(unpack(open(a.theme,"rb").read(8193)))
+                info=c.info()
+                if info["protocol"]<3:
+                    raise InstallError("Designer typed theme protocol 3 is required")
+                if not (0<=a.slot<=8 or 16<=a.slot<32):
+                    raise InstallError("theme slot must be a non-reserved library slot")
+                address=LIB_BASE+a.slot*LIB_SLOT
+                if c.read(address,LIB_SLOT)!=b"\xff"*LIB_SLOT:
+                    raise InstallError("theme slot is not entirely erased")
+                if not a.yes and ask(f"Install theme in empty slot {a.slot}? Type INSTALL: ").strip()!="INSTALL":
+                    raise InstallError("theme installation cancelled")
+                serial=Serials().next()
+                img=k6mod.image(blob,0,serial,key,lib=a.slot,theme=True)
+                r,have,count,result=c.send_image(img,serial&255)
+                if r!=3 or result!=len(blob) or c.read(address,len(blob))!=blob:
+                    raise InstallError(f"theme install/readback failed: {r}, {result}")
+                log(f"Theme verified in slot {a.slot}; select DISP > THEME on radio.")
             elif a.cmd == "remove-slot":
                 info = c.info()
                 if info["protocol"] < 2:

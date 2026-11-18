@@ -91,13 +91,21 @@ fi
 case ",$FEATURES," in
   *,blowfang-host,*)
     python3 "$HERE/apply-blowfang-host.py"
+    # Restore the legacy draw sequence before focus patch on a reused checkout.
+    K6_THEME=flux python3 "$HERE/apply-theme-layers.py"
     python3 "$HERE/apply-vfo-focus.py"
     python3 "$HERE/apply-theme-meter.py"
+    python3 "$HERE/apply-theme-frequency.py"
+    python3 "$HERE/apply-theme-layers.py"
+    python3 "$HERE/apply-theme-battery.py"
     python3 "$HERE/apply-band-surf-shortcut.py"
     python3 "$HERE/apply-status-callsign.py"
     ;;
 esac
 python3 "$HERE/apply-host-feature-trim.py"
+python3 "$HERE/apply-designer.py"
+python3 "$HERE/apply-theme-selection.py"
+python3 "$HERE/apply-theme-install.py"
 K6_AURA_FEATURES="$FEATURES" K6_SCAN_SERVICE="${K6_SCAN_SERVICE:-1}" K6_FSK_RX_SERVICE="${K6_FSK_RX_SERVICE:-1}" python3 "$HERE/apply-flux-branding.py"
 python3 "$HERE/apply-theme-splash.py"
 grep -q 'FD6818B FSK TBD' "$WORK/src/ui/pager.rs" || {
@@ -113,6 +121,9 @@ K6_EXPLORE_HOST="$K6_EXPLORE_HOST" K6_SCAN_SERVICE="${K6_SCAN_SERVICE:-1}" K6_PK
 mkdir -p "$WORK/lib"
 cp "$OUT/c-build/libsotto_k6.a" "$WORK/lib/libsotto_k6.a"
 PACK_CFG=""
+if [ "${K6_DESIGNER_SERVICE:-0}" = 1 ]; then
+  PACK_CFG="$PACK_CFG --cfg k6_designer"
+fi
 if [ "${K6_FSK_RX_SERVICE:-1}" = 0 ]; then
   PACK_CFG="$PACK_CFG --cfg k6_no_fsk_rx"
 fi

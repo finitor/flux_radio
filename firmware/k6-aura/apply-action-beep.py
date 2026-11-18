@@ -9,8 +9,9 @@ def patch(path, old, new):
     p.write_text(s.replace(old,new,1))
 patch('flash_map.rs','    pub beeps_switch: bool,','    pub beeps_switch: bool,\n    /// Independent confirmation for completed hold actions.\n    pub action_beep: bool,')
 patch('flash_map.rs','        beeps_switch: true,','        beeps_switch: true,\n        action_beep: true,')
-patch('flash_map.rs','            beeps_switch: buf[9] != 0,','            beeps_switch: buf[9] != 0,\n            // Byte 161 was reserved; 0 means legacy/default ON, 1 OFF, 2 ON.\n            action_beep: buf[161] != 1,')
-patch('flash_map.rs','        buf[9] = self.beeps_switch as u8;','        buf[9] = self.beeps_switch as u8;\n        buf[161] = if self.action_beep { 2 } else { 1 };')
+if 'pub theme_selection:' not in (root/'flash_map.rs').read_text():
+    patch('flash_map.rs','            beeps_switch: buf[9] != 0,','            beeps_switch: buf[9] != 0,\n            // Byte 161 was reserved; 0 means legacy/default ON, 1 OFF, 2 ON.\n            action_beep: buf[161] != 1,')
+    patch('flash_map.rs','        buf[9] = self.beeps_switch as u8;','        buf[9] = self.beeps_switch as u8;\n        buf[161] = if self.action_beep { 2 } else { 1 };')
 patch('app/settings.rs','    Beep,','    Beep,\n    ActionBeep,')
 patch('app/settings.rs','                SettingItem::Beep,\n                SettingItem::Vox,','                SettingItem::Beep,\n                SettingItem::ActionBeep,\n                SettingItem::Vox,')
 settings = root / 'app/settings.rs'

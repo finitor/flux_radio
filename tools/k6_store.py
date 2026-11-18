@@ -380,6 +380,29 @@ def create_app(store: ModuleStore | None = None):
     # Preserve the existing form endpoint name for templates and callers.
     app.add_url_rule('/profiles', endpoint='plan_profile', view_func=profiles, methods=['POST'])
 
+    @app.post("/themes/export")
+    def export_theme():
+        from flask import Response
+        from k6_theme_package import pack, unpack
+        try:
+            token = request.form.get("theme", "")
+            blob = pack(token)
+            unpack(blob)
+            return Response(blob, mimetype="application/octet-stream",
+                            headers={"Content-Disposition": "attachment; filename=flux-theme.fluxtheme"})
+        except (ValueError, TypeError) as exc:
+            return jsonify(error=str(exc)), 400
+
+    @app.post("/themes/import")
+    def import_theme():
+        from k6_theme_package import unpack, migrate
+        try:
+            file = request.files.get("theme")
+            if file is None: raise ValueError("choose a theme file")
+            return jsonify(theme=migrate(unpack(file.stream.read(8193))))
+        except (ValueError, TypeError) as exc:
+            return jsonify(error=str(exc)), 400
+
     @app.post("/profiles/preview")
     def preview_profile():
         from k6_feature_packs import DEFAULT_THEME

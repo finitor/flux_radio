@@ -56,6 +56,16 @@
       ],
       "modules": [],
       "status": "planned; requires decoder/build integration and pager module"
+    },
+    "designer": {
+      "requires": [
+        "base"
+      ],
+      "cargo_features": [],
+      "capabilities": [
+        "theme-renderer"
+      ],
+      "modules": []
     }
   },
   "module_requirements": {

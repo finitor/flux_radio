@@ -57,6 +57,8 @@ extern "C" {
 #define KM_F_CARDS 0x04
 /* signed cable-only request: erase the module named in byte 15 instead of installing */
 #define KM_F_REMOVE 0x08
+/* Signed cable-only theme envelope. Also sets CARDS so older load paths refuse execution. */
+#define KM_F_THEME 0x10
 /* the module name block (K6_MODULE_NAME): magic, then KL_NAME characters */
 #define KL_NAME 12
 

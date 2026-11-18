@@ -176,3 +176,30 @@ def test_compiled_pack_install_and_retry(simulated_radio, tmp_path, monkeypatch)
                                    action="install", log=messages.append)
     assert sum("already verified" in line for line in messages) == 5
     assert bytes(port.board.flash_data) == after
+
+
+def test_compiled_designer_install(simulated_radio):
+    image_path=os.environ.get("K6_SIM_DESIGNER_IMAGE")
+    if not image_path:pytest.skip("set K6_SIM_DESIGNER_IMAGE")
+    from k6_theme_package import pack
+    port=simulated_radio(Path(image_path).read_bytes())
+    cable=Cable(port,log=lambda _:None)
+    assert cable.handshake(CABLE_HANDSHAKE,wait=3.0)
+    assert cable.info()["protocol"]==3
+    blob=pack("flux")
+    base=0x110000+31*0x4000
+    before=bytes(port.board.flash_data)
+    r,_,_,_=cable.send_image(k6mod.image(blob,0,1,bytes(reversed(TEST_KEY)),lib=31,theme=True),1)
+    assert r==-4
+    assert bytes(port.board.flash_data)==before
+    r,_,_,put=cable.send_image(k6mod.image(blob,0,2,TEST_KEY,lib=31,theme=True),2)
+    assert (r,put)==(3,len(blob))
+    assert cable.read(base,len(blob))==blob
+    after=bytes(port.board.flash_data)
+    assert after[:base]==before[:base] and after[base+len(blob):]==before[base+len(blob):]
+    r,_,_,put=cable.send_image(k6mod.image(blob,0,3,TEST_KEY,lib=31,theme=True),3)
+    assert (r,put)==(3,-7)
+    assert bytes(port.board.flash_data)==after
+    r,_,_,put=cable.send_image(k6mod.image(b"test",0,4,TEST_KEY,lib=31),4)
+    assert (r,put)==(3,-7)
+    assert bytes(port.board.flash_data)==after

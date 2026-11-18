@@ -31,7 +31,7 @@ anchor = '''        &[modulation, power, tone, dir, bandwidth, reversed, bk_in],
 '''
 replacement = '''        &[modulation, power, tone, dir, bandwidth, reversed, bk_in, rpt_hint],
 '''
-if replacement not in text:
+if replacement not in text and "[modulation, power, tone, dir, bandwidth, reversed, bk_in, rpt_hint]" not in text:
     if text.count(anchor) != 1:
         raise SystemExit(f"standby.rs: expected one mode-line fields anchor, got {text.count(anchor)}")
     text = text.replace(anchor, replacement, 1)

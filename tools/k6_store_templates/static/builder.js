@@ -82,7 +82,19 @@
     }
   }
 
-  form.addEventListener('change', schedule);
+  var designer = form.querySelector('input[name="pack"][value="designer"]');
+  var panel = form.querySelector('[data-designer-panel]');
+  function syncDesigner() {
+    if (!designer || !panel) return;
+    panel.hidden = !designer.checked;
+    panel.querySelectorAll('input[name="theme"]').forEach(function(el) {el.disabled = !designer.checked;});
+    if (!designer.checked) panel.querySelector('details').open = false;
+  }
+  form.addEventListener('change', function(event) {
+    if (event.target === designer) syncDesigner();
+    schedule();
+  });
+  syncDesigner();
   form.addEventListener('submit', function (event) {
     if (event.submitter === buildButton) {
       if (buildButton.disabled) event.preventDefault();
