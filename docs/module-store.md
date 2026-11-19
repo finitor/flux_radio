@@ -55,6 +55,12 @@ writing firmware or formatting SPI flash.
 
 ## Local starter module repositories
 
+Downloaded starter archives contain the matching starter module packages under
+`local-modules/`, so the Catalog can discover them without a compiler. A source
+checkout does not contain compiled modules; use the following generator to
+populate it with additional local projects. The screenshots show a more extensive
+development catalog than the initial starter archive.
+
 Build local Git repositories for the current host's SURF, VFO, and CARD LINK starter modules:
 
 ```sh

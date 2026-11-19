@@ -1,5 +1,5 @@
 # Files that must never be committed here: K6 bootloader dumps, Yaesu firmware, module signing
-# keys and built images. The checked-in unsigned SDK example is the sole exception.
+# keys and built images. The unsigned SDK example and source boot artwork are explicit exceptions.
 name: Forbidden files
 on:
   push:
@@ -26,6 +26,7 @@ jobs:
             -e 'yaesu' \
             -e 'ftm-?300' \
             | grep -vxF sdk/module-example/dist/module.bin \
+            | grep -vxF flux-art-kit/flux-arrays/splash.bin \
             || true)
           if [ -n "$bad" ]; then
             echo "These files must not be in the repository:"
@@ -39,4 +40,5 @@ jobs:
           manifest = json.loads((bundle / "manifest.json").read_text())
           assert hashlib.sha256((bundle / "module.bin").read_bytes()).hexdigest() == manifest["sha256"]["module.bin"]
           PYHASH
+          test "$(wc -c < flux-art-kit/flux-arrays/splash.bin)" -eq 1024
           echo "clean"

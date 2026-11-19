@@ -4,6 +4,14 @@ Flux targets the Baofeng UV-K6/K61 with the FD6818B chip (0x4829).
 Other chips and models are not verified. Confirm your hardware before
 proceeding. This is experimental firmware.
 
+If your existing firmware exposes a chip ID (for example Aura's System > CHIPID),
+look for **0x4829**. **0x4819** is the original FD6818 and is not compatible.
+Stock firmware may not expose the ID. Check the exact board revision against
+trusted hardware documentation or inspect the RF IC marking with the radio
+powered off, if you are comfortable opening it. Do not flash just to identify
+the chip: the UPDATE bootloader does not identify the RF IC. If uncertain,
+stop and ask in the project's [Issues](https://github.com/tcarwash/flux_radio/issues).
+
 ## What you need
 
 - A compatible radio, charged battery and a working two-pin USB programming cable.
@@ -35,7 +43,7 @@ out and back in.
 For the examples below, set the pack directory:
 
 ```sh
-PACK=firmware/k6-aura/out-fd6818b/packs/starter
+PACK=starter # extracted starter ZIP; for a source build use firmware/k6-aura/out-fd6818b/packs/starter
 python tools/k6.py inspect "$PACK"
 ```
 
@@ -44,7 +52,7 @@ the connected radio's hardware. Do not install an untrusted bundle.
 
 ## Guided starter install
 
-Download and extract a trusted CI/release starter ZIP, choosing the correct
+Download from [Releases](https://github.com/tcarwash/flux_radio/releases) or a successful [CI starter build](https://github.com/tcarwash/flux_radio/actions/workflows/k6-firmware.yml), then extract the starter ZIP, choosing the correct
 TX profile. The archive includes a matching CLI and a `starter/` pack.
 In its extracted directory, create a Python virtual environment and install
 `requirements.txt` (no compiler needed). Run:

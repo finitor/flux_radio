@@ -45,7 +45,7 @@ def install(pack, spec, port, *, ask=input, log=print):
                     raise PackError('cancelled before flash')
         finally:
             connection.close()
-    if path.exists() and path.stat().st_size!=radio.CHIP_BYTES:
+    if (mode == "cable" or path.exists()) and (not path.is_file() or path.stat().st_size != radio.CHIP_BYTES):
         raise PackError('backup incomplete; refusing to flash')
     # Existing pack path retains build ID, budget and artifact checks.
     provision_pack(pack,spec,port,action='flash',mode=mode,log=log)
@@ -83,5 +83,6 @@ def install(pack, spec, port, *, ask=input, log=print):
         if radio.main(['--port',port,'install-theme',str(pack/theme['path']),'--yes'],log=log,ask=ask) != 0:
             raise PackError('theme installation failed; firmware and modules may already be installed')
     if lock.get('boot_splash'):
-        radio.install_boot_logo(port,str(pack/lock['boot_splash']['path']),yes=True,log=log)
+        if radio.main(['--port',port,'install-boot-logo',str(pack/lock['boot_splash']['path']),'--yes'],log=log,ask=ask) != 0:
+            raise PackError('startup artwork installation failed; firmware and modules may already be installed')
     log('Starter installed. Backup: '+str(path))

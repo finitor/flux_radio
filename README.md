@@ -6,6 +6,7 @@
 <p align="center"><strong>Your handheld. Your firmware. Your modules.</strong></p>
 <p align="center">Experimental alternative firmware for the Baofeng UV-K6 / K61 (FD6818B).</p>
 <p align="center">
+  <a href="https://github.com/tcarwash/flux_radio/releases">Downloads</a> ·
   <a href="docs/manual/install.md">Getting started</a> ·
   <a href="docs/module-store.md">Module Catalog</a> ·
   <a href="docs/k6-feature-packs.md">Feature packs</a> ·
@@ -29,8 +30,8 @@ image and add optional features as your interests grow.
 | **Base + Scan** | Base, FM broadcast radio, SURF, Explore Scan | **Recommended first install** |
 | **Base + Scan + Designer** | Scan plus custom display themes | Make the radio your own |
 
-Optional Data, Sotto and authenticated OTA services are available through
-custom builds. APRS is a separately installable experimental application;
+Optional Data and authenticated OTA services are available through
+custom builds. Sotto is currently deferred. APRS is a separately installable experimental application;
 its weak-signal reception is still under investigation.
 
 ## Is my radio supported?
@@ -54,9 +55,13 @@ and board before flashing. See the [hardware roadmap](docs/k6-hardware-parity-pl
 
 Start with the [installation guide](docs/manual/install.md), which covers
 the cable, first boot, backup, format prompt, and module installation.
-Download a starter ZIP from the repository's Releases page once a tagged
-prerelease is available (or an Actions build artifact). Choose CE or FCC
-as appropriate for your location. Extract the ZIP, open a terminal in
+Download a starter ZIP from [Releases](https://github.com/tcarwash/flux_radio/releases)
+once a tagged prerelease is available. Until then, signed-in GitHub users can
+download artifacts from the latest successful [Flux starter firmware workflow](https://github.com/tcarwash/flux_radio/actions/workflows/k6-firmware.yml)
+(run for the main branch). Unzip the Actions artifact first, then the starter ZIP.
+For most users, choose `flux-fd6818b-scan-fcc.zip` in the US or the CE variant
+where appropriate. Select a transmit profile that complies with local rules.
+The installer currently supports Linux. Extract the ZIP, open a terminal in
 the extracted directory, and run:
 
 ```sh
@@ -78,6 +83,8 @@ Rust with the Cortex-M0 target. For Debian/Ubuntu:
 
 ```sh
 sudo apt install git python3 python3-venv build-essential clang lld llvm
+git clone --recurse-submodules https://github.com/tcarwash/flux_radio.git
+cd flux_radio
 rustup target add thumbv6m-none-eabi
 git submodule update --init --recursive
 python3 -m venv .venv
@@ -85,7 +92,7 @@ python3 -m venv .venv
 python -m pip install -r requirements.txt
 ```
 
-Run these commands inside a clone of this repository. Build a starter pack
+Build a starter pack
 and choose the appropriate transmit profile for your location:
 
 ```sh
@@ -109,6 +116,9 @@ Open <http://127.0.0.1:5055>. Choose feature packs, build firmware,
 edit themes, and manage installed modules. The Catalog runs on your
 computer, not on a cloud service. See the [Catalog guide](docs/module-store.md).
 Install only trusted native modules; they are not sandboxed.
+Starter downloads include the matching starter modules in the Catalog.
+For a source checkout, populate the local Catalog with
+`python tools/k6_make_local_catalog.py` after installing the build tools.
 
 ## Make Flux your own
 
@@ -137,10 +147,11 @@ See the [Catalog guide](docs/module-store.md) for the browser workflow.
 
 ```sh
 python -m pip install -r requirements-dev.txt
-python -m sim.k6ide --host 127.0.0.1
+python -m sim.k6ide --host 127.0.0.1 --image firmware/k6-aura/out-fd6818b/packs/starter/firmware.bin
 ```
 
-Open <http://127.0.0.1:5056> and use the emulator's virtual display, keys,
+Use the image path from your build, or `starter/firmware.bin` from a downloaded
+starter ZIP. Open <http://127.0.0.1:5056> and use the emulator's virtual display, keys,
 PTT and SPI library. This is a development tool, not evidence of RF
 performance. Keep its unauthenticated server on a trusted local network.
 

@@ -42,6 +42,20 @@ def package(profile, pack, output):
                 if field in lock: names.add(lock[field]['path'])
             for name in sorted(names):
                 z.write(pack/name,prefix+'starter/'+name)
+            descriptions = {
+                'vfo': ('VFO Radio', 'Native VFO radio tools.'),
+                'surf': ('SURF', 'Receive-only band surfing and signal discovery.'),
+                'explore_scan': ('Explore Scan', 'Scan and rank potential repeater candidates. Requires Scan.'),
+            }
+            for mod in lock['modules']:
+                name = mod['name']
+                title, summary = descriptions[name]
+                module_path = Path(mod['path'])
+                catalog_path = prefix + 'local-modules/' + name + '/'
+                manifest = pack / module_path.parent / 'manifest.json'
+                z.write(pack / module_path, catalog_path + module_path.name)
+                z.write(manifest, catalog_path + 'manifest.json')
+                z.writestr(catalog_path + 'README.md', f'# {title}\n\n{summary}\n\nIncluded with the matching Flux starter image.\n')
             z.writestr(prefix+'START-HERE.txt',
                 'Flux experimental FD6818B starter\n'
                 'Read docs/manual/install.md before replacing stock firmware.\n'
