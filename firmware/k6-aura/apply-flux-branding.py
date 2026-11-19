@@ -199,6 +199,8 @@ def app_accessors(text):
 def ui_settings(text):
     if "fn draw_flux_about" not in text:
         marker = "pub fn draw_settings<D>(lcd: &mut D, app: &app::App)\n"
+        if marker not in text:
+            marker = "pub fn draw_settings<D>(lcd: &mut D, app: &mut app::App)\n"
         fn = '''fn draw_flux_about<D>(lcd: &mut D, app: &app::App)
 where D: DrawTarget<Color = BinaryColor>, {
     use embedded_graphics::mono_font::{ascii::FONT_6X10, MonoTextStyle};
