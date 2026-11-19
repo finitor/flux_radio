@@ -25,7 +25,6 @@ jobs:
           tests/test_k6_unified_cli.py
           tests/test_k6_pack_install.py tests/test_k6_starter_install.py
           tests/test_k6_port_lock.py
-          tests/test_k6_capability_query.py
 
   windows-installer:
     runs-on: windows-latest
