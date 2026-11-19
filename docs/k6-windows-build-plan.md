@@ -61,9 +61,12 @@ Homebrew LLVM 23.1.6 and Python 3.10.5. Both Scan settings produced archives
 and codebooks byte-for-byte identical to the legacy shell C builder using the
 same compiler. The contributor smoke tests passed (15 tests), including both
 Scan settings and an output directory containing spaces. This does not validate
-the full firmware pipeline or physical-radio behavior. Native Windows compiler
-execution and full firmware builds remain unverified. Do not flash artifacts
-from an unvalidated full build.
+physical-radio behavior. All six cable-only starter profiles have also been
+built, packaged, inspected and executed in the emulator on this Mac; see the
+[macOS build guide](k6-macos-build.md) for setup, measurements and limitations.
+The full firmware orchestration still uses POSIX shell scripts; this does not
+complete the native Windows port. Native Windows compiler execution and full
+firmware builds remain unverified.
 
 Next steps: validate the C builder on each host, port the Aura orchestration
 and module compiler, then add full firmware matrix builds. Report host OS,

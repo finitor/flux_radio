@@ -24,7 +24,7 @@ jobs:
           tests/test_k6_store_defaults.py tests/test_k6_theme_package.py
           tests/test_k6_unified_cli.py
           tests/test_k6_pack_install.py tests/test_k6_starter_install.py
-          tests/test_k6_port_lock.py
+          tests/test_k6_port_lock.py tests/test_k6_host_feature.py
 
   windows-installer:
     runs-on: windows-latest
@@ -39,6 +39,7 @@ jobs:
           python -m pytest -q tests/test_k6_port_lock.py
           tests/test_k6_starter_install.py tests/test_k6_unified_cli.py
           tests/test_k6_pack_install.py tests/test_k6_store_defaults.py
+          tests/test_k6_host_feature.py
       - name: CLI entry points
         run: |
           python tools/k6.py starter-install --help
@@ -63,4 +64,5 @@ jobs:
           python -m pytest -q tests/test_k6_portable_c_build.py
           tests/test_k6_build_lock.py tests/test_k6_port_lock.py
           tests/test_k6_starter_install.py tests/test_k6_pack_install.py
+          tests/test_k6_host_feature.py
       - run: python -m serial.tools.list_ports
