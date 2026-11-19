@@ -58,6 +58,7 @@ c/common/pager_rx_host
 c/common/fsk_rx_host
 # Locally generated module repositories contain build artifacts.
 /local-modules/
+/local-modules-archive/
 /firmware/k6-aura/build/
 /firmware/k6-aura/out/
 /firmware/k6-aura/out-fd6818b/
@@ -80,3 +81,20 @@ c/common/fsk_rx_host
 /c/k6/mod/aprsifbcapwide.c
 /c/k6/mod/aprsifbrx.c
 /c/k6/mod/kissprobe.c
+
+/firmware/k6-aura/out-vfo-probe/
+/firmware/k6-aura/out-vfo-spi-probe/
+
+# Generated firmware variants and local art archive.
+/firmware/k6-aura/out-*/
+/flux-art-kit.zip
+
+# Local Python environments and radio/build secrets
+.venv/
+.env
+.env.*
+*.pem
+*.p12
+*.pfx
+*.hex
+*.a
