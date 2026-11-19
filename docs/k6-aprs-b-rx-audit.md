@@ -105,7 +105,7 @@ Build and load it from this repository:
 python3 tools/k6_install.py module-bundle c/k6/mod/aprsifbcap.c \
   --id org.ag7su.k6.aprsifbcap -o /tmp/k6-aprsifbcap-bundle
 python3 tools/k6_install.py --port /dev/ttyUSB0 \
-  --key-file /home/tyler/.config/blowfang/k6-mod.key \
+  --key-file $HOME/.config/flux/k6-mod.key \
   load /tmp/k6-aprsifbcap-bundle --verify
 picocom -b 115200 --logfile /tmp/k6-aprs-if.log /dev/ttyUSB0
 ```
@@ -151,7 +151,7 @@ Build and install the experiment as a separate module:
 python3 tools/k6_install.py module-bundle c/k6/mod/aprsifbrx.c \
   --id org.ag7su.k6.aprsifbrx -o /tmp/k6-aprsifbrx-bundle
 python3 tools/k6_install.py --port /dev/ttyUSB0 \
-  --key-file /home/tyler/.config/blowfang/k6-mod.key \
+  --key-file $HOME/.config/flux/k6-mod.key \
   load /tmp/k6-aprsifbrx-bundle --verify
 ```
 
@@ -203,7 +203,7 @@ it. Build/load it as a separate module:
 python3 tools/k6_install.py module-bundle c/k6/mod/aprsifbcapwide.c \
   --id org.ag7su.k6.aprsifbcapwide -o /tmp/k6-aprsifbcapwide-bundle
 python3 tools/k6_install.py --port /dev/ttyUSB0 \
-  --key-file /home/tyler/.config/blowfang/k6-mod.key \
+  --key-file $HOME/.config/flux/k6-mod.key \
   load /tmp/k6-aprsifbcapwide-bundle --verify
 ```
 
@@ -241,7 +241,7 @@ gain, route, 67 ms sample window, scratch allocation, and cleanup as
 python3 tools/k6_install.py module-bundle c/k6/mod/aprsifbcaplate.c \
   --id org.ag7su.k6.aprsifbcaplate -o /tmp/k6-aprsifbcaplate-bundle
 python3 tools/k6_install.py --port /dev/ttyUSB0 \
-  --key-file /home/tyler/.config/blowfang/k6-mod.key \
+  --key-file $HOME/.config/flux/k6-mod.key \
   load /tmp/k6-aprsifbcaplate-bundle --verify
 picocom -b 115200 --logfile /tmp/k6-aprs-if-late.log /dev/ttyUSB0
 ```

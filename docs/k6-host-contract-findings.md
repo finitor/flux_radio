@@ -119,8 +119,8 @@ From the repository root, use a fresh output directory for every iteration:
 python3 -m sim.k6emu.host_contract \
   --image firmware/k6-aura/out-fd6818b/aura-fd6818b-blowfang-host.bin \
   --elf firmware/k6-aura/build/aura-fd6818b-port/target/thumbv6m-none-eabi/release/aura \
-  --spi-flash /home/tyler/blowfang-backups/k6-spiflash-emulator.bin \
-  --key-file /home/tyler/.config/blowfang/k6-mod.key \
+  --spi-flash $HOME/flux-backups/k6-spiflash-emulator.bin \
+  --key-file $HOME/.config/flux/k6-mod.key \
   --bundle firmware/k6-aura/out-fd6818b/vfo-module-bundle \
   --fskb-bundle firmware/k6-aura/out-fd6818b/fskbcap-bundle \
   --cardlink-bundle firmware/k6-aura/out-fd6818b/cardlink-module-bundle \
