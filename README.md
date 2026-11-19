@@ -162,7 +162,7 @@ performance. Keep its unauthenticated server on a trusted local network.
 
 | Find out about | Documentation |
 | --- | --- |
-| Installation and recovery | [First radio](docs/manual/install.md) |
+| Installation and recovery | [First radio](docs/manual/install.md) · [Recovery](docs/manual/recovery.md) |
 | Modules and the local store | [Catalog](docs/module-store.md) |
 | Firmware customization | [Feature packs](docs/k6-feature-packs.md) |
 | Native module development | [Module API](docs/k6-modules.md) |
