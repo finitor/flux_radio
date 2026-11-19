@@ -1,13 +1,10 @@
 # Project guidance
 
-- This is the canonical checkout for this work: `/home/tyler/dev/ag7su-blowfang` (resolved path
-  `/storage5/dev/ag7su-blowfang`). Keep future AG7SU Blowfang work here; do not switch to the
-  sibling `/home/tyler/dev/blowfang` checkout unless Tyler explicitly asks.
+- Work in the intended Flux checkout; inspect Git status and preserve unrelated work.
 - Keep the K6 browser workbench (`sim/k6ide.py` and `sim/k6ide_templates/`) aligned with changes
   to the emulator and app UI.
 - The workbench should bind to `0.0.0.0:5056` by default so it can be followed from another
-  machine. The user wants no login or token on their trusted home LAN; keep this limited to the
-  private LAN and do not add authentication unless they ask.
+  machine. The workbench is unauthenticated; bind to loopback on untrusted networks. Do not expose it publicly.
 - Keep simulator outputs, virtual SPI images, radio backups, firmware build outputs, and signing
   keys out of Git. Update `.gitignore` when a new generated path is introduced.
 - Commit small, coherent workbench changes as they are completed. Inspect status first and stage

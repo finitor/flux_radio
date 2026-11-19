@@ -29,13 +29,13 @@ several inputs between captures.
 
 ```sh
 python3 -m sim.k6emu \
-  firmware/k6-aura/out-fd6818b/aura-fd6818b-blowfang-host.bin \
+  firmware/k6-aura/out-fd6818b/flux-fd6818b.bin \
   --instructions 20000000 \
   --quantum 256 \
-  --spi-flash /home/tyler/blowfang-backups/k6-spiflash-emulator.bin \
+  --spi-flash $HOME/flux-backups/k6-spiflash-emulator.bin \
   --module-bundle firmware/k6-aura/out-fd6818b/vfo-module-bundle \
   --module-slots 30 \
-  --key-file /home/tyler/.config/blowfang/k6-mod.key \
+  --key-file $HOME/.config/flux/k6-mod.key \
   --key-event 500:MENU:down --key-event 580:MENU:up \
   --report-json /tmp/k6-freeze.json \
   --lcd-trace /tmp/k6-freeze-lcd.jsonl
@@ -68,12 +68,12 @@ images; it is never included in the report.
 
 ```sh
 python3 -m sim.k6emu \
-  firmware/k6-aura/out-fd6818b/aura-fd6818b-blowfang-host.bin \
+  firmware/k6-aura/out-fd6818b/flux-fd6818b.bin \
   --live \
-  --spi-flash /home/tyler/blowfang-backups/k6-spiflash-emulator.bin \
+  --spi-flash $HOME/flux-backups/k6-spiflash-emulator.bin \
   --module-bundle firmware/k6-aura/out-fd6818b/vfo-module-bundle \
   --module-slots 30 \
-  --key-file /home/tyler/.config/blowfang/k6-mod.key \
+  --key-file $HOME/.config/flux/k6-mod.key \
   --report-json /tmp/k6-live-freeze.json \
   --lcd-trace /tmp/k6-live-freeze-lcd.jsonl
 ```

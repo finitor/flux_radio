@@ -1,5 +1,5 @@
 # Files that must never be committed here: K6 bootloader dumps, Yaesu firmware, module signing
-# keys and built images (CI keeps those as artifacts). Add a pattern as one line.
+# keys and built images. The checked-in unsigned SDK example is the sole exception.
 name: Forbidden files
 on:
   push:
@@ -18,15 +18,25 @@ jobs:
             -e '\.elf$' \
             -e '\.hex$' \
             -e '\.key$' \
+            -e '\.(pem|p12|pfx)$' \
+            -e '(^|/)\.env($|\.)' \
             -e '\.a$' \
             -e 'boot\.bin' \
             -e 'k6-boot' \
             -e 'yaesu' \
             -e 'ftm-?300' \
+            | grep -vxF sdk/module-example/dist/module.bin \
             || true)
           if [ -n "$bad" ]; then
             echo "These files must not be in the repository:"
             echo "$bad"
             exit 1
           fi
+          python3 - <<'PYHASH'
+          import hashlib, json
+          from pathlib import Path
+          bundle = Path("sdk/module-example/dist")
+          manifest = json.loads((bundle / "manifest.json").read_text())
+          assert hashlib.sha256((bundle / "module.bin").read_bytes()).hexdigest() == manifest["sha256"]["module.bin"]
+          PYHASH
           echo "clean"

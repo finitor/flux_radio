@@ -80,3 +80,14 @@ c/common/fsk_rx_host
 /c/k6/mod/aprsifbcapwide.c
 /c/k6/mod/aprsifbrx.c
 /c/k6/mod/kissprobe.c
+
+# Local Python environments and radio/build secrets
+.venv/
+.env
+.env.*
+*.pem
+*.p12
+*.pfx
+*.hex
+*.a
+/firmware/k6-aura/out-*/

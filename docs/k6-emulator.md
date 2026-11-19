@@ -58,12 +58,12 @@ present, then overlay a new or changed module:
 
 ```sh
 python3 -m sim.k6emu \
-  /home/tyler/dev/ag7su-blowfang/firmware/k6-aura/out-fd6818b/aura-fd6818b-blowfang-host.bin \
+  firmware/k6-aura/out-fd6818b/flux-fd6818b.bin \
   --live \
-  --spi-flash /home/tyler/blowfang-backups/k6-spiflash-emulator.bin \
-  --module-bundle /home/tyler/dev/ag7su-blowfang/firmware/k6-aura/out-fd6818b/vfo-module-bundle \
+  --spi-flash $HOME/flux-backups/k6-spiflash-emulator.bin \
+  --module-bundle firmware/k6-aura/out-fd6818b/vfo-module-bundle \
   --module-slots 30 \
-  --key-file /home/tyler/.config/blowfang/k6-mod.key
+  --key-file $HOME/.config/flux/k6-mod.key
 ```
 
 Press `M` or Enter to open the module list, navigate to the module, then press Enter to run it.
@@ -76,11 +76,11 @@ Install and start the emulator with the current keyed Aura/Blowfang image (from 
 root):
 
 ```sh
-python3 -m pip install -r /home/tyler/dev/ag7su-blowfang/sim/k6emu/requirements.txt
+python3 -m pip install -r sim/k6emu/requirements.txt
 python3 -m sim.k6emu \
-  /home/tyler/dev/ag7su-blowfang/firmware/k6-aura/out-fd6818b/aura-fd6818b-blowfang-host.bin \
+  firmware/k6-aura/out-fd6818b/flux-fd6818b.bin \
   --live \
-  --spi-flash /home/tyler/blowfang-backups/k6-spiflash-emulator.bin \
+  --spi-flash $HOME/flux-backups/k6-spiflash-emulator.bin \
   --adc 0=2048 --adc 1=3000 \
   --lcd-trace /tmp/k6-lcd.jsonl
 python3 -m sim.k6emu.lcd /tmp/k6-lcd.jsonl -o /tmp/k6-screen.svg
@@ -117,10 +117,10 @@ bytes. Capture it read-only after the radio is back at its normal Aura screen or
 EXPLORE/arena screen:
 
 ```sh
-mkdir -p /home/tyler/blowfang-backups
-python3 /home/tyler/dev/ag7su-blowfang/tools/k6_install.py \
+mkdir -p $HOME/flux-backups
+python3 tools/k6_install.py \
   --port /dev/ttyUSB0 backup \
-  -o /home/tyler/blowfang-backups/k6-spiflash-emulator.bin
+  -o $HOME/flux-backups/k6-spiflash-emulator.bin
 ```
 
 The backup command only reads the radio's external SPI flash; it does not reflash firmware. First
