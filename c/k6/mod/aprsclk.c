@@ -51,12 +51,23 @@
    -DAPRS_FSK (aprsfsk.c) builds the same HDLC, parser, vote and screen behind the FD6818's own
    FSK modem instead of the IF tap: see "the chip's own FSK modem as the front end" below.
    SPDX-License-Identifier: MIT */
+#ifndef K6_MODULE_LEVEL
 #define K6_MODULE_LEVEL 2
+#endif
 #ifndef K6_MODULE_OPT
 #define K6_MODULE_OPT s
 #endif
 #include "../k6_mod.h"
 #include "k6ui.h"
+#ifdef APRS_APP
+#include "aprs_packet.h"
+#endif
+#ifdef APRS_SYNC
+#include "aprs_position.h"
+#endif
+#ifdef APRS_KISS
+#include "aprs_kiss.h"
+#endif
 #ifndef K6_NAME
 #define K6_NAME "APRS CLOCK"   /* its name in the MENU list (a file that includes this one may set its own) */
 #endif
@@ -119,8 +130,21 @@ typedef struct {
   uint8_t ring[RSZ];           /* first: word aligned at the scratch's start */
   uint8_t fr[MAXF];
   int32_t cr[4][NW];           /* the correlators' products: mark cos, mark sin, space cos, space sin */
+#ifndef APRS_RX_ONLY
   cand_t c[NC];
+#endif
   char ln[64];
+#ifdef APRS_APP
+  ap_packet_t history[6];
+  uint8_t hist_n, hist_sel, detail, text_page;
+  ui_t app_ui;
+#endif
+#ifdef APRS_SYNC
+  int32_t sync_lat,sync_lon;
+  uint8_t sync_found, sync_raw_n;
+  uint32_t sync_match, sync_reject;
+  uint8_t sync_raw[96];
+#endif
   char last[16];               /* the newest good frame's source and hops, for the screen */
   /* clock and DMA */
   uint32_t t, c17, c14, laps, lastw, produced, consumed, t0, p0, cps8, lost;
@@ -131,18 +155,28 @@ typedef struct {
   int32_t ang, dc, sum[4];
   uint32_t ph1, ph2, st1, st2, pll, stb;
   int32_t n, w, lastv, lastbit;
+#ifndef APRS_APP
   /* the matched filter: each tone's template exp(j beta sin) at 64 phases (cos, sin) */
   int8_t g[2][GN][2];          /* 64 a turn, the first GN - 64 again after them */
   int32_t acc[2][8][4];        /* this bit's sums for 8 audio phases (x gc, y gs, y gc, x gs) */
   int32_t bq[2], btab[2];      /* beta in 1/16 of a template step (64 a turn): tracked (Q6), tabled */
   uint32_t rot;                /* the offset's phase, 2^16 a turn */
   int32_t mlast;               /* the last bit's tone */
+#endif
   /* HDLC */
   uint32_t sr, bb, nbits, flag_ms, run, pre, min_ms;
   int32_t len, in;
   /* results */
   uint32_t ok, bad, nts, seq, now_ms, scr_ms;
+#ifdef APRS_KISS
+  uint32_t kiss_sent,kiss_failed;
+  uint8_t kiss_active;
+#endif
   uint16_t rlo, rhi; /* REG_67 once a second: the minute's least and most */
+#ifdef APRS_RF_DIAG
+  uint16_t rf_floor, rf_peak, rf_on;
+  uint32_t rf_samples, rf_hits, rf_bursts;
+#endif
   int32_t ref, haveref, votes, est, wid, hops;
   uint8_t day, mon, yr, stn;
 #if defined(APRS_IF_DIAG) && !defined(APRS_HOST) && !defined(APRS_FSK)
@@ -312,6 +346,7 @@ static void steps(st_t *s) {
 #endif /* APRS_FSK */
 
 /* ---- the clock: Marzullo over the stations' intervals ---- */
+#ifndef APRS_RX_ONLY
 static void vote(st_t *s) {
   int i, j, best = 0, bw = 0, blo = 0;
   for (i = 0; i < NC; i++) {
@@ -414,19 +449,66 @@ static void add(const k6_api_t *api, st_t *s, const uint8_t *src, int kind, uint
   }
 }
 
+#else
+/* Receive diagnostic does not set the host clock. */
+static uint32_t utc(st_t *s, uint32_t t) { (void)s; return t; }
+#endif
 /* a good frame: its source, and a timestamp if it has one */
 static void frame(const k6_api_t *api, st_t *s) {
-  const uint8_t *f = s->fr, *q;
-  int n = s->len - 2, a, i, kind = 0, res = 0, day = 0, mon = 0, yr = 0;
+  const uint8_t *f = s->fr;
+  int n = s->len - 2, a, i;
+#ifndef APRS_RX_ONLY
+  const uint8_t *q;
+  int kind = 0, res = 0, day = 0, mon = 0, yr = 0;
   uint32_t tod = 0, t0;
+#endif
   char *p;
+#ifdef APRS_SYNC
+  {
+    char source[10];
+    if(n>=14&&ap_address(source,f+7)&&ap_equal(source,SYNC_SOURCE)){
+      unsigned j;
+      s->sync_match++;
+      if(!s->sync_found&&ap_position(f,(unsigned)n,SYNC_SOURCE,&s->sync_lat,&s->sync_lon,udiv))
+        s->sync_found=1;
+      else if(!s->sync_found){
+        s->sync_reject++;
+        s->sync_raw_n=(uint8_t)(n>(int)sizeof s->sync_raw?sizeof s->sync_raw:(unsigned)n);
+        for(j=0;j<s->sync_raw_n;j++)s->sync_raw[j]=f[j];
+      }
+    }
+  }
+  return;
+#endif
+#ifdef APRS_KISS
+  if(s->kiss_active){
+    if(ap_kiss_send(api->serial_write,f,(unsigned)n)==0)s->kiss_sent++;
+    else s->kiss_failed++;
+  }
+  return;
+#endif
   for (a = 0; a < n && !(f[a] & 1); a++) {} /* the address field ends at a byte with bit 0 set */
   /* after 2 to 10 whole addresses: a + 1 a multiple of 7 (times 7's inverse mod 2^32, no division) */
   if (a < 13 || a > 69 || (uint32_t)(a + 1) * 0xB6DB6DB7u > 0x24924924u || a >= n - 2 ||
       f[a + 1] != 0x03 || f[a + 2] != 0xF0)
     return;
+#ifdef APRS_APP
+  {
+    ap_packet_t entry;
+    unsigned j,k;
+    for(k=0;k<sizeof entry;k++)((volatile uint8_t *)&entry)[k]=0;
+    if (!ap_parse(&entry, f, (unsigned)n)) return;
+    if(s->hist_n<6)s->hist_n++;
+    for(j=s->hist_n-1;j>0;j--)
+      for(k=0;k<sizeof entry;k++)((volatile uint8_t *)&s->history[j])[k]=((const uint8_t *)&s->history[j-1])[k];
+    for(k=0;k<sizeof entry;k++)((volatile uint8_t *)&s->history[0])[k]=((const uint8_t *)&entry)[k];
+    if(s->hist_sel&&s->hist_sel+1<s->hist_n)s->hist_sel++;
+    /* Keep the selected packet when following an older history entry. */
+  }
+#endif
   s->hops = 0;
   for (i = 20; i <= a; i += 7) s->hops += f[i] >> 7; /* digipeaters that have repeated it */
+#ifndef APRS_RX_ONLY
   q = f + a + 3, n -= a + 3;
   /* when its first bit went out: the bits since the opening flag at 1200 baud */
   t0 = s->now_ms - udiv((s->nbits + 8) * 5u, 6u);
@@ -468,18 +550,23 @@ static void frame(const k6_api_t *api, st_t *s) {
       }
     }
   } else kind = 0;
+#endif
   *kv(call(s->last, f + 7), " h", (uint32_t)s->hops) = 0;
   p = put(s->ln, "f ");
   p = call(p, f + 7);
   p = kv(p, " n=", (uint32_t)s->len);
   p = kv(p, " h=", (uint32_t)s->hops);
+#ifndef APRS_RX_ONLY
   if (kind) {
     p = put(p, " ts=");
     p = hms(p, tod, res < 1000);
     *p++ = (char)kind;
   }
+#endif
   say(api, s, p);
+#ifndef APRS_RX_ONLY
   if (kind) add(api, s, f + 7, kind, tod, res, t0, day, mon, yr);
+#endif
 }
 
 static int crc_ok(const uint8_t *b, int n) {
@@ -545,6 +632,7 @@ static int32_t mag(int32_t a, int32_t b) {
   return a > b ? a + ((3 * b) >> 3) : b + ((3 * a) >> 3);
 }
 
+#ifndef APRS_APP
 /* tone t's template at beta btab[t]: exp(j beta sin(2 pi i / 64)), its phase rounded to 1/64 turn */
 static void gtab(st_t *s, int t) {
   int i, q;
@@ -565,6 +653,7 @@ static void track(st_t *s, int t, int32_t v) {
   if (b - s->btab[t] >= 8 || s->btab[t] - b >= 8) s->btab[t] = b, gtab(s, t);
 }
 
+#endif /* APRS_APP */
 #ifndef APRS_DISC
 /* tone t's matched filter, one sample in: the IF sample (x, y) against the template at the
    tone's phase index i for 8 audio phases (each also stands for theta + pi). Spread over the
@@ -626,8 +715,10 @@ static void audio(const k6_api_t *api, st_t *s, int32_t x, int32_t y) {
   m = mag(s->sum[0], s->sum[1]) >> 11;
   sp = mag(s->sum[2], s->sum[3]) >> 11;
   /* each tone's deviation, where the discriminator says that tone */
+#ifndef APRS_APP
   if (m > sp) track(s, 0, m);
   else track(s, 1, sp);
+#endif
   {
 #ifndef APRS_DISC
     /* the IF turned back by the carrier offset (the discriminator's DC), into each tone's sums */
@@ -652,6 +743,9 @@ static void audio(const k6_api_t *api, st_t *s, int32_t x, int32_t y) {
   s->pll += s->stb;
 #ifdef APRS_DISC
   if ((int32_t)prev >= 0 && (int32_t)s->pll < 0) {
+#ifdef APRS_BIT_TRACE
+    APRS_BIT_TRACE(s, v == s->lastbit, v);
+#endif
     hdlc(api, s, v == s->lastbit);
     s->lastbit = v;
   }
@@ -730,11 +824,73 @@ static void dma_on(uint8_t *ring) {
 
 static void screen(const k6_api_t *api, st_t *s) {
   char *p;
+#ifdef APRS_SYNC
+  api->lcd_text(0,"APRS GPS SYNC");
+  api->lcd_text(1,"Waiting for");
+  api->lcd_text(2,SYNC_SOURCE);
+  api->lcd_text(3,"144.390 MHz");
+  p=kv(s->ln,"Packets ",s->ok);*p=0;
+  api->lcd_text(4,s->ln);
+  api->lcd_text(5,"Any key: cancel");
+  api->lcd_flush();return;
+#endif
+#ifdef APRS_APP
+  unsigned i;
+  const ap_packet_t *a;
+  p=ui_put(s->ln,"APRS ");
+  p=ui_mhz(p,APRS_HZ);
+  api->lcd_text(0,s->ln);
+  if(!s->hist_n){
+    api->lcd_text(1,"Listening...");
+    p=kv(s->ln,"Heard ",s->pre);p=kv(p," OK ",s->ok);*p=0;
+    api->lcd_text(2,s->ln);
+    api->lcd_text(3,"");api->lcd_text(4,"");
+    api->lcd_text(5,"EXIT: back");
+  }else{
+    a=&s->history[s->hist_sel];
+    if(s->detail){
+      p=ui_put(s->ln,a->src);p=ui_put(p," ");ui_put(p,ap_type(a->type));
+      api->lcd_text(1,s->ln);
+      if(a->type==AP_MESSAGE){p=ui_put(s->ln,"To ");ui_put(p,a->to);}
+      else if(a->pos[0])ui_put(s->ln,a->pos);
+      else {p=ui_put(s->ln,"Dst ");ui_put(p,a->dst);}
+      api->lcd_text(2,s->ln);
+      for(i=0;i<2;i++){
+        unsigned off=42u*s->text_page+21u*i,j=0,len=0;
+        while(a->text[len])len++;
+        while(j<21&&off+j<len){s->ln[j]=a->text[off+j];j++;}
+        s->ln[j]=0;api->lcd_text(3+(int)i,s->ln);
+      }
+      api->lcd_text(5,"UP/DN text M:list");
+    }else{
+      p=kv(s->ln,"OK ",s->ok);p=kv(p," pkt ",s->hist_sel+1);p=kv(p,"/",s->hist_n);*p=0;
+      api->lcd_text(1,s->ln);
+      for(i=0;i<3;i++){
+        unsigned j=s->hist_sel+i;
+        if(j>=s->hist_n){api->lcd_text(2+(int)i,"");continue;}
+        a=&s->history[j];
+        p=ui_put(s->ln,i==0?">":" ");
+        p=ui_put(p,a->src);p=ui_put(p," ");ui_put(p,ap_type(a->type));
+        api->lcd_text(2+(int)i,s->ln);
+      }
+      api->lcd_text(5,"UP/DN M:open X:exit");
+    }
+  }
+  api->lcd_flush();
+#else
   p = dec(put(s->ln, " APRS RX "), udiv(APRS_HZ, 1000000), 3);
   *p++ = '.';
   p = dec(p, udiv(APRS_HZ, 1000) - 1000 * udiv(APRS_HZ, 1000000), 3);
   *p = 0;
   api->lcd_text(0, s->ln);
+#ifdef APRS_KISS
+  api->lcd_text(1,"USB KISS RX ONLY");
+  p=kv(s->ln,"Frames ",s->kiss_sent);*p=0;api->lcd_text(2,s->ln);
+  p=kv(s->ln,"Errors ",s->kiss_failed);*p=0;api->lcd_text(3,s->ln);
+  api->lcd_text(4,"No transmit");
+  api->lcd_text(5,"Any key: exit");
+  api->lcd_flush();return;
+#endif
   p = put(s->ln, "UTC ");
   if (s->votes >= 2) p = hms(p, utc(s, s->now_ms), 0);
   else p = put(p, "--:--:--");
@@ -761,6 +917,7 @@ static void screen(const k6_api_t *api, st_t *s) {
   }
   api->lcd_text(5, "any key: done");
   api->lcd_flush();
+#endif
 }
 
 #endif /* APRS_HOST */
@@ -770,14 +927,26 @@ int k6_main(const k6_api_t *api) {
   st_t *s;
   uint32_t room, apb2, ahb, i, tkey = 0;
   uint16_t r33, r34, r7e, r13;
+#ifdef APRS_IF_AFC_OFF
+  uint16_t r73, r43;
+  uint32_t old_hz;
+#endif
   char *p;
   if (api->level < 2) return -3;
+#ifdef APRS_SYNC
+  if(api->level<23)return -3;
+#endif
   s = (st_t *)api->scratch(&room);
   if (room < sizeof(st_t)) return -8;
   for (i = 0; i < sizeof(st_t) / 4; i++) ((uint32_t *)s)[i] = 0;
   if (rd(GPIOB) & (3u << 2)) return -4;
+#ifdef APRS_APP
+  ui_begin(&s->app_ui,api,"APRS","Starting receiver");
+#endif
+#ifndef APRS_IF_AFC_OFF
   api->tune(APRS_HZ, 1);
   api->delay_us(50000);
+#endif
   apb2 = rd(RCC_APB2ENR), ahb = rd(RCC_AHBENR);
   wr(RCC_AHBENR, ahb | 1u);
   if ((apb2 & TIM17EN) || (rd(DMA_CCR1) & 1)) {
@@ -790,6 +959,25 @@ int k6_main(const k6_api_t *api) {
     return -5;
   }
   api->fd_write(0x34, (uint16_t)((r34 & 0xFFF0) | 13));
+#ifdef APRS_IF_AFC_OFF
+  if ((api->fd_read(0x34) & 15u) != 13u) {
+    api->fd_write(0x34, r34);
+    api->fd_write(0x33, r33);
+    wr(RCC_AHBENR, ahb);
+    return -9;
+  }
+  old_hz = api->rx_hz();
+  r73 = api->fd_read(0x73);
+  r43 = api->fd_read(0x43);
+  if (api->fd_write(0x73, (uint16_t)(r73 | 0x10u)) != 0) {
+    api->fd_write(0x34, r34);
+    api->fd_write(0x33, r33);
+    wr(RCC_AHBENR, ahb);
+    return -10;
+  }
+  api->tune(APRS_HZ, 1);
+  api->delay_us(300000);
+#endif
   /* The gain frozen at its maximum, as the AIS and DMR modules do: the 1-bit tap's own noise
      lies above the receiver's even there, so wherever the AGC turns the IF down (a strong
      neighbour, a big antenna's whole band) a weak packet sinks further under it
@@ -800,6 +988,11 @@ int k6_main(const k6_api_t *api) {
     api->fd_write(0x13, GAIN13);
   }
   s->rlo = 0x1FF;
+#ifdef APRS_RF_DIAG
+  s->rf_floor = s->rf_peak = api->fd_read(0x67) & 0x1FF;
+  p = kv(s->ln,"aprs rf start raw=",s->rf_floor);
+  say(api,s,p);
+#endif
   wr(RCC_APB2ENR, apb2 | TIM17EN);
   wr(TIM17 + 0x00, 0);
   wr(TIM17 + 0x28, 0);
@@ -812,7 +1005,19 @@ int k6_main(const k6_api_t *api) {
   dma_on(s->ring);
   /* the DMA's rate over about 50 ms */
   resync(s);
+#ifdef APRS_IF_AFC_OFF
+  {
+    uint32_t start = api->ms(), spins = 0;
+    while (poll(s) - s->p0 < 256u * 1024u) {
+      if ((++spins & 1023u) == 0 && (api->ms() - start >= 1000u || api->key_down())) {
+        api->say("aprs DMA start timeout");
+        goto if_cleanup;
+      }
+    }
+  }
+#else
   while (poll(s) - s->p0 < 256u * 1024u) {}
+#endif
   now(s);
   s->cps8 = muldiv(s->t - s->t0, 256, s->produced - s->p0);
   steps(s);
@@ -824,9 +1029,21 @@ int k6_main(const k6_api_t *api) {
   p = kv(p, " n=", (uint32_t)s->n);
   p = kv(p, " g=", GAIN13);
   say(api, s, p);
+#ifdef APRS_IF_AFC_OFF
+  p = kv(s->ln, "aprs IF cHz=", FIF_CHZ);
+  p = kv(p, " afc_off=", !!(api->fd_read(0x73) & 16));
+  say(api, s, p);
+#endif
+#ifdef APRS_KISS
+  if(api->kiss_mode(1)<0){api->say("KISS mode refused");goto if_cleanup;}
+  s->kiss_active=1;
+#endif
   resync(s);
   for (;;) {
     drain(api, s);
+#ifdef APRS_SYNC
+    if(s->sync_found)break;
+#endif
 #ifdef APRS_IF_DIAG
     if (s->diag_stop) break;
 #endif
@@ -834,12 +1051,42 @@ int k6_main(const k6_api_t *api) {
       int key;
       s->now_ms = api->ms();
       tkey = s->now_ms;
+#ifdef APRS_APP
+      key=s->app_ui.on?ui_key(&s->app_ui):(api->key_poll()?'X':0);
+      if(key=='X'||s->now_ms>=RUN_MS)break;
+      if(key=='M'&&s->hist_n){s->detail=!s->detail;s->text_page=0;}
+      if(key=='U'&&s->hist_n){if(s->detail)s->text_page=0;else if(s->hist_sel)s->hist_sel--;}
+      if(key=='D'&&s->hist_n){if(s->detail)s->text_page=1;else if(s->hist_sel+1<s->hist_n)s->hist_sel++;}
+#else
       key = api->level >= 4 ? api->key_poll() : api->key_down();
       if (key || s->now_ms >= RUN_MS) break;
+#endif
+#ifdef APRS_RF_DIAG
+      /* Sample RSSI between DMA drains. Avoid UART/LCD during a carrier.
+         Capture end statistics even for runs stopped in under a minute. */
+      drain(api,s);
+      {
+        uint16_t r=api->fd_read(0x67)&0x1FF;
+        uint16_t on;
+        if(r<s->rf_floor)s->rf_floor=r;
+        if(r>s->rf_peak)s->rf_peak=r;
+        on=r>=s->rf_floor+16u;
+        s->rf_samples++;
+        if(on)s->rf_hits++;
+        if(on&&!s->rf_on)s->rf_bursts++;
+        if(on!=s->rf_on&&api->level>=7)api->led(on);
+        s->rf_on=on;
+      }
+      drain(api,s);
+#else
       if (api->level >= 7 && s->now_ms - s->flag_ms > 120) api->led(0);
+#endif
       /* the screen takes 20-40 ms (the ring holds 0.2 ms): once a second, and never while a
          frame or its flags are coming (the HDLC is inside a frame: up to 2.3 s since its flag) */
       if (s->now_ms - s->scr_ms >= 1000 && s->now_ms - s->flag_ms > 100 &&
+#ifdef APRS_RF_DIAG
+          !s->rf_on &&
+#endif
           !(s->in && s->now_ms - s->flag_ms < 2400)) {
         s->scr_ms = s->now_ms;
         /* the DMA's rate again over the stretch since the last pause (it moves with the CPU's
@@ -876,6 +1123,9 @@ int k6_main(const k6_api_t *api) {
       }
     } else s->now_ms = api->ms();
   }
+#ifdef APRS_IF_AFC_OFF
+if_cleanup:
+#endif
   wr(TIM17 + 0x00, 0);
   wr(TIM17 + 0x0C, 0);
   wr(DMA_CCR1, 0);
@@ -888,6 +1138,56 @@ int k6_main(const k6_api_t *api) {
   if (GAIN13) api->fd_write(0x13, r13), api->fd_write(0x7E, r7e);
   api->fd_write(0x34, r34);
   api->fd_write(0x33, r33);
+#ifdef APRS_IF_AFC_OFF
+  api->fd_write(0x73, r73);
+  api->tune(old_hz, r43 == 0x3028u);
+#endif
+#ifdef APRS_SYNC
+  p=kv(s->ln,"gps ok=",s->ok);p=kv(p," match=",s->sync_match);
+  p=kv(p," rejected=",s->sync_reject);say(api,s,p);
+  p=kv(s->ln,"gps pre=",s->pre);p=kv(p," bad=",s->bad);
+  p=kv(p," lost=",s->lost);say(api,s,p);
+  if(s->sync_raw_n){
+    static const char hx[]="0123456789abcdef";
+    unsigned off,j;
+    for(off=0;off<s->sync_raw_n;off+=20){
+      p=kv(s->ln,"gps raw ",off);*p++=' ';
+      for(j=off;j<s->sync_raw_n&&j<off+20;j++){
+        unsigned b=s->sync_raw[j];*p++=hx[b>>4];*p++=hx[b&15];
+      }
+      say(api,s,p);
+    }
+  }
+  if(s->sync_found){
+    int rc=api->aprs_position_set(s->sync_lat,s->sync_lon);
+    api->say(rc<0?"gps sync refused":rc==0?"gps sync unchanged":"gps sync saved");
+    if(api->level>=6){
+      api->lcd_text(0,"APRS GPS SYNC");
+      api->lcd_text(1,rc<0?"Save refused":rc==0?"Already current":"Position saved");
+      int32_t v=s->sync_lat;
+      uint32_t mag=v<0?(uint32_t)-v:(uint32_t)v,whole=udiv(mag,100000);
+      p=ui_put(s->ln,"Lat ");
+      if(v<0)*p++='-';
+      p=dec(p,whole,1);*p++='.';*dec(p,mag-whole*100000,5)=0;
+      api->lcd_text(2,s->ln);
+      v=s->sync_lon;mag=v<0?(uint32_t)-v:(uint32_t)v;whole=udiv(mag,100000);
+      p=ui_put(s->ln,"Lon ");
+      if(v<0)*p++='-';
+      p=dec(p,whole,1);*p++='.';*dec(p,mag-whole*100000,5)=0;
+      api->lcd_text(3,s->ln);
+      api->lcd_text(4,SYNC_SOURCE);
+      ui_hold(api,"Any key: back");
+    }
+    p=ui_sdec(ui_put(s->ln,"gps lat="),s->sync_lat);
+    p=ui_sdec(ui_put(p," lon="),s->sync_lon);say(api,s,p);
+    return rc<0?-12:0;
+  }
+  api->say("gps sync no fix");return -2;
+#endif
+#ifdef APRS_KISS
+  if(s->kiss_active){api->kiss_mode(0);s->kiss_active=0;}
+  p=kv(s->ln,"kiss sent=",s->kiss_sent);p=kv(p," failed=",s->kiss_failed);say(api,s,p);
+#endif
 #ifdef APRS_IF_DIAG
   if (s->diag_stop) {
     static const char hex[] = "0123456789abcdef";
@@ -910,6 +1210,16 @@ int k6_main(const k6_api_t *api) {
       say(api, s, p);
     }
   }
+#endif
+#ifdef APRS_RF_DIAG
+  if(api->level>=7)api->led(0);
+  p=dec(put(s->ln,"aprs rf floor=-"),(uint32_t)-KM_RSSI_DBM(s->rf_floor),1);
+  p=dec(put(p," peak=-"),(uint32_t)-KM_RSSI_DBM(s->rf_peak),1);
+  p=kv(p," bursts=",s->rf_bursts);
+  say(api,s,p);
+  p=kv(s->ln,"aprs rf hits=",s->rf_hits);
+  p=kv(p," samples=",s->rf_samples);
+  say(api,s,p);
 #endif
   p = put(s->ln, "aprs end ok=");
   p = dec(p, s->ok, 1);

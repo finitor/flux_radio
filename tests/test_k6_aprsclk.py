@@ -70,7 +70,7 @@ def packets():
     ]
 
 
-def scene(cn0=55.0, f_off=0.0, twist=0.0, dev=3000.0, seed=1, total=6.5, fdma=FDMA):
+def scene(cn0=55.0, f_off=0.0, twist=0.0, dev=3000.0, seed=1, total=6.5, fdma=FDMA, **frontend):
     """the DMA's bytes (bit 1 = PB1) for the packets on 144.390: dev is the louder tone's
     deviation (Hz), twist the space tone over the mark (dB)"""
     from sim.k6if import frontend as fe, study as st
@@ -80,7 +80,7 @@ def scene(cn0=55.0, f_off=0.0, twist=0.0, dev=3000.0, seed=1, total=6.5, fdma=FD
         i = int(t * st.FSA)
         a[i:i + len(x)] += x
     s = st.fm(a * dev / max(1.0, 10 ** (twist / 20)), f_off)
-    bits = fe.receive(s, st.FZ, cn0, bw=8000.0, seed=seed, L=0, fdma=fdma)
+    bits = fe.receive(s, st.FZ, cn0, bw=8000.0, seed=seed, L=0, fdma=fdma, **frontend)
     return bits.astype(np.uint8) * 2
 
 
