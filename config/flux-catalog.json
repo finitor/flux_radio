@@ -30,27 +30,382 @@
   "local_metadata": {
     "aprs": {
       "title": "APRS",
-      "summary": "Native software Bell 202 RX, packet browser and incoming message/position viewer. No optional firmware feature set."
+      "summary": "Native software Bell 202 receive; bench reception demonstrated, real on-air acceptance pending.",
+      "status": "experimental",
+      "required_packs": [],
+      "source_module": "aprsapp",
+      "expected_api": 6
     },
     "aprs-gps-sync": {
       "title": "GPS Sync",
-      "summary": "Adopt a direct APRS position from AG7SU-7 into native radio settings. Requires API 23; hardware reception and save callback verified."
+      "summary": "One-shot direct APRS position import from AG7SU-7; reception and save callback demonstrated, reboot/readback pending.",
+      "status": "experimental",
+      "required_packs": [],
+      "source_module": "aprsgpssync",
+      "expected_api": 23
     },
     "aprs-beacon": {
       "title": "APRS Beacon",
-      "summary": "Manually confirmed AX.25 position beacon using the radio settings. RF transmit awaiting physical validation."
+      "summary": "Manually confirmed position beacon. RF TX not physically validated.",
+      "status": "experimental",
+      "required_packs": [],
+      "source_module": "aprsbeacon",
+      "expected_api": 15
     },
     "aprs-kiss-rx": {
       "title": "APRS KISS RX",
-      "summary": "Receive-only AX.25 KISS serial bridge. Physical UART validation pending."
+      "summary": "Receive-only KISS serial bridge; physical UART validation pending.",
+      "status": "experimental",
+      "required_packs": [],
+      "source_module": "aprskissrx",
+      "expected_api": 14
     },
     "cardlink": {
       "title": "Card Link",
-      "summary": "Experimental over-air PixelQSO card transfers. Requires the optional Data feature set."
+      "summary": "PixelQSO card transfers; managed FD6818B Data service required. RF interoperability pending.",
+      "status": "experimental",
+      "required_packs": [
+        "data"
+      ],
+      "source_module": "cardlink",
+      "expected_api": 12
     },
     "explore_scan": {
       "title": "Explore Scan",
-      "summary": "Repeater scanning and candidate ranking. Requires the Scan feature set."
+      "summary": "Compact repeater scanning and ranking; automatic advanced decoding and saving are not ported.",
+      "status": "targeted",
+      "required_packs": [
+        "scan"
+      ],
+      "source_module": "explore_scan",
+      "expected_api": 21
+    },
+    "vfo": {
+      "title": "VFO Radio",
+      "summary": "Receive VFO and memory utility; no voice PTT inside module.",
+      "status": "targeted",
+      "required_packs": [],
+      "source_module": "vfo",
+      "expected_api": 6
+    },
+    "surf": {
+      "title": "SURF",
+      "summary": "Band spectrum and VFO B handoff; compact arena leaves limited scratch.",
+      "status": "targeted",
+      "required_packs": [
+        "scan"
+      ],
+      "source_module": "surf",
+      "expected_api": 16
+    },
+    "gw": {
+      "title": "Groundwave",
+      "summary": "Compact local two-player game only. Legacy RF multiplayer is not compatible; physical radio validation pending.",
+      "status": "experimental",
+      "required_packs": [],
+      "source_module": "gw_flux",
+      "expected_api": 6,
+      "expected_sha256": "06724be2155c54b35444a0801ce68de7ec69fd57906d12332f0f4b226da54f34"
+    },
+    "rflimits": {
+      "title": "RF Limits",
+      "summary": "Receive-only tuning/RSSI diagnostic; not proof of PLL lock or RF coverage.",
+      "status": "experimental",
+      "required_packs": [],
+      "source_module": "rflimits",
+      "expected_api": 4
+    },
+    "rfbaseb": {
+      "title": "RF IF B",
+      "summary": "FD6818B IF/GP0 capture diagnostic; use a steady reference carrier.",
+      "status": "experimental",
+      "required_packs": [],
+      "source_module": "rfbaseb",
+      "expected_api": 4
+    },
+    "rffskrx": {
+      "title": "RF FSK RX",
+      "summary": "Managed fixed-frame raw FIFO diagnostic; no validated APRS decoding.",
+      "status": "experimental",
+      "required_packs": [
+        "data"
+      ],
+      "source_module": "rffskrx",
+      "expected_api": 10
+    },
+    "rffsktx": {
+      "title": "RF FSK TX",
+      "summary": "Low-power, manually confirmed test frame; dummy load only. RF validation pending.",
+      "status": "experimental",
+      "required_packs": [
+        "data"
+      ],
+      "source_module": "rffsktx",
+      "expected_api": 15
+    },
+    "aisclk": {
+      "title": "AIS Clock",
+      "summary": "Legacy FD6818 IF tap and timing; FD6818B port not validated.",
+      "status": "wip",
+      "required_packs": [],
+      "source_module": "aisclk",
+      "expected_api": 2
+    },
+    "aisships": {
+      "title": "AIS Ships",
+      "summary": "Legacy FD6818 IF capture; FD6818B port not validated.",
+      "status": "wip",
+      "required_packs": [],
+      "source_module": "aisships",
+      "expected_api": 2
+    },
+    "alarm": {
+      "title": "Alarm",
+      "summary": "Requires a provisioned UTC clock and configured alarm; default bundle refuses to run.",
+      "status": "wip",
+      "required_packs": [],
+      "source_module": "alarm",
+      "expected_api": 8
+    },
+    "clkget": {
+      "title": "Clock",
+      "summary": "Clock diagnostic; requires an existing clock fix for meaningful results.",
+      "status": "experimental",
+      "required_packs": [],
+      "source_module": "clkget",
+      "expected_api": 8
+    },
+    "cwkey": {
+      "title": "CW Key",
+      "summary": "Legacy direct RF TX and baked-in bench frequency/callsign. Must be ported and configured before use.",
+      "status": "wip",
+      "required_packs": [],
+      "source_module": "cwkey",
+      "expected_api": 3
+    },
+    "cwlisten": {
+      "title": "CW Listen",
+      "summary": "Legacy direct FD6818 tone detector; use managed Scan decoder when ported.",
+      "status": "wip",
+      "required_packs": [],
+      "source_module": "cwlisten",
+      "expected_api": 2
+    },
+    "dmrrx": {
+      "title": "DMR RX",
+      "summary": "Legacy capture pipeline; only about 1 KiB compact scratch remains before alignment. FD6818B port and memory audit required.",
+      "status": "wip",
+      "required_packs": [],
+      "source_module": "dmrrx",
+      "expected_api": 2
+    },
+    "ft8rx": {
+      "title": "FT8 RX",
+      "summary": "Legacy IF DMA/mixer path; about 1.2 KiB compact scratch remains. FD6818B port and RAM audit required.",
+      "status": "wip",
+      "required_packs": [],
+      "source_module": "ft8rx",
+      "expected_api": 2
+    },
+    "ft8tx": {
+      "title": "FT8 TX",
+      "summary": "Legacy FM audio FSK, baked-in bench frequency and callsign; not standard FT8 RF modulation.",
+      "status": "wip",
+      "required_packs": [],
+      "source_module": "ft8tx",
+      "expected_api": 3
+    },
+    "midi": {
+      "title": "MIDI",
+      "summary": "Local speaker player; physical audio and compact runtime scratch validation pending.",
+      "status": "experimental",
+      "required_packs": [],
+      "source_module": "midi",
+      "expected_api": 2
+    },
+    "morse": {
+      "title": "Morse",
+      "summary": "MCW paddle TX uses direct legacy RF tone registers; FD6818B transmit port and physical validation needed.",
+      "status": "wip",
+      "required_packs": [],
+      "source_module": "morse",
+      "expected_api": 15
+    },
+    "pocsag": {
+      "title": "POCSAG",
+      "summary": "Legacy FD6818 raw FSK register path; FD6818B port required.",
+      "status": "wip",
+      "required_packs": [],
+      "source_module": "pocsag",
+      "expected_api": 2
+    },
+    "rangerx": {
+      "title": "Range RX",
+      "summary": "Legacy raw FSK sign sampler; FD6818B Data port required.",
+      "status": "wip",
+      "required_packs": [],
+      "source_module": "rangerx",
+      "expected_api": 2
+    },
+    "rangetx": {
+      "title": "Range TX",
+      "summary": "Legacy direct FFSK TX and baked-in bench settings. Port and configuration required.",
+      "status": "wip",
+      "required_packs": [],
+      "source_module": "rangetx",
+      "expected_api": 3
+    },
+    "rtls": {
+      "title": "Station List",
+      "summary": "Legacy repeater table diagnostic; mount may repair/write storage. Current host storage integration not validated.",
+      "status": "wip",
+      "required_packs": [],
+      "source_module": "rtls",
+      "expected_api": 5
+    },
+    "rxmap": {
+      "title": "RX Map",
+      "summary": "Receive-only RSSI mapping bench utility; verify FD6818B tuning and measurements.",
+      "status": "experimental",
+      "required_packs": [],
+      "source_module": "rxmap",
+      "expected_api": 2
+    },
+    "samerx": {
+      "title": "SAME RX",
+      "summary": "Legacy raw FSK audio sampler; FD6818B port required. Not a dependable weather alert receiver.",
+      "status": "wip",
+      "required_packs": [],
+      "source_module": "samerx",
+      "expected_api": 2
+    },
+    "stockfont": {
+      "title": "Stock Font",
+      "summary": "Read-only stock font probe; depends on intact factory SPI font data.",
+      "status": "experimental",
+      "required_packs": [],
+      "source_module": "stockfont",
+      "expected_api": 6
+    },
+    "wsprbcn": {
+      "title": "WSPR Beacon",
+      "summary": "Legacy periodic FM FSK transmit with baked-in station identity; not standard WSPR RF modulation.",
+      "status": "wip",
+      "required_packs": [],
+      "source_module": "wsprbcn",
+      "expected_api": 3
+    },
+    "wspriq": {
+      "title": "WSPR IQ",
+      "summary": "Legacy IF capture and serial streaming; FD6818B port required.",
+      "status": "wip",
+      "required_packs": [],
+      "source_module": "wspriq",
+      "expected_api": 2
+    },
+    "wsprtx": {
+      "title": "WSPR TX",
+      "summary": "Legacy FM FSK transmit with baked-in station identity; not standard WSPR RF modulation.",
+      "status": "wip",
+      "required_packs": [],
+      "source_module": "wsprtx",
+      "expected_api": 3
+    },
+    "aprs-8k-cap": {
+      "status": "wip",
+      "summary": "Archived development probe; not intended for normal FD6818B radio operation."
+    },
+    "aprs-8k-disc": {
+      "status": "wip",
+      "summary": "Archived development probe; not intended for normal FD6818B radio operation."
+    },
+    "aprs-if-8k": {
+      "status": "wip",
+      "summary": "Archived development probe; not intended for normal FD6818B radio operation."
+    },
+    "aprs-if-cal": {
+      "status": "wip",
+      "summary": "Archived development probe; not intended for normal FD6818B radio operation."
+    },
+    "aprsbstream-7e": {
+      "status": "wip",
+      "summary": "Archived development probe; not intended for normal FD6818B radio operation."
+    },
+    "aprsbstream-7e-diag": {
+      "status": "wip",
+      "summary": "Archived development probe; not intended for normal FD6818B radio operation."
+    },
+    "aprsbstream-7e-status": {
+      "status": "wip",
+      "summary": "Archived development probe; not intended for normal FD6818B radio operation."
+    },
+    "aprsbstream-bnative": {
+      "status": "wip",
+      "summary": "Archived development probe; not intended for normal FD6818B radio operation."
+    },
+    "aprsclk": {
+      "status": "wip",
+      "summary": "Archived development probe; not intended for normal FD6818B radio operation."
+    },
+    "aprsdfsk": {
+      "status": "wip",
+      "summary": "Archived development probe; not intended for normal FD6818B radio operation."
+    },
+    "aprsdfsk-burstfix": {
+      "status": "wip",
+      "summary": "Archived development probe; not intended for normal FD6818B radio operation."
+    },
+    "aprsdfsk-burstfix2": {
+      "status": "wip",
+      "summary": "Archived development probe; not intended for normal FD6818B radio operation."
+    },
+    "aprsdfsk-fifo-fix": {
+      "status": "wip",
+      "summary": "Archived development probe; not intended for normal FD6818B radio operation."
+    },
+    "aprsdfsk-stream": {
+      "status": "wip",
+      "summary": "Archived development probe; not intended for normal FD6818B radio operation."
+    },
+    "aprsdfskcap-probe": {
+      "status": "wip",
+      "summary": "Archived development probe; not intended for normal FD6818B radio operation."
+    },
+    "aprsfskbcap": {
+      "status": "wip",
+      "summary": "Archived development probe; not intended for normal FD6818B radio operation."
+    },
+    "aprsfskcap1200": {
+      "status": "wip",
+      "summary": "Archived development probe; not intended for normal FD6818B radio operation."
+    },
+    "aprsfskformat2-format2": {
+      "status": "wip",
+      "summary": "Archived development probe; not intended for normal FD6818B radio operation."
+    },
+    "aprsfskstreamcap": {
+      "status": "wip",
+      "summary": "Archived development probe; not intended for normal FD6818B radio operation."
+    },
+    "if-carrier": {
+      "status": "wip",
+      "summary": "Archived development probe; not intended for normal FD6818B radio operation."
+    },
+    "if-survey": {
+      "status": "wip",
+      "summary": "Archived development probe; not intended for normal FD6818B radio operation."
+    },
+    "if-survey-fm": {
+      "status": "wip",
+      "summary": "Archived development probe; not intended for normal FD6818B radio operation."
+    },
+    "refcal-dry": {
+      "status": "wip",
+      "summary": "Archived development probe; not intended for normal FD6818B radio operation."
+    },
+    "explore-scan-fit": {
+      "status": "wip",
+      "summary": "Archived development probe; not intended for normal FD6818B radio operation."
     }
   }
 }

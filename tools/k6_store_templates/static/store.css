@@ -321,3 +321,9 @@ footer { display: flex; align-items: center; justify-content: space-between; gap
 #provision-confirm [data-confirm-first] { color: var(--red); }
 #provision-confirm::backdrop { background: rgba(0,0,0,.55); }
 #provision-confirm [hidden] { display: none; }
+
+/* Local module compatibility: readable on the dark catalog background. */
+.badge.targeted { color: #c8f16d; }
+.badge.experimental { color: #f8cf82; }
+.badge.wip, .badge.blocked { color: #ffaaa2; }
+.badge.targeted i, .badge.experimental i, .badge.wip i, .badge.blocked i { background: currentColor; }

@@ -902,7 +902,20 @@ def cable_key(c, key=None, key_file=None, log=print):
     return k6mod.read_key(find_key(key_file, log=log))
 
 
-def load(c, bundle, key, serials, log=print, only=None, verify=False, force=False, skip_key_check=False):
+def check_required_capabilities(c, required, entries=()):
+    if not required:
+        return
+    caps = c.capabilities()
+    missing = [cap for cap in required if not caps.get(cap)]
+    if missing:
+        raise InstallError("radio firmware lacks required module capabilities: " + ", ".join(missing))
+    level = max((e.get("level", 1) for e in entries if e["kind"] == "module"), default=1)
+    if caps.get("module_api_max", 0) < level:
+        raise InstallError(f"module requires API level {level}; radio supports {caps.get('module_api_max', 0)}")
+
+
+def load(c, bundle, key, serials, log=print, only=None, verify=False, force=False, skip_key_check=False, required_caps=()):
+    check_required_capabilities(c, required_caps, [e for e in bundle["library"] if only is None or e.get("slot") in only])
     info = c.info()
     log(f"  the radio: cable session {info['protocol']}, {info['slots']} slots, "
         f"{info['arena']} B upload arena, "
@@ -1155,6 +1168,7 @@ def main(argv=None, log=None, ask=input):
     ld.add_argument("--only", help="these slots only, e.g. 0,13,26")
     ld.add_argument("--verify", action="store_true")
     ld.add_argument("--force", action="store_true", help="pages even if the radio's build ID differs")
+    ld.add_argument("--require-capability", action="append", default=[], choices=("module_loader", "scanner", "fsk_rx", "designer", "sotto", "ota"), help="refuse before writing if firmware lacks a requested service")
     ld.add_argument("--skip-key-check", action="store_true", help="skip the standalone probe and try the selected image")
     rm = sub.add_parser("remove-slot", help="erase one module slot from the radio")
     rm.add_argument("slot", type=int, help="module slot number; firmware pages and decks are protected")
@@ -1236,7 +1250,7 @@ def main(argv=None, log=None, ask=input):
             if a.cmd == "load":
                 only = {int(s) for s in a.only.split(",")} if a.only else None
                 try:
-                    load(c, bundle, key, Serials(), log, only, a.verify, a.force, a.skip_key_check)
+                    load(c, bundle, key, Serials(), log, only, a.verify, a.force, a.skip_key_check, a.require_capability)
                 except InstallError:
                     # Don't leave the radio in a half-finished cable/module-packet session. The
                     # next attempt starts from a fresh radio state instead of inheriting it.
