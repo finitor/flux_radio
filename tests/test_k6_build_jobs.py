@@ -97,3 +97,17 @@ def test_theme_used_by_build_job(tmp_path):
     assert jobs.get(job_id)['tx_profile'] == 'ce'
     assert calls[0][-2:] == ['--theme', 'minimal']
     assert calls[0][-4:-2] == ['--tx-profile', 'ce']
+
+def test_build_compiler_log_is_collapsed(tmp_path):
+    app = k6_store.create_app()
+    jobs = BuildJobs(tmp_path, runner=lambda *args, **kwargs: FakeProcess())
+    app.config['build_jobs'] = jobs
+    job_id = jobs.start(['base'])
+    client = app.test_client()
+    page = client.get(f'/profiles/build/{job_id}').data
+    assert b'<details class="readme" id="compiler-output">' in page
+    assert b'Compiler output' in page
+    jobs._jobs[job_id]['process'].code = 1
+    page = client.get(f'/profiles/build/{job_id}').data
+    assert b'Build failed.' in page
+    assert b'<details class="readme" id="compiler-output">' in page
