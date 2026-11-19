@@ -11,6 +11,12 @@ Catalog, read it back, and launch it on the radio. This replaces the initial
 assessment at `b1f5a8a`, which had not exercised physical USB or a local firmware
 build.
 
+The complete physical workflow used two OS-independent fixes proposed separately:
+[cable dispatch](https://github.com/tcarwash/flux_radio/pull/2) and
+[EXPLORE Try audio](https://github.com/tcarwash/flux_radio/pull/1).
+The macOS support branch records those hardware results but does not include
+either fix; apply them separately when reproducing the full radio workflow.
+
 Test host: macOS 15.8.3 / arm64, Python 3.10.5, Homebrew LLVM/LLD 23.1.6,
 Rust/Cargo 1.99.0. See [macOS setup and build instructions](k6-macos-build.md).
 The firmware still targets the radio's Cortex-M0 MCU.
@@ -75,7 +81,7 @@ and adds compiled-firmware regressions for distinct CAPS/INFO/SERIAL/error/END
 responses plus cable-only module installation with readback. The old image
 reproduced the exact physical-radio INFO failure in the emulator; the corrected
 image passed both compiled regressions and then the physical checks above.
-The Linux starter workflow now runs these regressions for all six starter builds.
+The independent cable-fix PR adds these regressions to all six Linux starter builds.
 
 The physical test image was built from `b0e2546` plus this fix, before the
 integration branch was assembled:
@@ -98,13 +104,16 @@ rewriting the smaller branches.
 | `codex/macos-host-tests` | Native Mach-O annotations and platform-specific host linking; stacked on firmware builds |
 | `codex/cable-capability-dispatch` | Hardware-discovered firmware bug fix; independently based on upstream |
 | `codex/macos-hardware-checkpoint` | Integration of the macOS stack and cable fix, plus this validation record |
+| `codex/macos-support` | Single macOS PR: the portability stack and validation documentation; no independent radio fixes |
+| `codex/explore-try-audio-upstream` | OS-independent EXPLORE audio PR; directly based on upstream |
 
-Review the cable fix independently so it can be incorporated upstream without
-waiting for the macOS work. Review the macOS stack in order, using each parent
-branch as the comparison base. Integrate accepted upstream commits into the
-checkpoint branch with merges; avoid rewriting published review branches merely
-to refresh the checkpoint. Do not submit the integration branch as an additional
-copy of topic changes already accepted upstream.
+Review one macOS PR and one PR for each independent radio fix. Each PR targets
+upstream main directly and can merge without the other two. The smaller macOS
+topic branches remain available to inspect individual implementation steps;
+they are combined in the macOS PR rather than submitted as additional PRs.
+Integrate accepted upstream commits into the checkpoint branch with merges;
+avoid rewriting published review branches merely to refresh the checkpoint.
+Do not submit the integration branch as an additional copy of accepted changes.
 
 ## Validation scope and remaining work
 
@@ -116,8 +125,13 @@ The selected 73 tooling/build tests and 42 native-host regressions passed during
 that work. The integrated source-generation tests also passed (7 cases).
 These are selected checks, not a complete root-suite pass.
 
-Remaining validation includes RF reception/transmission, recovery/backup restore,
-physical use of Scan/Designer and optional Sotto/OTA packs, Intel Macs, and the
+Before opening the separate PRs, the isolated macOS support branch passed a
+combined set of 105 tooling, portable-build, installer and native-loader/APRS
+regressions. The independent cable and audio branches separately passed five
+and four selected cases respectively.
+
+Remaining validation includes systematic RF measurements and transmission,
+recovery/backup restore, physical Designer and optional Sotto/OTA packs, Intel Macs, and the
 complete root test suite. Hosted CI has been configured but successful runs for
 these topic changes have not been established at this checkpoint.
 

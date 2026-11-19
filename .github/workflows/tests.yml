@@ -60,8 +60,9 @@ jobs:
         with:
           python-version: '3.12'
       - run: |
-          brew install llvm
+          brew install llvm lld
           echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+          echo "$(brew --prefix lld)/bin" >> "$GITHUB_PATH"
           python -m pip install -r requirements.txt pytest
       - name: Portable C library and installer smoke tests
         run: >-
