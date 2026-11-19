@@ -1,9 +1,11 @@
 # Experimental macOS firmware builds
 
 The Catalog, CLI and firmware build tools can run on macOS. Firmware still
-targets the radio's Cortex-M0 MCU. Native build validation does not establish
-physical USB flashing, recovery, or RF performance; those remain untested on
-the Mac used below. The radio target remains FD6818B UV-K6/K61 hardware.
+targets the radio's Cortex-M0 MCU. Physical Base FCC flashing, calibration
+preservation, VFO module installation/readback and module launch subsequently
+passed on one Apple Silicon Mac and FD6818B radio. See the
+[hardware checkpoint](macos-feasibility.md) for evidence and remaining limits.
+The radio target remains FD6818B UV-K6/K61 hardware.
 
 ## Setup
 
@@ -41,19 +43,23 @@ python -m sim.k6ide --host 127.0.0.1 \
 
 These commands do not open a serial port. The workbench is available at
 `http://127.0.0.1:5056`. Run the Catalog separately with `python tools/k6.py catalog`.
-For eventual cable use, enumerate ports with `python -m serial.tools.list_ports`
+For cable use, enumerate ports with `python -m serial.tools.list_ports`
 and select the actual `/dev/cu.*` device; do not copy Linux `/dev/ttyUSB*` examples.
 Follow the [installation guide](manual/install.md) before hardware operations.
 
 ## Validation record
 
-Validated 2026-11-19, source commit `391e3dd`, on macOS 15.8.3 / arm64:
+Initial build matrix validated 2026-11-19, source commit `391e3dd`, on macOS 15.8.3 / arm64:
 Python 3.10.5, Homebrew LLVM/LLD 23.1.6, Rust/Cargo 1.99.0.
 
 Each row used a fresh checkout of the pinned Aura revision. The full build,
 pack inspection, starter ZIP creation, extracted-starter validator, and
 2,000,000-instruction headless emulator run passed. Each emulator report had
 `fault: null`. The application limit is 122,880 bytes.
+
+These images predate the cable dispatcher fix (`cc2441b`). Successful startup
+did not exercise the affected INFO handler; use the corrected source for radio
+installation. The hardware checkpoint records the corrected Base FCC image.
 
 | Starter | TX profile | Firmware bytes | Flash remaining |
 | --- | --- | ---: | ---: |
@@ -92,7 +98,9 @@ definition in this branch is not evidence of a completed hosted CI run.
 
 ## Remaining limitations
 
-- Physical USB, backup, flashing and recovery need compatible-radio validation.
+- Physical USB flashing and VFO installation passed on the radio in the
+  hardware checkpoint. The ordinary backup command needed a sequential-read
+  workaround; backup reliability and restore/recovery still need work.
 - Intel Macs, optional Sotto/OTA packs and Linux audio/service utilities were
   not validated by this starter matrix.
 - Some existing native host tests assume ELF sections or GNU linker flags.
