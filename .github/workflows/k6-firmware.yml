@@ -1,38 +1,60 @@
-name: Flux firmware
-
+name: Flux starter firmware
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
 jobs:
-  build-host:
+  starter:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [base, scan, designer-scan]
+        tx: [ce, fcc]
+        include:
+          - profile: base
+            packs: base
+          - profile: scan
+            packs: base scan
+          - profile: designer-scan
+            packs: base scan designer
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: true
+          submodules: recursive
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-      - name: Install toolchains
-        run: |
+          python-version: '3.12'
+      - run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq clang lld llvm
+          sudo apt-get install -y -qq clang lld llvm build-essential
           rustup toolchain install stable --profile minimal --target thumbv6m-none-eabi
-      - name: Install Python build dependencies
-        run: python -m pip install -r requirements.txt
-      - name: Build host image and starter modules
+          python -m pip install -r requirements.txt
+      - name: Build and verify cable-only starter
+        run: |
+          python tools/k6.py build ${{ matrix.packs }} --tx-profile ${{ matrix.tx }} --output firmware/k6-aura/out-fd6818b/starter
+          python tools/k6.py inspect firmware/k6-aura/out-fd6818b/starter
+          python tools/k6_starter_release.py ${{ matrix.profile }} firmware/k6-aura/out-fd6818b/starter dist/flux-fd6818b-${{ matrix.profile }}-${{ matrix.tx }}.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flux-fd6818b-${{ matrix.profile }}-${{ matrix.tx }}
+          path: dist/*
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: starter
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: flux-fd6818b-*
+          merge-multiple: true
+          path: dist
+      - name: Publish experimental starter bundles
         env:
-          K6_MOD_KEY_FILE: ${{ runner.temp }}/k6-mod.key
-        run: |
-          umask 077
-          python3 -c 'import secrets; print(secrets.token_hex(16))' > "$K6_MOD_KEY_FILE"
-          sh firmware/k6-aura/build-blowfang-host.sh
-      - name: Check output fits the K6
-        run: |
-          cat firmware/k6-aura/out-fd6818b/size.txt
-          test -s firmware/k6-aura/out-fd6818b/flux-fd6818b.bin
-          test -s firmware/k6-aura/out-fd6818b/vfo-module-bundle/manifest.json
-          test -s firmware/k6-aura/out-fd6818b/cardlink-module-bundle/manifest.json
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" dist/* --repo "${GITHUB_REPOSITORY}" --prerelease --generate-notes

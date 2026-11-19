@@ -54,8 +54,22 @@ and board before flashing. See the [hardware roadmap](docs/k6-hardware-parity-pl
 
 Start with the [installation guide](docs/manual/install.md), which covers
 the cable, first boot, backup, format prompt, and module installation.
-Starter bundles are intended to eliminate the need for a compiler on the
-installation computer. See the guide for the current release workflow.
+Download a starter ZIP from the repository's Releases page once a tagged
+prerelease is available (or an Actions build artifact). Choose CE or FCC
+as appropriate for your location. Extract the ZIP, open a terminal in
+the extracted directory, and run:
+
+```sh
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -r requirements.txt
+python tools/k6.py starter-install starter --port /dev/ttyUSB0
+```
+
+The guided installer prompts for hardware confirmation, handles the SPI
+backup and first-boot format, and installs and verifies bundled modules.
+No firmware compiler or personal signing key is needed. The first-time
+guided workflow is experimental; read the installation guide before use.
 
 ## Build from source
 

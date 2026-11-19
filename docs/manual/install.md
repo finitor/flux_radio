@@ -42,6 +42,21 @@ python tools/k6.py inspect "$PACK"
 Inspection verifies artifact consistency, not the publisher's identity or
 the connected radio's hardware. Do not install an untrusted bundle.
 
+## Guided starter install
+
+Download and extract a trusted CI/release starter ZIP, choosing the correct
+TX profile. The archive includes a matching CLI and a `starter/` pack.
+In its extracted directory, create a Python virtual environment and install
+`requirements.txt` (no compiler needed). Run:
+
+```sh
+python tools/k6.py starter-install starter --port /dev/ttyUSB0
+```
+
+Follow the prompts; never press MENU at FORMAT FLASH? before the backup
+succeeds. The guided path is experimental. The manual procedure below is
+also available, including if a guided install is interrupted.
+
 ## First installation from stock firmware
 
 1. Try a backup while the radio is on its normal screen:

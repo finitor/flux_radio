@@ -33,6 +33,9 @@ def command(argv):
         cmd_parser.add_argument('--theme', type=validate_theme, default=DEFAULT_THEME, metavar="THEME")
         cmd_parser.add_argument('--tx-profile', type=validate_tx_profile, choices=TX_PROFILES, default=DEFAULT_TX_PROFILE)
     build.add_argument('--theme-name', default='', help='optional display name carried by the theme package')
+    starter = sub.add_parser('starter-install', help='guided first install with SPI backup and format confirmation')
+    starter.add_argument('pack', type=lambda value: Path(value).expanduser().resolve())
+    starter.add_argument('--port', required=True)
     inspect = sub.add_parser('inspect', help='check staged feature-pack integrity (no radio writes)')
     inspect.add_argument('pack', type=Path)
     inspect.add_argument('--spec', type=Path)
@@ -64,6 +67,14 @@ def command(argv):
     radio = sub.add_parser('radio', help='radio cable operations (status, backup, flash, load)')
     radio.add_argument('args', nargs=argparse.REMAINDER)
     args = p.parse_args(argv)
+    if args.command == 'starter-install':
+        from k6_starter_install import install
+        from k6_install import InstallError
+        try:
+            install(args.pack, json.loads(DEFAULT.read_text()), args.port)
+        except InstallError as exc:
+            p.error(str(exc))
+        return 0
     if args.command == 'plan':
         print(json.dumps(resolve(json.loads(args.spec.read_text()), args.packs, args.theme, args.tx_profile), indent=2))
         return 0
