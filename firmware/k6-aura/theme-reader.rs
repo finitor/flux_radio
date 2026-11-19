@@ -1,4 +1,4 @@
-// K6T v4 data-only reader. Relative offsets; no allocation or executable code.
+// K6T v6-v8 data-only reader. Relative offsets; no allocation or executable code.
 // Shared between host tests and FD6818B; caller owns the slot and its read callback.
 pub const MAX_BYTES: u16 = 8192;
 const HEADER: u16 = 12;
@@ -19,16 +19,21 @@ pub struct Theme {
     pub inset: u8,
     pub meter: u8,
     pub splash: u8,
+    pub logo_offset: u16,
+    pub name_offset: u16,
+    pub name_len: u8,
     pub marker: [u8; 8],
     pub meter_offset: u16,
     pub battery_offset: u16,
     pub layers: [Layer; 3],
     pub flat_offset: u16,
+    pub separate_names: bool,
     pub font_offset:u16,
 }
 
 fn word(b: &[u8]) -> u16 { u16::from_le_bytes([b[0], b[1]]) }
 
+#[inline(never)]
 fn take(
     read: &mut dyn FnMut(u16, &mut [u8]) -> bool, at: &mut u16, end: u16, dst: &mut [u8],
 ) -> Option<()> {
@@ -43,7 +48,7 @@ fn take(
 #[inline(never)]
 pub fn open(read: &mut dyn FnMut(u16, &mut [u8]) -> bool) -> Option<Theme> {
     let mut header = [0u8; 12];
-    if !read(0, &mut header) || (&header[..3] != b"K6T" || header[3]!=6)
+    if !read(0, &mut header) || (&header[..3] != b"K6T" || !matches!(header[3],6|7|8|9))
         || header[6] != 1 || header[7] != 0 { return None; }
     let end = HEADER.checked_add(word(&header[4..]))?;
     if end > MAX_BYTES || end < HEADER + 23 { return None; }
@@ -64,10 +69,11 @@ pub fn open(read: &mut dyn FnMut(u16, &mut [u8]) -> bool) -> Option<Theme> {
     let mut meta = [0u8;14];
     take(read,&mut at,end,&mut meta)?;
     if meta[0] > 3 || meta[1] > 1 || meta[2] > 3 || meta[3] > 3 ||
-        meta[4] > 2 || meta[5] > 1 || meta[6..].iter().any(|b| b & 1 != 0) { return None; }
+        meta[4] > (if header[3]>=7 {3} else {2}) || meta[5] > 1 || meta[6..].iter().any(|b| b & 1 != 0) { return None; }
     let mut t = Theme {
-        flags: meta[0], font: meta[1], inset: meta[2], meter: meta[3], splash: meta[4],
-        marker: [0;8], meter_offset: 0, battery_offset: 0, layers: [EMPTY;3], flat_offset: 0,font_offset:0,
+        flags: meta[0], font: meta[1], inset: meta[2], meter: meta[3], splash: meta[4], logo_offset: 0,
+        name_offset: 0, name_len: 0,
+        marker: [0;8], meter_offset: 0, battery_offset: 0, layers: [EMPTY;3], flat_offset: 0,font_offset:0,separate_names:header[3]==9,
     };
     t.marker.copy_from_slice(&meta[6..]);
     if t.meter == 3 {
@@ -84,6 +90,21 @@ pub fn open(read: &mut dyn FnMut(u16, &mut [u8]) -> bool) -> Option<Theme> {
             if !buf[..24].iter().any(|&b| b != 0)
                 || buf[2..24].iter().step_by(3).any(|b| b & 127 != 0) { return None; }
         }
+    }
+    if t.splash == 3 {
+        t.logo_offset = at;
+        take(read,&mut at,end,&mut buf[..32])?;
+        if !buf[..32].iter().any(|&b| b != 0) { return None; }
+    }
+    if header[3]>=8 {
+        take(read,&mut at,end,&mut buf[..1])?;
+        let n=buf[0];
+        if n>14 || (n==0 && header[3]==8){return None;}
+        t.name_offset=at;
+        t.name_len=n;
+        take(read,&mut at,end,&mut buf[..usize::from(n)])?;
+        if buf[..usize::from(n)].iter().any(|b| !b.is_ascii_alphanumeric() && !matches!(*b,b' '|b'_'|b'-'))
+            || (n!=0 && !buf[..usize::from(n)].iter().any(|b| !matches!(*b,b' '|b'_'|b'-'))) { return None; }
     }
     for i in 0..3 {
         take(read,&mut at,end,&mut buf[..3])?;
@@ -119,7 +140,7 @@ pub fn open(read: &mut dyn FnMut(u16, &mut [u8]) -> bool) -> Option<Theme> {
             (t.flags == 0 && !t.marker.iter().any(|&b| b != 0) && !ink)) { return None; }
         t.layers[i] = layer;
     }
-    if header[3]==6 {
+    if header[3]>=6 {
         take(read,&mut at,end,&mut buf[..1])?;
         if buf[0]>1{return None;}
         if buf[0]==1 {
@@ -127,14 +148,17 @@ pub fn open(read: &mut dyn FnMut(u16, &mut [u8]) -> bool) -> Option<Theme> {
             for _ in 0..11 {take(read,&mut at,end,&mut buf[..12])?;if !buf[..12].iter().any(|&b|b!=0){return None;}}
         }
         t.flat_offset=at;
-        let mut seen=0u32;
-        for _ in 0..32 {
+        let mut seen=[0u32;2];
+        let count=if t.separate_names {34} else {32};
+        for _ in 0..count {
             take(read,&mut at,end,&mut buf[..5])?;
             let (width,height)=widget_size(buf[0],buf[3])?;
             if buf[3]==2 && t.font_offset==0{return None;}
-            if seen & (1<<buf[0]) !=0 || buf[4]>1 ||
+            if buf[0]>=count {return None;}
+            let bank=usize::from(buf[0]>>5);let bit=1u32<<(buf[0]&31);
+            if seen[bank] & bit !=0 || buf[4]>1 ||
                 u16::from(buf[1])+width>128 || u16::from(buf[2])+height>64 {return None;}
-            seen|=1<<buf[0];
+            seen[bank]|=bit;
         }
     }
     if at != end { return None; }
@@ -192,10 +216,11 @@ where R: FnMut(u16, &mut [u8]) -> bool, F: FnMut(u16, u8, bool) {
 
 
 // This is geometry validation, not layout: the Catalog supplies final positions.
+#[inline(never)]
 pub fn widget_size(source:u8,font:u8)->Option<(u16,u16)> {
     if font>0 {return if matches!(source,8|13){match font{1=>Some((54,10)),2=>Some((72,12)),_=>None}}else{None};}
     Some(match source {
         0|7|12=>(30,8),1|6|11|29|30|31=>(10,8),2=>(17,8),3=>(60,8),4=>(65,8),
-        5|10=>(7,8),8|13=>(82,17),9|14=>(12,6),15|22|18|25=>(16,6),16|23=>(24,6),17|24|19|26=>(4,6),20|27=>(20,6),21|28=>(32,6),_=>return None,
+        5|10=>(7,8),8|13=>(82,17),9|14=>(12,6),15|22|18|25=>(16,6),16|23=>(24,6),17|24|19|26=>(4,6),20|27=>(20,6),21|28=>(32,6),32|33=>(60,8),_=>return None,
     })
 }

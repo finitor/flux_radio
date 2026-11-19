@@ -8,12 +8,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='store.css') }}">
 </head>
 <body>
-  <header class="topbar">
-    <a class="brand" href="{{ url_for('index') }}"><span class="brand-mark">F</span> Flux <span>Catalog</span></a>
-    <nav class="top-actions"><a href="{{ url_for('profiles') }}">Feature packs</a> <a href="#catalog">Catalog</a><a href="{{ url_for('radio') }}">My radio</a><a href="{{ url_for('settings_page') }}">Device settings{% if radio_settings.port %} · {{ radio_settings.port }}{% endif %}</a><span class="connection"><i></i> Local catalog</span>
-      <form method="post" action="{{ url_for('refresh_all') }}"><button class="quiet" type="submit">↻ <span>Refresh</span></button></form>
-    </nav>
-  </header>
+  {% with nav_section = 'catalog' %}{% include '_navbar.html' %}{% endwith %}
   <main class="layout">
     <section class="intro">
       <div class="intro-copy">
@@ -48,7 +43,7 @@
       {% if messages %}<section class="messages">{% for category, message in messages %}<p class="{{ category }}">{{ message }}</p>{% endfor %}</section>{% endif %}
     {% endwith %}
 
-    <section class="catalog-head" id="catalog"><div><p class="eyebrow">YOUR SOURCES</p><h2>Find your next tool</h2><p>Independent projects, ready to explore.</p></div><span class="count"><b>{{ repos|length }}</b> repositories</span></section>
+    <section class="catalog-head" id="catalog"><div><p class="eyebrow">YOUR SOURCES</p><h2>Find your next tool</h2><p>Independent projects, ready to explore.</p></div><div class="catalog-source-actions"><span class="count"><b>{{ repos|length }}</b> repositories</span><form method="post" action="{{ url_for('refresh_all') }}"><button class="quiet" type="submit">↻ Refresh</button></form></div></section>
     {% if repos %}
       <section class="catalog-tools"><label class="search-box"><span>⌕</span><input id="catalog-search" type="search" placeholder="Search modules and projects…" autocomplete="off"></label>
         <div class="filter-pills" role="group" aria-label="Filter modules"><button class="filter-pill active" type="button" data-filter="all" aria-pressed="true">All projects <span>{{ repos|length }}</span></button><button class="filter-pill" type="button" data-filter="ready" aria-pressed="false">Installable <span>{{ repos|selectattr('bundle')|list|length }}</span></button></div>
@@ -74,8 +69,18 @@
     {% else %}
       <section class="empty"><div class="empty-art"><span>＋</span><i></i><i></i><i></i></div><p class="eyebrow">A SHELF WITH ROOM TO GROW</p><h3>Start with a project you trust</h3><p>Add a Git repository above. We’ll use its README for the description and screenshots, and its bundle manifest for install details.</p><code>python3 tools/k6_store.py add https://github.com/you/k6-module</code></section>
     {% endif %}
+    <section class="catalog-head" id="themes"><div><p class="eyebrow">RADIO APPEARANCE</p><h2>Themes</h2><p>Requires the Designer feature set. Install a theme without reflashing compatible firmware.</p></div></section>
+    <form class="add-source" method="post" enctype="multipart/form-data" action="{{ url_for('add_catalog_theme') }}">
+      <div class="add-copy"><label for="theme-file">Add a theme package</label><span>Import a .fluxtheme file or save a design in the Theme editor.</span></div>
+      <div class="source-fields"><input id="theme-file" type="file" name="theme" accept=".fluxtheme" required><input name="name" placeholder="Optional name"><button>Add theme</button></div>
+    </form>
+    {% if catalog_themes %}<section class="cards">{% for theme in catalog_themes %}<article class="card">
+      {% if theme.preview %}<div class="card-cover"><img src="{{ theme.preview }}" alt="Theme preview"></div>{% endif %}
+      <div class="card-heading"><h3>{{ theme.name }}</h3></div><p class="summary">Requires Designer</p>
+      <div class="card-foot"><form method="post" action="{{ url_for('install_catalog_theme') }}" data-confirm="Install {{ theme.name }} into an empty theme slot?"><input type="hidden" name="name" value="{{ theme.name }}"><button>Install theme</button></form></div>
+    </article>{% endfor %}</section>{% else %}<p class="radio-note">No themes yet. Add a package above or save a design in the Theme editor.</p>{% endif %}
     <footer><span class="footer-brand"><span class="brand-mark">F</span> FLUX</span><span>Built for the curious operator. Install over your programming cable.</span></footer>
   </main>
   <script src="{{ url_for('static', filename='store.js') }}" defer></script>
-</body>
+<script src="{{ url_for('static', filename='radio.js') }}" defer></script></body>
 </html>

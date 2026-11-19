@@ -8,14 +8,26 @@
   {% if operation.state == 'running' %}<meta http-equiv="refresh" content="2">{% endif %}
 </head>
 <body>
-<header class="topbar"><a class="brand" href="{{ url_for('index') }}">Flux</a></header>
+{% with nav_section = 'profiles' %}{% include '_navbar.html' %}{% endwith %}
 <main class="layout detail-layout">
   <a href="{{ url_for('build_status', job_id=job_id) }}">Back to firmware pack</a>
   <section class="panel">
-    <h1>{{ {'flash': 'Flash firmware', 'install': 'Install modules', 'preview': 'Preview module slots'}[operation.action] }}</h1>
+    <h1>{{ {'flash': 'Flash firmware', 'install': 'Install modules', 'preview': 'Preview module slots', 'theme': 'Install theme package', 'splash': 'Install full-screen splash', 'flash-install': 'Flash firmware + update modules'}[operation.action] }}</h1>
     <p role="status">{{ operation.state|capitalize }}</p>
     {% if operation.state == 'success' and operation.action == 'flash' %}
     <p>Once the radio has booted, return to the firmware pack to preview or install its modules.</p>
+    {% endif %}
+    {% if operation.state == 'success' and operation.action == 'flash-install' %}
+    <p>The firmware flashed and its bundled modules were verified on the radio.</p>
+    {% endif %}
+    {% if operation.state == 'failed' and operation.action == 'flash-install' and 'flashed; the radio restarts' in operation.log %}
+    <p>The firmware flash completed, but the module update did not. Check the message below and use Install modules on this build after the radio is ready.</p>
+    {% endif %}
+    {% if operation.state == 'success' and operation.action == 'theme' %}
+    <p>The package was read back successfully. On the radio, select DISP → THEME and choose the installed slot.</p>
+    {% endif %}
+    {% if operation.state == 'success' and operation.action == 'splash' %}
+    <p>The full-screen artwork was read back successfully and will appear at the next startup. The previous bitmap was backed up in ~/flux-backups.</p>
     {% endif %}
     <pre class="install-result">{{ operation.log }}</pre>
   </section>

@@ -20,7 +20,7 @@ def test_jobs_serialize_and_report(tmp_path):
         calls.append(command)
         return FakeProcess()
     jobs = BuildJobs(tmp_path, runner=runner)
-    job_id = jobs.start(['scan', 'aprs'])
+    job_id = jobs.start(['scan', 'data'])
     assert jobs.get(job_id)['state'] == 'running'
     assert calls[0][2:5] == ['build', 'base', 'scan']
     with pytest.raises(ValueError, match='already running'):
@@ -37,7 +37,7 @@ def test_catalog_build_routes_do_not_touch_radio(tmp_path):
     jobs = BuildJobs(tmp_path, runner=lambda *args, **kwargs: FakeProcess())
     app.config['build_jobs'] = jobs
     client = app.test_client()
-    assert client.post('/profiles/build', data={'pack': ['scan', 'aprs']}).status_code == 302
+    assert client.post('/profiles/build', data={'pack': ['scan', 'data']}).status_code == 302
     job_id = next(iter(jobs._jobs))
     response = client.get(f'/profiles/build/{job_id}')
     assert response.status_code == 200
@@ -94,4 +94,6 @@ def test_theme_used_by_build_job(tmp_path):
     assert response.status_code == 302
     job_id = next(iter(jobs._jobs))
     assert jobs.get(job_id)['theme'] == 'minimal'
+    assert jobs.get(job_id)['tx_profile'] == 'ce'
     assert calls[0][-2:] == ['--theme', 'minimal']
+    assert calls[0][-4:-2] == ['--tx-profile', 'ce']

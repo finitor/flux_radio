@@ -15,6 +15,7 @@ import os
 import re
 import secrets
 import struct
+import zlib
 import subprocess
 import tempfile
 
@@ -147,7 +148,13 @@ def bin_entry(code):
     """a built module .bin's entry offset: module.ld puts k6_main first, after the name block when
     the module has one (K6_MODULE_NAME). A .bin carries no symbols, so this is how to find it:
     taking 0 for a named module jumps into its name (the K6 hung that way on 2026-11-14)."""
-    return 4 + NAME_LEN if code[:4] == NAME_MAGIC else 0
+    if code[:4] != NAME_MAGIC:
+        return 0
+    if code[16:19] == b"K6A":
+        if len(code) <= 24 or code[19] != 1 or not 32 <= code[20] < 255 or code[21:24] != b"\0\0\0":
+            raise ValueError("invalid module action registration")
+        return 24
+    return 4 + NAME_LEN
 
 
 def module_name(code):
@@ -170,6 +177,14 @@ def source_opt(src):
     return m.group(1) if m else "s"
 
 
+def image_tag(key, body):
+    """Eight-byte envelope tag: keyed SipHash or cable-only CRC32/complement."""
+    if key is None:
+        crc = zlib.crc32(body)
+        return struct.pack("<II", crc, crc ^ 0xffffffff)
+    return struct.pack("<Q", siphash24(key, body))
+
+
 def image(code, entry, serial, key, level=LEVEL, tlm=0, lib=None, page=False, magic=b"K6M", cards=False,
           remove=False, theme=False):
     """Header + code + SipHash tag (k6_mod.h). tlm: text parts of say lines the K6 sends back
@@ -182,7 +197,7 @@ def image(code, entry, serial, key, level=LEVEL, tlm=0, lib=None, page=False, ma
     help cards (CARDS_FLAG), kept in the slot and never run."""
     code = bytes(code)
     if theme:
-        if lib is None or page or cards or remove or entry or tlm or magic!=b"K6M" or not code.startswith(b"K6T\x06"):
+        if lib is None or page or cards or entry or tlm or magic!=b"K6M" or (code != b"K6THDEL" if remove else code[:4] not in (b"K6T\x06", b"K6T\x07", b"K6T\x08", b"K6T\x09")):
             raise ValueError("invalid theme envelope")
         cards=True
     if entry >= len(code) or entry & 1 or len(code) > 0xFFFF:
@@ -195,7 +210,7 @@ def image(code, entry, serial, key, level=LEVEL, tlm=0, lib=None, page=False, ma
         raise ValueError(f"{16 + len(code) + 8} bytes is more than a library slot ({LIB_SLOT_BYTES})")
     if (page or cards or remove) and lib is None:
         raise ValueError("a page or a deck goes into a library slot")
-    if sum(bool(v) for v in (page, cards, remove)) > 1:
+    if sum(bool(v) for v in (page, cards, remove)) > 1 and not (theme and remove):
         raise ValueError("a page, a deck, or a removal request, not more than one")
     flags, slot = (0, 0) if lib is None else (
         LIB_FLAG | (PAGE_FLAG if page else 0) | (CARDS_FLAG if cards else 0) | (REMOVE_FLAG if remove else 0) | (THEME_FLAG if theme else 0), lib)
@@ -204,7 +219,7 @@ def image(code, entry, serial, key, level=LEVEL, tlm=0, lib=None, page=False, ma
     hdr = bytes(magic) + bytes([ABI]) + struct.pack("<HHIBBBB", len(code), entry, serial & 0xFFFFFFFF, level,
                                               flags, tlm, slot)
     body = hdr + code
-    return body + struct.pack("<Q", siphash24(key, body))
+    return body + image_tag(key, body)
 
 
 def data_bytes(length):

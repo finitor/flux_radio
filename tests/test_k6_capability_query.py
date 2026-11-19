@@ -35,8 +35,17 @@ def test_generated_patch_idempotent_and_updates_gates(tmp_path, monkeypatch):
     target = generated / 'mod.rs'
     target.write_text(text)
     (generated.parent.parent / 'build.rs').write_text('    if feat("VOICE_EXPLORE") {\n        File::create(out.join("k6id.x"))')
-    for scan in ('0', '1'):
-        subprocess.run([sys.executable, str(here / script.name)], env={'K6_SCAN_SERVICE': scan, 'K6_FSK_RX_SERVICE': '0'}, check=True)
+    for scan, ota in (('0', '0'), ('1', '0'), ('0', '1'), ('1', '1')):
+        subprocess.run([sys.executable, str(here / script.name)], env={'K6_SCAN_SERVICE': scan, 'K6_FSK_RX_SERVICE': '0', 'K6_OTA_SERVICE': ota}, check=True)
         output = target.read_text()
         assert output.count('CMD_CABLE_CAPS if f.addr') == 1
-        assert f"2, {1 | (2 if scan == '1' else 0)}, 22, 0" in output
+        assert f"2, {1 | (2 if scan == '1' else 0) | (8 if ota == '1' else 16)}, 23, 0" in output
+
+def test_designer_capability_round_trip():
+    record = b'K6CP' + bytes([2, 1 | 16 | 32, 23, 0]) + bytes(range(1, 9))
+    caps = Cable.parse_capabilities(record)
+    assert caps['designer'] and caps['cable_only'] and not caps['ota']
+    from k6_pack_install import compatibility_report
+    lock = {'capabilities': ['module-loader', 'theme-renderer'], 'modules': []}
+    assert compatibility_report(lock, caps)['capabilities_match']
+    assert not compatibility_report(lock, {**caps, 'designer': False})['capabilities_match']

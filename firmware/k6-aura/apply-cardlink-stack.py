@@ -83,7 +83,7 @@ new = '''fn scratch_end() -> usize {
     }
 }
 '''
-if "arena::end().saturating_sub(2064)" not in text:
+if "arena::end().saturating_sub(2064)" not in text and "arena::end().saturating_sub(2048)" not in text:
     if text.count(old) != 1:
         raise SystemExit(f"expected one lean scratch_end function, got {text.count(old)}")
     text = text.replace(old, new, 1)

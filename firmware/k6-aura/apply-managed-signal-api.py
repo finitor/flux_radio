@@ -49,7 +49,7 @@ if "pub tone_start:" not in text:
         "K6Api level 18 fields",
     )
 if not any(f'level: if cfg!(feature = "fd6818b") {{ {level} }} else {{ 9 }},' in text
-           for level in (18, 19, 20, 21, 22)):
+           for level in (18, 19, 20, 21, 22, 23)):
     for old in (16, 17):
         anchor = f'    level: if cfg!(feature = "fd6818b") {{ {old} }} else {{ 9 }},'
         if anchor in text:

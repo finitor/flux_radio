@@ -12,6 +12,22 @@
       "disabled": "0",
       "implementation": "compact scanner, Explore renderer, and broadcast FM are enabled by the Scan pack"
     },
+    "explore-engine": {
+      "pack": "scan",
+      "capability": "explore-engine-api",
+      "environment": "K6_SCAN_SERVICE",
+      "enabled": "1",
+      "disabled": "0",
+      "implementation": "Explore-only scanner engine API; Base retains the fixed API slots with unavailable stubs."
+    },
+    "explore-ui": {
+      "pack": "scan",
+      "capability": "explore-ui-api",
+      "environment": "K6_SCAN_SERVICE",
+      "enabled": "1",
+      "disabled": "0",
+      "implementation": "Explore-only renderer and frame callbacks; Base retains the fixed API slots with unavailable stubs."
+    },
     "candidate-ranking": {
       "pack": "scan",
       "capability": "candidate-ranking",
@@ -26,15 +42,15 @@
       "environment": "K6_SCAN_SERVICE",
       "enabled": "1",
       "disabled": "0",
-      "implementation": "declared; shared scanner gate does not yet prove complete code removal"
+      "implementation": "Shared CW decode and managed tone-observation APIs are linked only with Scan; Base keeps stable fail-closed API stubs."
     },
     "fsk-rx": {
-      "pack": "aprs",
+      "pack": "data",
       "capability": "fd6818-fsk-rx",
       "environment": "K6_FSK_RX_SERVICE",
       "enabled": "1",
       "disabled": "0",
-      "implementation": "Rust callbacks selectively linked; underlying radio driver remains"
+      "implementation": "Optional raw fixed-frame FSK RX and TX; stable unavailable stubs outside Data. Software APRS / AFSK TX are independent."
     },
     "sotto-decoder": {
       "pack": "sotto",
@@ -42,7 +58,7 @@
       "environment": "K6_SOTTO_SERVICE",
       "enabled": "1",
       "disabled": "0",
-      "implementation": "planned; no selective linking implemented"
+      "implementation": "Voice pager and fixed-point decoder are linked only when K6_SOTTO_SERVICE=1; Base keeps the module queue and omits the legacy pager path."
     },
     "designer": {
       "pack": "designer",
@@ -51,6 +67,14 @@
       "enabled": "1",
       "disabled": "0",
       "implementation": "experimental SPI theme reader and renderer; production installation pending"
+    },
+    "ota": {
+      "pack": "ota",
+      "capability": "authenticated-ota",
+      "environment": "K6_OTA_SERVICE",
+      "enabled": "1",
+      "disabled": "0",
+      "implementation": "SipHash and RF module ingress; Base uses cable-only CRC32 envelopes."
     }
   }
 }

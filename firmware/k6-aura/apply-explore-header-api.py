@@ -17,7 +17,7 @@ text = text.replace(
     '    level: if cfg!(feature = "fd6818b") { 18 } else { 9 },',
     '    level: if cfg!(feature = "fd6818b") { 19 } else { 9 },', 1)
 if not any(f'    level: if cfg!(feature = "fd6818b") {{ {level} }} else {{ 9 }},' in text
-           for level in (19, 20, 21, 22)):
+           for level in (19, 20, 21, 22, 23)):
     raise SystemExit("pager.rs: cannot locate FD6818B API level 18/19")
 
 init = '    tone_stop: mod_tone_stop,\n'

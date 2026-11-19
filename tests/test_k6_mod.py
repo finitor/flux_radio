@@ -100,6 +100,16 @@ def test_loader_refuses():
     assert rs == [0]                                 # not a module packet: the pager's
 
 
+@need_host
+def test_cable_session_starts_a_new_replay_epoch():
+    packets = k6mod.packets(fake_module(serial=1000), 1, 128)
+    inp = "".join(p.hex() + "\n" for p in packets) + "cable_begin\n"
+    out = subprocess.run([HOST, "4096"], input=inp, check=True, capture_output=True,
+                         text=True).stdout
+    assert "r=3 have=" in out
+    assert "cable_serial=0" in out
+
+
 def run_host_again(packets, off, arena=4096):
     """km_again after the module ran, then again with the byte at off flipped: [(r, armed)] * 2"""
     inp = "".join(p.hex() + "\n" for p in packets)

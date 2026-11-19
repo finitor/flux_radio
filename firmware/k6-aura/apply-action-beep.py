@@ -36,7 +36,8 @@ if 'pub fn play_action_beep(' not in (root/'device/radio.rs').read_text():
 patch('app/pager.rs','        pub tone_stop: unsafe extern "C" fn(),','        pub tone_stop: unsafe extern "C" fn(),') if False else None
 patch('app/pager.rs','        pub lcd_explore_frame: unsafe extern "C" fn(*const super::ModExploreFrame),','        pub lcd_explore_frame: unsafe extern "C" fn(*const super::ModExploreFrame),\n        // level 22: local hold feedback (0 success, 1 unavailable).\n        pub action_chirp: unsafe extern "C" fn(u8) -> i32,')
 patch('app/pager.rs','    lcd_explore_frame: mod_lcd_explore_frame,','    lcd_explore_frame: mod_lcd_explore_frame,\n    action_chirp: mod_action_chirp,')
-patch('app/pager.rs','    level: if cfg!(feature = "fd6818b") { 21 } else { 9 },','    level: if cfg!(feature = "fd6818b") { 22 } else { 9 },')
+if '    level: if cfg!(feature = "fd6818b") { 23 } else { 9 },' not in (root/'app/pager.rs').read_text():
+    patch('app/pager.rs','    level: if cfg!(feature = "fd6818b") { 21 } else { 9 },','    level: if cfg!(feature = "fd6818b") { 22 } else { 9 },')
 p=root/'app/pager.rs';s=p.read_text()
 if 'unsafe extern "C" fn mod_action_chirp(' not in s:
     anchor='/// Level 16: tune VFO B to a parked SURF signal and return to Aura with B active.\n'

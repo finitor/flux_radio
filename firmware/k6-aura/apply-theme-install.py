@@ -43,6 +43,33 @@ fn cable_install_theme(app:&mut App,slot:u8,bytes:usize)->i32 {
 }
 
 '''
+# Separate typed removal from module removal. A valid package must exist on
+# the radio, not just a matching magic. Clear an active selection before erase.
+remove_helper="""#[cfg(k6_designer)]
+#[inline(never)]
+fn cable_remove_theme(app:&mut App,slot:u8)->i32 {
+    if app.is_transmitting() || !(slot<=8 || (16..32).contains(&slot)){return -2;}
+    let base=0x110000+u32::from(slot)*0x4000;
+    if crate::ui::theme_reader::open(&mut |off,dst|{
+        app.storage.norflash.read_bytes_checked(base+u32::from(off),dst)
+    }).is_none(){return -2;}
+    if app.settings.theme_selection==slot+2 || app.settings.theme_selection==0 {
+        app.settings.theme_selection=1;
+        app.save_settings();
+    }
+    let nor=&mut app.storage.norflash;
+    let mut back=[0u8;64];
+    for off in (0..0x4000u32).step_by(4096){nor.erase_sector(base+off);}
+    for off in (0..0x4000u32).step_by(64){
+        if !nor.read_bytes_checked(base+off,&mut back) || back.iter().any(|&b|b!=255){return -5;}
+    }
+    0
+}
+
+"""
+if remove_helper not in s:
+    if s.count(anchor)!=1:raise SystemExit('theme removal helper anchor missing')
+    s=s.replace(anchor,remove_helper+anchor,1)
 if helper not in s:
     if s.count(anchor)!=1:raise SystemExit('cable install helper anchor missing')
     s=s.replace(anchor,helper+anchor,1)
@@ -53,13 +80,20 @@ b='''        if flags & 0x10 != 0 {
             #[cfg(not(k6_designer))]
             {put=-2;}
         } else if flags & KM_F_REMOVE != 0 {'''
-if b not in s:
+if b not in s and "K6THDEL" not in s:
     if s.count(a)!=1:raise SystemExit('cable flags anchor missing')
     s=s.replace(a,b,1)
+old='            {put=if flags==0x15 {cable_install_theme(app,unsafe{*arena::base().add(15)},code_len)}else{-2};}'
+new='            {let slot=unsafe{*arena::base().add(15)};\n             put=if flags==0x15 {cable_install_theme(app,slot,code_len)}\n                 else if flags==0x1d && code_len==7 &&\n                     unsafe{core::slice::from_raw_parts(arena::base().add(16),7)}==b"K6THDEL" {\n                     cable_remove_theme(app,slot)\n                 }else{-2};}'
+if new not in s:
+    if s.count(old)!=1:raise SystemExit('theme removal dispatch anchor missing')
+    s=s.replace(old,new,1)
 p.write_text(s)
 p=root/'cps/mod.rs';s=p.read_text()
 a='                d[4] = 2;'
-b='                d[4] = if cfg!(k6_designer) {3} else {2};'
+b='                d[4] = if cfg!(k6_designer) {4} else {2};'
+if '                d[4] = if cfg!(k6_designer) {3} else {2};' in s:
+    s=s.replace('                d[4] = if cfg!(k6_designer) {3} else {2};',b,1)
 if b not in s:
     if s.count(a)!=1:raise SystemExit('protocol anchor missing')
     s=s.replace(a,b,1)

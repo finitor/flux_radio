@@ -55,6 +55,8 @@ CABLE_HANDSHAKE = b"PROGRAMBF-K6BLWF"     # blowfang's cable session (cps::run_c
 AURA_HANDSHAKE = b"PROGRAMBF-K6AURA"      # Aura's CPS session: its first-boot dump, or full Aura
 CMD_INFO, CMD_CHUNK, CMD_READ, CMD_END, CMD_ERROR = 0x56, 0x4D, 0x44, 0x45, 0xEE
 CMD_CAPS = 0x49  # optional Blowfang read-only capability query
+CMD_SERIAL = 0x4A  # optional replay-watermark query
+CMD_READ_LOGO, CMD_WRITE_LOGO = 0x4C, 0x6C  # Aura boot bitmap, 64-byte chunks
 CHUNK_EARLY_ACK = b"\x7fCHK"
 ERR_BAD_CRC = 0x01
 READ_BLOCK = 64
@@ -297,6 +299,13 @@ class Cable(CpsLink):
         """Query optional versioned firmware capabilities; never infer them from INFO."""
         return self.parse_capabilities(self.call(CMD_CAPS))
 
+    def serial_watermark(self):
+        """Read the current boot's replay floor when firmware advertises the query."""
+        d = self.call(CMD_SERIAL)
+        if len(d) != 4:
+            raise InstallError('malformed replay-watermark reply')
+        return struct.unpack('<I', d)[0]
+
     @staticmethod
     def parse_capabilities(data):
         if len(data) != 16 or data[:4] != b'K6CP' or data[4] not in (1, 2) or data[7] != 0:
@@ -304,10 +313,12 @@ class Cable(CpsLink):
         if (data[4] == 1 and any(data[8:])) or (data[4] == 2 and not any(data[8:])):
             raise InstallError('invalid firmware build identity field')
         mask = data[5]
-        if mask & ~7 or not mask & 1:
+        if mask & ~255 or not mask & 1 or mask & 24 == 24:
             raise InstallError('invalid firmware capability flags')
         return {'format': data[4], 'build_id': data[8:].hex() if data[4] == 2 else None, 'module_loader': True, 'scanner': bool(mask & 2),
                 'fsk_rx': bool(mask & 4), 'module_api_max': data[6],
+                'ota': bool(mask & 8), 'cable_only': bool(mask & 16), 'designer': bool(mask & 32),
+                'sotto': bool(mask & 64),
                 'authenticated': False, 'build_identity_verified': False}
 
     def authenticated_capabilities(self, key):
@@ -322,7 +333,7 @@ class Cable(CpsLink):
         if status != 0:
             raise InstallError('radio has no provisioned key or refused capability proof')
         caps = self.parse_capabilities(record)
-        if caps['format'] != 2:
+        if caps.get('cable_only') or caps['format'] != 2:
             raise InstallError('capability proof requires protocol 2')
         expected = k6mod.siphash24(key, b'K6CAPAU1' + record + nonce).to_bytes(8, 'little')
         if not hmac.compare_digest(tag, expected):
@@ -367,6 +378,37 @@ class Cable(CpsLink):
             return None
         code = h[16:]
         return h[:16], k6mod.module_name(code)
+
+    def theme_at(self, slot):
+        """Read a validated, typed theme; never interpret a module as a theme."""
+        from k6_theme_package import unpack
+        if slot not in AUTO_SLOTS:
+            return None
+        address = LIB_BASE + slot * LIB_SLOT
+        header = self.read(address, 12)
+        if header[:4] not in (b"K6T\x06", b"K6T\x07", b"K6T\x08", b"K6T\x09"):
+            return None
+        size = 12 + int.from_bytes(header[4:6], "little")
+        if not 12 <= size <= 8192:
+            return None
+        blob = self.read(address, size)
+        try:
+            _, name = unpack(blob, include_name=True)
+        except ValueError:
+            return None
+        return name or f"Theme {slot}", blob
+
+    def remove_theme(self, slot, key, serial):
+        if self.info()["protocol"] < 4:
+            raise InstallError("Theme removal requires Designer firmware with cable protocol 4")
+        if self.theme_at(slot) is None:
+            raise InstallError(f"Slot {slot} does not contain a valid removable theme")
+        img = k6mod.image(b"K6THDEL", 0, serial, key, lib=slot, theme=True, remove=True)
+        r, _, _, result = self.send_image(img, serial & 255)
+        if r != 3 or result != 0:
+            raise InstallError(f"Theme removal refused: {r}, {result}")
+        if self.read(LIB_BASE + slot * LIB_SLOT, LIB_SLOT) != b"\xff" * LIB_SLOT:
+            raise InstallError("Theme erase failed full-slot verification")
 
     def remove_slot(self, slot, key, serial):
         """Erase one module slot using an authenticated, replay-protected request image."""
@@ -492,6 +534,7 @@ def keyed_image(data, key):
     modules (or was built keyed already): it is used as it is, and the caller says so."""
     n = data.count(k6mod.PLACEHOLDER)
     if n == 1:
+        if key is None: raise InstallError("signed firmware needs a module key")
         return k6mod.key_image(data, key), True
     if n == 0:
         return data, False
@@ -507,6 +550,10 @@ class Serials:
     def next(self):
         self.n += 1
         return self.n
+
+    def advance_after(self, serial):
+        """Keep generated serials above the radio's boot-local replay watermark."""
+        self.n = max(self.n, int(serial))
 
 
 def probe_image(serial, key):
@@ -718,7 +765,7 @@ def flash(port, image, key, how, log=print, ask=input, debug_boot=False):
     data, keyed = keyed_image(image, key)
     trace = log if debug_boot else None
     if not keyed:
-        log("  (this image takes no modules: it is flashed as it is)")
+        log("  (no key placeholder; flashing image unchanged)")
     if how == "cable":
         c = Cable(port, log)
         c.call(CMD_END)
@@ -750,6 +797,8 @@ def check_key(c, key, serials, log=print):
         calc, received = (diag >> 16) & 0xFFFF, diag & 0xFFFF
         raise InstallError(f"the radio rejected the module packet CRC (calculated {calc:04x}, "
                            f"received {received:04x})")
+    if r == -4 and key is None:
+        raise InstallError("the radio rejected the CRC32 envelope")
     if r == -4:
         raise InstallError("the radio's image holds another key than yours: flash the image again with "
                            "`flash` (it keys it with yours), or pass the key it was keyed with (--key-file)")
@@ -794,7 +843,7 @@ def allocate_slots(c, entries, info, key):
         if length < len(AUTO_ID_MAGIC) + 16 or total > LIB_SLOT:
             continue
         image = c.read(address, total)
-        if image[-8:] != struct.pack("<Q", k6mod.siphash24(key, image[:-8])):
+        if image[-8:] != k6mod.image_tag(key, image[:-8]):
             continue
         marker = image[-8 - 24:-8]
         if marker in matches:
@@ -823,11 +872,52 @@ def allocate_slots(c, entries, info, key):
     return entries
 
 
+def check_module_api(c, entries, log=print):
+    """API 23+ hosts expose CAPS. Refuse incompatible uploads before allocating slots.
+    Preserve legacy cable support for older modules whose hosts predate CAPS."""
+    required = max((e.get("level", 1) for e in entries if e["kind"] == "module"), default=1)
+    if required <= 22:
+        return
+    try:
+        ceiling = c.capabilities()["module_api_max"]
+    except InstallError as exc:
+        raise InstallError(f"module requires API level {required}; cannot verify compatible "
+                           f"firmware ({exc}). Update the radio firmware first.") from exc
+    if ceiling < required:
+        raise InstallError(f"module requires API level {required}, but radio supports level {ceiling}; "
+                           "update the radio firmware first")
+    log(f"  firmware API level {ceiling}; module requires {required}")
+
+
+def cable_key(c, key=None, key_file=None, log=print):
+    try:
+        caps = c.capabilities()
+    except (InstallError, AttributeError):
+        caps = {}
+    if caps.get("cable_only"):
+        log("  cable-only firmware: CRC32 integrity, no module key")
+        return None
+    if key is not None:
+        return key
+    return k6mod.read_key(find_key(key_file, log=log))
+
+
 def load(c, bundle, key, serials, log=print, only=None, verify=False, force=False, skip_key_check=False):
     info = c.info()
     log(f"  the radio: cable session {info['protocol']}, {info['slots']} slots, "
         f"{info['arena']} B upload arena, "
         f"build ID {info['build_id'].hex() if info['build_id'] else '(none: not the voice + EXPLORE image)'}")
+    if info['protocol'] >= 3:
+        try:
+            watermark = c.serial_watermark()
+        except InstallError as exc:
+            # Protocol 3 predates the optional read-only watermark command. Older
+            # firmware rejects it with ERR_BAD_LEN; all other cable errors matter.
+            if 'refused command 0x4a at 0: error 03' not in str(exc):
+                raise
+        else:
+            serials.advance_after(watermark)
+            log(f"  radio replay watermark {watermark}; next image serial {serials.n + 1}")
     if skip_key_check:
         log("  skipping the separate key probe; each module is still checked by the radio before install")
     else:
@@ -840,6 +930,7 @@ def load(c, bundle, key, serials, log=print, only=None, verify=False, force=Fals
             log("  skipping EXPLORE's pages: they are for another image than the radio's "
                 f"(bundle {want.hex()}); flash the bundle's image first")
             entries = [e for e in entries if e["kind"] != "page"]
+    check_module_api(c, entries, log)
     entries = allocate_slots(c, entries, info, key)
     for entry in entries:
         if entry.get("_auto"):
@@ -860,8 +951,7 @@ def write_entries(c, entries, key, serials, log=print, verify=False, skip_curren
             installed = c.read(slot, len(img))
             # Match all signed fields except the upload serial, plus the code.
             if (installed[:8] == img[:8] and installed[12:-8] == img[12:-8]
-                    and hmac.compare_digest(installed[-8:], struct.pack(
-                        "<Q", k6mod.siphash24(key, installed[:-8])))):
+                    and hmac.compare_digest(installed[-8:], k6mod.image_tag(key, installed[:-8]))):
                 log(f"  slot {e['slot']:2d} {e['name']}: already verified")
                 continue
         r, have, count, put = c.send_image(img, serials.n & 0xFF)
@@ -979,10 +1069,59 @@ def cmd_install(a, bundle, port, key, log=print, ask=input):
         raise InstallError("the new image doesn't answer on the cable: switch the radio off and on, then run "
                            f"`{sys.argv[0]} load {a.bundle}`")
     log("6. Loading EXPLORE's pages, the help deck and the modules over the cable...")
-    load(c, bundle, key, serials, log, verify=a.verify)
+    load(c, bundle, cable_key(c, key, a.key_file, log), serials, log, verify=a.verify)
     c.end()
     log("\nDone. The radio restarts into EXPLORE. Hold MENU on any screen for its help card.")
     return 0
+
+
+def install_boot_logo(port, image_path, yes=False, log=print, ask=input):
+    image = open(image_path, "rb").read(1025)
+    if len(image) != 1024 or image in (bytes(1024), b"\xff" * 1024):
+        raise InstallError("boot bitmap must contain 1024 bytes of visible page-major artwork")
+    link = CpsLink(port, log)
+    if not link.handshake(AURA_HANDSHAKE, wait=8.0):
+        raise InstallError("no Aura cable session for the boot bitmap; have the radio on its normal screen")
+    try:
+        old = b"".join(link.call(CMD_READ_LOGO, offset) for offset in range(0, 1024, 64))
+        if len(old) != 1024:
+            raise InstallError("could not read the existing boot bitmap before replacement")
+        if old == image:
+            log("Full-screen boot bitmap is already current on the radio.")
+            return
+        backup_dir = os.path.expanduser("~/flux-backups")
+        os.makedirs(backup_dir, mode=0o700, exist_ok=True)
+        name = "k6-boot-logo-" + datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + secrets.token_hex(3) + ".bin"
+        backup_path = os.path.join(backup_dir, name)
+        fd = os.open(backup_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as out:
+            out.write(old)
+        log(f"  backed up the existing boot bitmap to {backup_path}")
+        if not yes and ask("Replace the radio's full-screen boot bitmap? Type INSTALL: ").strip() != "INSTALL":
+            raise InstallError("boot bitmap installation cancelled")
+        for offset in range(0, 1024, 64):
+            if link.call(CMD_WRITE_LOGO, offset, image[offset:offset+64]):
+                raise InstallError(f"unexpected write reply at boot bitmap offset {offset}")
+        readback = b"".join(link.call(CMD_READ_LOGO, offset) for offset in range(0, 1024, 64))
+        if readback != image:
+            raise InstallError(f"boot bitmap readback differs; restore the backup at {backup_path}")
+        log("Full-screen boot bitmap verified on the radio; it appears at the next startup.")
+    finally:
+        link.end()
+
+
+def find_empty_theme_slot(link):
+    """Choose a fully erased non-reserved library slot without overwriting data."""
+    for slot in (*range(16, 32), *range(0, 9)):
+        address=LIB_BASE+slot*LIB_SLOT
+        empty=True
+        for offset in range(0,LIB_SLOT,READ_BLOCK):
+            if link.read(address+offset,READ_BLOCK)!=b"\xff"*READ_BLOCK:
+                empty=False
+                break
+        if empty:
+            return slot
+    raise InstallError("no empty theme slot is available; remove a theme or module slot first")
 
 
 def main(argv=None, log=None, ask=input):
@@ -1020,10 +1159,20 @@ def main(argv=None, log=None, ask=input):
     rm = sub.add_parser("remove-slot", help="erase one module slot from the radio")
     rm.add_argument("slot", type=int, help="module slot number; firmware pages and decks are protected")
     rm.add_argument("--yes", action="store_true", help="confirm erasing this occupied module slot")
-    th = sub.add_parser("install-theme", help="install authenticated data-only theme in an empty library slot")
+    rms = sub.add_parser("remove-slots", help="erase selected module slots or all removable modules")
+    rms.add_argument("slots", nargs="?", help="comma-separated module slots, e.g. 0,3,18")
+    rms.add_argument("--all-modules", action="store_true", help="select every occupied removable module slot")
+    rms.add_argument("--yes", action="store_true", help="confirm the removal operation")
+    th = sub.add_parser("install-theme", help="install a named data-only theme into an empty library slot")
     th.add_argument("theme")
-    th.add_argument("--slot", type=int, required=True)
+    th.add_argument("--slot", default="auto", help="empty slot number, or auto to choose one safely")
     th.add_argument("--yes", action="store_true")
+    rt = sub.add_parser("remove-theme", help="erase and unregister one typed Designer theme")
+    rt.add_argument("slot", type=int)
+    rt.add_argument("--yes", action="store_true")
+    splash = sub.add_parser("install-boot-logo", help="install a 1024-byte full-screen boot bitmap, backing up the old one")
+    splash.add_argument("image")
+    splash.add_argument("--yes", action="store_true")
     sub.add_parser("status", help="what the radio runs, its codebooks and its library")
     sub.add_parser("key", help="make your module key")
     bd = sub.add_parser("bundle", help="a release folder from build.sh's or CI's out/")
@@ -1045,13 +1194,20 @@ def main(argv=None, log=None, ask=input):
             return cmd_bundle(a, log)
         if a.cmd == "module-bundle":
             return cmd_module_bundle(a, log)
-        create_key = a.cmd == "install" or (a.cmd == "flash" and
-                     open(a.image, "rb").read().count(k6mod.PLACEHOLDER) == 1)
-        key_path = find_key(a.key_file, create=create_key, log=log) if a.cmd in ("install", "flash", "load", "remove-slot", "install-theme") else None
-        key = k6mod.read_key(key_path) if key_path else None
+        key = None
+        if a.cmd == "install":
+            bundle = load_bundle(a.bundle)
+            image = open(os.path.join(a.bundle, bundle["image"]), "rb").read()
+            if image.count(k6mod.PLACEHOLDER) == 1 or a.key_file:
+                key = k6mod.read_key(find_key(a.key_file, create=True, log=log))
+        elif a.cmd == "flash" and open(a.image,"rb").read().count(k6mod.PLACEHOLDER) == 1:
+            key = k6mod.read_key(find_key(a.key_file, create=True, log=log))
         bundle = load_bundle(a.bundle) if a.cmd in ("install", "load") else None
         port = open_port(a)
         try:
+            if a.cmd == "install-boot-logo":
+                install_boot_logo(port, a.image, a.yes, log, ask)
+                return 0
             if a.cmd == "install":
                 return cmd_install(a, bundle, port, key, log, ask)
             if a.cmd == "backup":
@@ -1075,6 +1231,8 @@ def main(argv=None, log=None, ask=input):
             c = open_cable(port, log, wait=20.0)
             if not c:
                 raise InstallError("no cable session: have the radio on a Flux image, in EXPLORE or the arena")
+            if a.cmd in ("load", "install-theme", "remove-theme", "remove-slot", "remove-slots"):
+                key = cable_key(c, key_file=a.key_file, log=log)
             if a.cmd == "load":
                 only = {int(s) for s in a.only.split(",")} if a.only else None
                 try:
@@ -1086,23 +1244,53 @@ def main(argv=None, log=None, ask=input):
                     raise
             elif a.cmd == "install-theme":
                 from k6_theme_package import pack,unpack
-                blob=pack(unpack(open(a.theme,"rb").read(8193)))
+                theme_token,theme_name=unpack(open(a.theme,"rb").read(8193),include_name=True)
+                blob=pack(theme_token,theme_name)
                 info=c.info()
                 if info["protocol"]<3:
                     raise InstallError("Designer typed theme protocol 3 is required")
-                if not (0<=a.slot<=8 or 16<=a.slot<32):
+                try:
+                    slot=find_empty_theme_slot(c) if a.slot=="auto" else int(a.slot)
+                except ValueError:
+                    raise InstallError("theme slot must be auto or a number") from None
+                if not (0<=slot<=8 or 16<=slot<32):
                     raise InstallError("theme slot must be a non-reserved library slot")
-                address=LIB_BASE+a.slot*LIB_SLOT
+                address=LIB_BASE+slot*LIB_SLOT
                 if c.read(address,LIB_SLOT)!=b"\xff"*LIB_SLOT:
                     raise InstallError("theme slot is not entirely erased")
-                if not a.yes and ask(f"Install theme in empty slot {a.slot}? Type INSTALL: ").strip()!="INSTALL":
+                if not a.yes and ask(f"Install {theme_name or 'theme'} in empty slot {slot}? Type INSTALL: ").strip()!="INSTALL":
                     raise InstallError("theme installation cancelled")
-                serial=Serials().next()
-                img=k6mod.image(blob,0,serial,key,lib=a.slot,theme=True)
+                serials=Serials()
+                try:
+                    serials.advance_after(c.serial_watermark())
+                except InstallError as exc:
+                    if 'refused command 0x4a at 0: error 03' not in str(exc):
+                        raise
+                serial=serials.next()
+                img=k6mod.image(blob,0,serial,key,lib=slot,theme=True)
                 r,have,count,result=c.send_image(img,serial&255)
                 if r!=3 or result!=len(blob) or c.read(address,len(blob))!=blob:
                     raise InstallError(f"theme install/readback failed: {r}, {result}")
-                log(f"Theme verified in slot {a.slot}; select DISP > THEME on radio.")
+                if theme_name:
+                    log(f"Theme verified in slot {slot}: {theme_name!r} is registered in DISP > THEME by name.")
+                else:
+                    log(f"Theme verified in slot {slot}; select DISP > THEME on radio.")
+            elif a.cmd == "remove-theme":
+                try:
+                    if c.info()["protocol"] < 4:
+                        raise InstallError("Theme removal requires Designer firmware with cable protocol 4")
+                    item = c.theme_at(a.slot)
+                    if item is None:
+                        raise InstallError("Selected slot is not a valid theme")
+                    if not a.yes and ask(f"Erase theme {item[0]}? Type ERASE: ").strip() != "ERASE":
+                        raise InstallError("Theme removal cancelled")
+                    serials = Serials()
+                    serials.advance_after(c.serial_watermark())
+                    c.remove_theme(a.slot, key, serials.next())
+                    log(f"Theme {item[0]} removed and unregistered from DISP > THEME; slot {a.slot} verified erased")
+                finally:
+                    c.end()
+                return 0
             elif a.cmd == "remove-slot":
                 info = c.info()
                 if info["protocol"] < 2:
@@ -1123,6 +1311,48 @@ def main(argv=None, log=None, ask=input):
                 if c.slot_head(a.slot) is not None:
                     raise InstallError(f"slot {a.slot} still appears occupied after erase")
                 log(f"  slot {a.slot} erased; the radio is restarting")
+            elif a.cmd == "remove-slots":
+                if c.info()["protocol"] < 2:
+                    raise InstallError("this radio firmware has no safe module-removal protocol; "
+                                       "flash an image with cable protocol 2 first")
+                if a.all_modules == bool(a.slots):
+                    raise InstallError("choose either comma-separated slots or --all-modules")
+                if a.all_modules:
+                    requested = list(range(9)) + list(range(16, LIB_SLOTS))
+                else:
+                    try:
+                        requested = [int(part) for part in a.slots.split(",")]
+                    except ValueError as exc:
+                        raise InstallError("slots must be comma-separated integers") from exc
+                    if not requested or len(set(requested)) != len(requested):
+                        raise InstallError("select at least one unique module slot")
+                removable = []
+                for slot in requested:
+                    if not (0 <= slot <= 8 or 16 <= slot < LIB_SLOTS):
+                        raise InstallError(f"slot {slot} is reserved; only module slots 0-8 and 16-31 can be erased")
+                    head = c.slot_head(slot)
+                    if head is None:
+                        if a.all_modules:
+                            continue
+                        raise InstallError(f"slot {slot} is already empty")
+                    flags = head[0][13]
+                    if not (flags & 1) or flags & (2 | 4):
+                        if a.all_modules:
+                            continue
+                        raise InstallError(f"slot {slot} is not a removable module; reserved pages and help decks are protected")
+                    removable.append((slot, head[1]))
+                if not removable:
+                    raise InstallError("no removable modules are installed")
+                names = ", ".join(f"{name or '(unnamed)'} (slot {slot})" for slot, name in removable)
+                if not a.yes and ask(f"Erase {len(removable)} module(s): {names}? Type ERASE to continue: ").strip() != "ERASE":
+                    raise InstallError("erase cancelled")
+                for slot, name in removable:
+                    log(f"  erasing module {name or '(unnamed)'} from slot {slot}...")
+                    c.remove_slot(slot, key, Serials().next())
+                    if c.slot_head(slot) is not None:
+                        raise InstallError(f"slot {slot} still appears occupied after erase")
+                    log(f"  slot {slot} erased")
+                log("  radio restarting when the cable session ends")
             else:
                 info = c.info()
                 log(f"Flux cable session {info['protocol']}, build ID "
@@ -1130,6 +1360,12 @@ def main(argv=None, log=None, ask=input):
                 for what, img in codebooks(c):
                     log(f"missing: {what} (the {img} image installs it)")
                 for s in range(LIB_SLOTS):
+                    if info["protocol"] >= 3:
+                        theme = c.theme_at(s)
+                        if theme is not None:
+                            name, blob = theme
+                            log(f"slot {s:2d} theme  {name:12s} {len(blob):6d} B code, serial 0")
+                            continue
                     h = c.slot_head(s)
                     if h:
                         hdr, name = h

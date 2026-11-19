@@ -1,4 +1,56 @@
 {
   "format": 1,
-  "sources": []
+  "sources": [],
+  "archived_local": [
+    "aprs-8k-cap",
+    "aprs-8k-disc",
+    "aprs-if-8k",
+    "aprs-if-cal",
+    "aprsbstream-7e",
+    "aprsbstream-7e-diag",
+    "aprsbstream-7e-status",
+    "aprsbstream-bnative",
+    "aprsclk",
+    "aprsdfsk",
+    "aprsdfsk-burstfix",
+    "aprsdfsk-burstfix2",
+    "aprsdfsk-fifo-fix",
+    "aprsdfsk-stream",
+    "aprsdfskcap-probe",
+    "aprsfskbcap",
+    "aprsfskcap1200",
+    "aprsfskformat2-format2",
+    "aprsfskstreamcap",
+    "if-carrier",
+    "if-survey",
+    "if-survey-fm",
+    "refcal-dry",
+    "explore-scan-fit"
+  ],
+  "local_metadata": {
+    "aprs": {
+      "title": "APRS",
+      "summary": "Native software Bell 202 RX, packet browser and incoming message/position viewer. No optional firmware feature set."
+    },
+    "aprs-gps-sync": {
+      "title": "GPS Sync",
+      "summary": "Adopt a direct APRS position from AG7SU-7 into native radio settings. Requires API 23; hardware reception and save callback verified."
+    },
+    "aprs-beacon": {
+      "title": "APRS Beacon",
+      "summary": "Manually confirmed AX.25 position beacon using the radio settings. RF transmit awaiting physical validation."
+    },
+    "aprs-kiss-rx": {
+      "title": "APRS KISS RX",
+      "summary": "Receive-only AX.25 KISS serial bridge. Physical UART validation pending."
+    },
+    "cardlink": {
+      "title": "Card Link",
+      "summary": "Experimental over-air PixelQSO card transfers. Requires the optional Data feature set."
+    },
+    "explore_scan": {
+      "title": "Explore Scan",
+      "summary": "Repeater scanning and candidate ranking. Requires the Scan feature set."
+    }
+  }
 }

@@ -36,8 +36,8 @@ def verify_pack(root, spec, *, require_attested=True):
     lock = json.loads((root / 'pack.lock.json').read_text())
     if lock.get('format') != 1 or lock.get('target') != spec['target']:
         raise PackError('unsupported lockfile or radio target')
-    plan = resolve(spec, lock['packs'], lock.get('theme', 'flux'))
-    for key in ('packs', 'capabilities', 'modules', 'cargo_features'):
+    plan = resolve(spec, lock['packs'], lock.get('theme', 'flux'), lock.get('tx_profile', 'ce'))
+    for key in ('packs', 'capabilities', 'modules', 'cargo_features', 'tx_profile'):
         if key == 'modules':
             actual = [m['name'] for m in lock['modules']]
         else:
@@ -48,6 +48,21 @@ def verify_pack(root, spec, *, require_attested=True):
     fw = checked_file(root, firmware['path'], firmware['sha256'])
     if fw.stat().st_size != firmware['bytes']:
         raise PackError('firmware byte count mismatch')
+    splash = lock.get('boot_splash')
+    if splash is not None:
+        splash_path = checked_file(root, splash['path'], splash['sha256'])
+        if splash_path.stat().st_size != splash['bytes'] or splash_path.stat().st_size != 1024:
+            raise PackError('boot splash byte count mismatch')
+    theme = lock.get('theme_package')
+    if theme is not None:
+        theme_path = checked_file(root, theme['path'], theme['sha256'])
+        if theme_path.stat().st_size != theme['bytes']:
+            raise PackError('theme package byte count mismatch')
+        from k6_theme_package import unpack
+        try:
+            unpack(theme_path.read_bytes(), include_name=True)
+        except ValueError as exc:
+            raise PackError(f'invalid theme package: {exc}') from exc
     if require_attested:
         # A mutable lockfile boolean is not proof of a radio/firmware ABI match.
         # Keep all radio-writing paths disabled until an independent verifier exists.
@@ -70,7 +85,7 @@ def verify_pack(root, spec, *, require_attested=True):
                 raise PackError(f'module manifest hash differs from lockfile: {mod["name"]}')
         if manifest.get('build_id', '0000000000000000') != '0000000000000000':
             raise PackError(f'module bundle unexpectedly bound to firmware build: {mod["name"]}')
-        if not 1 <= mod['api_level'] <= 22:
+        if not 1 <= mod['api_level'] <= 23:
             raise PackError(f'unsupported module API level: {mod["name"]}')
     return lock
 
@@ -79,9 +94,14 @@ def verify_pack(root, spec, *, require_attested=True):
 CAPABILITY_FLAGS = {
     'module-loader': 'module_loader',
     'explore-scanner-api': 'scanner',
+    'explore-engine-api': 'scanner',
+    'explore-ui-api': 'scanner',
     'candidate-ranking': 'scanner',
     'cw-tone-observation': 'scanner',
     'fd6818-fsk-rx': 'fsk_rx',
+    'authenticated-ota': 'ota',
+    'theme-renderer': 'designer',
+    'sotto-decoder': 'sotto',
 }
 
 
@@ -124,10 +144,13 @@ def radio_preflight(root, spec, port, key_file=None):
             cable = open_cable(connection, lambda *_: None, wait=3.0)
             if cable is None:
                 raise PackError('no Flux module-host cable session')
-            caps = cable.authenticated_capabilities(key) if key is not None else cable.capabilities()
+            caps = cable.capabilities()
+            proven = key is not None and not caps.get('cable_only')
+            if proven:
+                caps = cable.authenticated_capabilities(key)
             report = compatibility_report(lock, caps, expected_build_id)
-            report['key_possession_verified'] = key is not None
-            report['capability_report_authenticated'] = key is not None
+            report['key_possession_verified'] = proven
+            report['capability_report_authenticated'] = proven
             # A holder of the shared key can impersonate firmware; no secure boot or
             # hardware measurement is available. Never enable installation here.
             report['packs'] = lock['packs']
@@ -165,7 +188,7 @@ def provision_artifacts(root, spec, key_file):
 
     lock = verify_pack(root, spec, require_attested=False)
     firmware = Path(root) / lock['firmware']['path']
-    plan = resolve(spec, lock['packs'], lock.get('theme', 'flux'))
+    plan = resolve(spec, lock['packs'], lock.get('theme', 'flux'), lock.get('tx_profile', 'ce'))
     policy = json.loads(POLICY.read_text())
     validate(spec, policy)
     receipt = json.loads((Path(root) / 'firmware.receipt.json').read_text())
@@ -174,7 +197,10 @@ def provision_artifacts(root, spec, key_file):
     if hashlib.sha256(data).hexdigest() != lock['firmware']['sha256']:
         raise PackError('firmware changed during verification')
     identity = image_build_id(data)
-    key = k6mod.read_key(str(key_file) if key_file else find_key())
+    ota = 'ota' in lock['packs']
+    if data.count(k6mod.PLACEHOLDER) != int(ota):
+        raise PackError('firmware key placeholder disagrees with selected OTA mode')
+    key = k6mod.read_key(str(key_file) if key_file else find_key()) if ota else None
     if key == k6mod.PLACEHOLDER:
         raise PackError('the module key is a placeholder')
     return lock, data, identity, key
@@ -185,15 +211,15 @@ def provision_pack(root, spec, port, key_file=None, *, action, mode='cable', log
 
     if mode not in ('cable', 'update'):
         raise PackError(f'unknown pack flash mode: {mode}')
-    if action not in ('flash', 'install', 'preview'):
+    if action not in ('flash', 'install', 'preview', 'flash-install'):
         raise PackError(f'unknown pack operation: {action}')
     lock, firmware, identity, key = provision_artifacts(root, spec, key_file)
-    if action == 'flash':
+    if action in ('flash', 'flash-install'):
         from k6_flash_policy import assess
         if not assess(len(firmware), lock['packs'])['pass']:
             raise PackError('firmware binary exceeds its profile flash budget')
-        if firmware.count(radio.k6mod.PLACEHOLDER) != 1:
-            raise PackError('flashing requires an unkeyed pack image with one module-key placeholder')
+        if firmware.count(radio.k6mod.PLACEHOLDER) != int(key is not None):
+            raise PackError('firmware placeholder count disagrees with requested authentication mode')
     entries = []
     if action != 'flash':
         for module in lock['modules']:
@@ -209,28 +235,113 @@ def provision_pack(root, spec, port, key_file=None, *, action, mode='cable', log
         connection = radio.open_port(SimpleNamespace(port=port))
         cable = None
         try:
-            if action == 'flash' and mode == 'update':
-                radio.flash(connection, firmware, key, mode, log=log)
-                return
-            cable = radio.open_cable(connection, log, wait=3.0)
+            if action in ('flash', 'flash-install') and mode == 'update':
+                probe = radio.open_cable(connection, log, wait=3.0)
+                actual_mode = 'update'
+                if probe is not None:
+                    # The radio answered a cable session, so it is not in the
+                    # bootloader: authenticate it like cable mode instead of
+                    # blind-flashing. Legacy firmware and failed proofs refuse
+                    # here with no fallback; a true UPDATE bootloader answers
+                    # no cable session and proceeds below.
+                    try:
+                        probe_caps = probe.capabilities()
+                        if not probe_caps.get('cable_only'):
+                            current = key if key is not None else radio.k6mod.read_key(
+                                str(key_file) if key_file else radio.find_key())
+                            probe_caps = probe.authenticated_capabilities(current)
+                        if bool(probe_caps.get('cable_only')) != (key is None):
+                            raise radio.InstallError(
+                                'connected radio authentication mode does not match pack')
+                    except radio.InstallError as exc:
+                        probe.end()
+                        raise PackError(str(exc)) from exc
+                    actual_mode = 'cable'
+                radio.flash(connection, firmware, key, actual_mode, log=log)
+                if action == 'flash':
+                    return
+                log('  waiting for the flashed firmware to start before updating its modules...')
+                cable = radio.open_cable(connection, log, wait=30.0)
+            else:
+                cable = radio.open_cable(connection, log, wait=3.0)
+                if cable is None:
+                    raise PackError('no Flux module-host cable session; enter UPDATE mode for a first flash')
+                caps = cable.capabilities()
+                if not caps.get('cable_only'):
+                    # Authenticate the *current* signed radio, including a migration
+                    # to the new cable-only build. Never fall back on proof failure.
+                    current_key = key if key is not None else radio.k6mod.read_key(
+                        str(key_file) if key_file else radio.find_key())
+                    caps = cable.authenticated_capabilities(current_key)
+                if action in ('flash', 'flash-install'):
+                    cable = None  # flash owns the restart and bootloader handshake
+                    radio.flash(connection, firmware, key, mode, log=log)
+                    if action == 'flash':
+                        return
+                    log('  waiting for the flashed firmware to start before updating its modules...')
+                    cable = radio.open_cable(connection, log, wait=30.0)
             if cable is None:
-                raise PackError('no Flux module-host cable session; enter UPDATE mode for a first flash')
-            caps = cable.authenticated_capabilities(key)
-            if action == 'flash':
-                cable = None  # flash owns the restart and bootloader handshake
-                radio.flash(connection, firmware, key, mode, log=log)
-                return
+                raise PackError('firmware flashed, but the module host did not return; complete any first-boot format prompt, then use Install modules on this build')
+            caps = cable.capabilities()
+            if not caps.get('cable_only'):
+                caps = cable.authenticated_capabilities(key)
+            if bool(caps.get('cable_only')) != (key is None):
+                raise PackError('connected radio authentication mode does not match pack')
             report = compatibility_report(lock, caps, identity)
             if not report['build_id_match'] or not report['capabilities_match']:
                 raise PackError(f'connected firmware does not match the pack: {json.dumps(report)}')
 
+            serials = radio.Serials()
+            if cable.info()['protocol'] >= 3:
+                try:
+                    serials.advance_after(cable.serial_watermark())
+                except radio.InstallError as exc:
+                    if 'refused command 0x4a at 0: error 03' not in str(exc):
+                        raise
+            if key is None:
+                radio.check_key(cable, None, serials, log)
             allocated = radio.allocate_slots(cable, entries, cable.info(), key)
             for entry in allocated:
                 operation = 'existing' if entry.get('_update') else 'available'
                 log(f"  {entry['id']} → slot {entry['slot']} ({operation})")
-            if action == 'install':
-                radio.write_entries(cable, allocated, key, radio.Serials(), log=log,
+            if action in ('install', 'flash-install'):
+                if cable.info()['protocol'] < 2 and any(e.get('_update') for e in allocated):
+                    raise PackError('radio cannot safely remove existing modules; update its cable protocol first')
+                for entry in allocated:
+                    if entry.get('_update'):
+                        expected = radio.sign(entry, 0, key)
+                        installed = cable.read(radio.LIB_BASE + entry['slot'] * radio.LIB_SLOT, len(expected))
+                        if installed[:8] == expected[:8] and installed[12:-8] == expected[12:-8]:
+                            log(f"  {entry['id']} in slot {entry['slot']} is already current")
+                            continue
+                        log(f"  replacing {entry['id']} in slot {entry['slot']}: erasing old module...")
+                        cable.remove_slot(entry['slot'], key, serials.next())
+                radio.write_entries(cable, allocated, key, serials, log=log,
                                     verify=True, skip_current=True)
+                log('  bundled modules installed and read back successfully')
+            if action == 'flash-install' and lock.get('theme_package'):
+                theme = lock['theme_package']
+                theme_path = checked_file(Path(root), theme['path'], theme['sha256'])
+                from k6_theme_package import pack, unpack
+                theme_token, theme_name = unpack(theme_path.read_bytes(), include_name=True)
+                theme_blob = pack(theme_token, theme_name)
+                if cable.info()['protocol'] < 3:
+                    raise PackError('Designer typed theme protocol 3 is required')
+                theme_slot = radio.find_empty_theme_slot(cable)
+                address = radio.LIB_BASE + theme_slot * radio.LIB_SLOT
+                if cable.read(address, radio.LIB_SLOT) != b'\xff' * radio.LIB_SLOT:
+                    raise PackError('selected theme slot is no longer empty')
+                theme_serial = serials.next()
+                theme_image = radio.k6mod.image(theme_blob, 0, theme_serial, key,
+                                                lib=theme_slot, theme=True)
+                result_code, _have, _count, written = cable.send_image(theme_image, theme_serial & 255)
+                if (result_code != 3 or written != len(theme_blob) or
+                        cable.read(address, len(theme_blob)) != theme_blob):
+                    raise PackError(f'theme install/readback failed: {result_code}, {written}')
+                if theme_name:
+                    log(f"  theme verified in slot {theme_slot}: {theme_name!r} is registered in DISP > THEME")
+                else:
+                    log(f'  theme verified in slot {theme_slot}; registered in DISP > THEME')
         except radio.InstallError as exc:
             raise PackError(str(exc)) from exc
         finally:
@@ -239,6 +350,12 @@ def provision_pack(root, spec, port, key_file=None, *, action, mode='cable', log
                     cable.end()
             finally:
                 connection.close()
+        if action == 'flash-install' and lock.get('boot_splash'):
+            splash = lock['boot_splash']
+            splash_path = checked_file(Path(root), splash['path'], splash['sha256'])
+            radio.install_boot_logo(port, str(splash_path), yes=True, log=log)
+        if action == 'flash-install':
+            log('  firmware, bundled modules, and all included theme/startup artwork installed and verified')
 
 
 def main():

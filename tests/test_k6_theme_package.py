@@ -69,7 +69,8 @@ def test_device_reader(reader,tmp_path,token):
 
 def test_corruption(reader,tmp_path):
     blob=pack(custom())
-    for i in (0,3,4,6,7,8,12,27,len(blob)-1):
+    # Version 6 XOR 1 is version 7, a valid compatible envelope without a custom logo.
+    for i in (0,4,6,7,8,12,27,len(blob)-1):
         broken=bytearray(blob); broken[i]^=1
         with pytest.raises(ValueError): unpack(bytes(broken))
         assert check(reader,tmp_path,broken).returncode==2
@@ -123,3 +124,17 @@ def test_custom_font(reader,tmp_path):
     struct.pack_into('<I',bad,8,zlib.crc32(bad[12:]))
     with pytest.raises(ValueError):unpack(bad)
     assert check(reader,tmp_path,bad).returncode==2
+
+
+def test_separate_memory_names(reader,tmp_path):
+    from k6_feature_packs import theme_widgets
+    token=migrate('flux')
+    raw=theme_widgets(token)+bytes([32,44,18,0,0,33,44,50,0,0])
+    token=token.rsplit('-w',1)[0]+'-w'+raw.hex()
+    for name in (None,'Memory layout'):
+        blob=pack(token,name)
+        assert blob[:4]==b'K6T\x09'
+        assert unpack(blob,include_name=True)==(token,name or '')
+        assert check(reader,tmp_path,blob).returncode==0
+    bad=bytearray(raw);bad[-5]=32
+    with pytest.raises(ValueError):pack(token.rsplit('-w',1)[0]+'-w'+bad.hex())

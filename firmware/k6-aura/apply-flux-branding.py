@@ -6,7 +6,7 @@ import os
 ROOT = Path(__file__).resolve().parent / "build/aura-fd6818b-port/src"
 FEATURES = os.environ.get("K6_AURA_FEATURES", "blowfang-host,fd6818b,lean,spilib,txdog-quiet")
 SCAN = os.environ.get("K6_SCAN_SERVICE", "1") != "0"
-FSK_RX = os.environ.get("K6_FSK_RX_SERVICE", "1") != "0"
+FSK_RX = os.environ.get("K6_FSK_RX_SERVICE", "0") != "0"
 FLASH_USED = int(os.environ.get("K6_FLASH_USED_BYTES", "0"))
 
 
@@ -30,29 +30,29 @@ def boot(text):
     text = replace_once(text, 'draw_firmware_banner(lcd, "UV-K6x Aura", 40);',
                         'draw_firmware_banner(lcd, "FLUX RADIO", 40);', "boot banner")
     marker = '/// Boot display mode 1: "VOLTAGE" / actual battery voltage, f4hwn-style.\n'
-    if "Flux glyph" not in text:
+    if "Flux Vector glyph v1" not in text:
         fn = '''/// Flux startup splash with a small one-bit logo and optional user boot text.
 pub fn draw_flux_splash<D>(lcd: &mut D, settings: &Settings)
 where D: DrawTarget<Color = BinaryColor>, {
     use embedded_graphics::primitives::PrimitiveStyle;
     clear(lcd);
-    // 16x16 monochrome Flux glyph (row-major bitmap), rendered directly to pixels.
+    // 16x16 monochrome Flux Vector glyph v1 (row-major bitmap), rendered directly to pixels.
     const LOGO: [u16; 16] = [
         0b0000000000000000,
-        0b0000000011110000,
-        0b0000001111111000,
-        0b0000111111110000,
-        0b0001111110000000,
-        0b0011110000000000,
-        0b0111100000000000,
-        0b1111111111100000,
-        0b1111111111111000,
-        0b0000000001111100,
-        0b0000000000011110,
-        0b0000000000001111,
-        0b0000000000000111,
-        0b0000000000000011,
-        0b0000000000000000,
+        0b0000011111111110,
+        0b0000011111111110,
+        0b0000111101111110,
+        0b0000111011111100,
+        0b0001110111000000,
+        0b0001110111111000,
+        0b0001100000110000,
+        0b0011000001110000,
+        0b0011100011100000,
+        0b0011100100000000,
+        0b0111001000000000,
+        0b0111010000000000,
+        0b1110100000000000,
+        0b1111000000000000,
         0b0000000000000000,
     ];
     let logo_pixels = LOGO.iter().enumerate().flat_map(|(y, row)| {
@@ -127,6 +127,20 @@ def startup(text):
             }
             _ => {}
         }'''
+    if old not in text and new not in text:
+        old = """        let boot_mode = app.settings().boot_display_mode;
+        match boot_mode {
+            1 => {
+                screen!(display, |lcd| ui::boot::draw_voltage(lcd, app.battery_voltage_cv()));
+            }
+            2 => {
+                screen!(display, |lcd| ui::boot::draw_message(lcd, app.settings()));
+            }
+            3 => {
+                screen!(display, |lcd| show_boot_logo(lcd, app.storage_mut()));
+            }
+            _ => {}
+        }"""
     text = replace_once(text, old, new, "boot display selection")
     old_logo = '''fn show_boot_logo<D>(lcd: &mut D, storage: &mut Storage)
 where
@@ -248,7 +262,8 @@ def info_module():
     free = max(0, capacity - used)
     packs = ["BASE", "CATALOG"]
     if SCAN: packs.append("SCAN/FM/EXPLORE")
-    if FSK_RX: packs.append("APRS RX")
+    if FSK_RX: packs.append("DATA")
+    if os.environ.get("K6_OTA_SERVICE","0") == "1": packs.append("OTA")
     if "sotto" in FEATURES: packs.append("SOTTO")
     (ROOT / "flux_info.rs").write_text(f'''// Generated from the linked image and its selected feature profile.
 pub const FLASH_USED_BYTES: usize = {used};

@@ -108,6 +108,9 @@
 #define K6_NAME "SURF"   /* its name in the MENU list (a file that includes this one may set its own) */
 #endif
 K6_MODULE_NAME(K6_NAME);
+#if !defined(SURF_SCRIPT) && !defined(SURF_AUTO_S)
+K6_ACTION(K6_ACTION_SURF_OPEN);
+#endif
 
 #define NB 64                   /* bins in the arrays */
 #define NV 63                   /* bins on screen: the middle one and 31 each side */

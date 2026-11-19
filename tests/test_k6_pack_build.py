@@ -8,7 +8,7 @@ from k6_pack_build import assemble, digest
 
 def test_pack_lock_and_module_hashes(tmp_path):
     spec = json.loads((Path(__file__).resolve().parents[1] / 'config/k6-feature-packs.json').read_text())
-    plan = resolve(spec, ['scan', 'aprs'])
+    plan = resolve(spec, ['scan', 'data'])
     image = tmp_path / 'input.bin'
     image.write_bytes(b'firmware-test-fixture')
     def fake_build(name, source, folder):

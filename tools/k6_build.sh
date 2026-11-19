@@ -140,13 +140,17 @@ if [ -n "${K6_CB:-}" ]; then
   echo "codebook in SPI flash: $CB"
 fi
 KM=
-if [ -n "${K6_MOD_KEY_FILE:-}" ]; then
+KM_MODE=
+if [ "${K6_OTA_SERVICE:-1}" = 0 ]; then
+  KM_MODE=-DKM_CABLE_ONLY
+  echo "module loader: cable-only CRC32"
+elif [ -n "${K6_MOD_KEY_FILE:-}" ]; then
   KM=$(python3 -c 'import sys; k = bytes.fromhex(open(sys.argv[1]).read().strip()); assert len(k) == 16, "want 32 hex digits"; print(",".join(str(b) for b in k))' "$K6_MOD_KEY_FILE")
   echo "module loader: key from $K6_MOD_KEY_FILE"
 else
   echo "module loader: no K6_MOD_KEY_FILE, so it refuses every module"
 fi
-$CC $CFLAGS -Oz ${KM:+-DKM_KEY=$KM} -c "$ROOT/c/k6/k6_mod.c" -o "$OUT/k6_mod.o"
+$CC $CFLAGS -Oz $KM_MODE ${KM:+-DKM_KEY=$KM} -c "$ROOT/c/k6/k6_mod.c" -o "$OUT/k6_mod.o"
 # the SPI module library (k6_lib.h): install / load a module image in its SPI slot
 $CC $CFLAGS -Oz -c "$ROOT/c/k6/k6_lib.c" -o "$OUT/k6_lib.o"
 # PXK6 full-color PixelQSO card record validator and monochrome LCD preview renderer.
@@ -232,6 +236,10 @@ if [ "${K6_VOICE:-1}" = 0 ]; then
   LIBOBJS=$(echo $LIBOBJS | sed "s# [^ ]*/sotto_fx_dec.o# $OUT/sp_novoice.o#; s# [^ ]*/fx_math.o##")
 fi
 # K6_LIBEXTRA: objects the compiler needs beside the library (gcc's Thumb-1 switch helpers)
+$CC $CFLAGS -Oz -c "$ROOT/c/k6/vfo_mode_probe.c" -o "$OUT/vfo_mode_probe.o"
+LIBOBJS="$LIBOBJS $OUT/vfo_mode_probe.o"
+$CC $CFLAGS -Oz -c "$ROOT/c/k6/scheduled_dispatch.c" -o "$OUT/scheduled_dispatch.o"
+LIBOBJS="$LIBOBJS $OUT/scheduled_dispatch.o"
 LIBOBJS="$LIBOBJS ${K6_LIBEXTRA:-}"
 # the images' memcpy family (c/k6/k6_mem.c): in the archive only, the bench links shim.c's
 $CC $CFLAGS -Oz -fno-builtin -c "$ROOT/c/k6/k6_mem.c" -o "$OUT/k6_mem.o"

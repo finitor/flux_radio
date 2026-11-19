@@ -8,7 +8,7 @@ fn slot(selection:u8)->u32 {
     match selection{0=>BENCH_SLOT,2..=33=>u32::from(selection-2),_=>255}
 }
 static mut CACHE_SLOT:u32=255;
-static mut RECORDS:[u8;160]=[0;160];
+static mut RECORDS:[u8;170]=[0;170];
 static mut FONT:[u8;132]=[0;132];
 static mut CACHED: Option<theme_reader::Theme> = None;
 static mut CHECKED: bool = false;
@@ -30,7 +30,7 @@ pub fn draw<D: DrawTarget<Color = BinaryColor>>(lcd: &mut D, app: &mut App) -> b
             CACHED = theme_reader::open(&mut |off,dst| read(app,slot,off,dst));
             if let Some(t)=CACHED {
                 // Load the immutable descriptor table and optional font once.
-                for (i,chunk) in (&mut *core::ptr::addr_of_mut!(RECORDS)).chunks_mut(40).enumerate(){
+                for (i,chunk) in (&mut *core::ptr::addr_of_mut!(RECORDS))[..if t.separate_names {170}else{160}].chunks_mut(40).enumerate(){
                     if !read(app,slot,t.flat_offset+i as u16*40,chunk){CACHED=None;break;}
                 }
                 if t.font_offset!=0 && CACHED.is_some(){
@@ -44,9 +44,7 @@ pub fn draw<D: DrawTarget<Color = BinaryColor>>(lcd: &mut D, app: &mut App) -> b
         CACHED
     };
     let Some(theme) = theme else { return false; };
-    if app.freq_input_len()!=0 || app.channel_input_len()!=0 || app.dtmf_dial_active()
-
-        || (0..2).any(|i| app.side_is_channel_mode(i) && !app.side_name_str(i).is_empty()) {
+    if app.freq_input_len()!=0 || app.channel_input_len()!=0 || app.dtmf_dial_active() {
         return false;
     }
     let active = app.master_index() + 1;
@@ -74,7 +72,7 @@ pub fn draw<D: DrawTarget<Color = BinaryColor>>(lcd: &mut D, app: &mut App) -> b
     let modes=[standby::mode_fields(app,0),standby::mode_fields(app,1)];
     let records=unsafe{&*core::ptr::addr_of!(RECORDS)};
     let font=unsafe{&*core::ptr::addr_of!(FONT)};
-    for chunk in records.chunks_exact(5) {
+    for chunk in records[..if theme.separate_names {170}else{160}].chunks_exact(5) {
         let w:&[u8;5]=chunk.try_into().unwrap();
         standby::draw_flat_widget(lcd,app,w,&theme,&glyph,&meter,font,&modes);
     }
@@ -89,14 +87,18 @@ pub(crate) fn boot_logo<D: DrawTarget<Color=BinaryColor>>(lcd: &mut D, storage: 
     let theme=theme_reader::open(&mut |off,dst| storage.norflash.read_bytes_checked(base+u32::from(off),dst));
     unsafe { CACHED=theme; CHECKED=false; CACHE_SLOT=slot; }
     let Some(t)=theme else {return;};
-    let rows: [u16;16]=match t.splash {
-        1=>[0,0x0180,0x03c0,0x07e0,0x0ff0,0x1ff8,0x3ffc,0x7ffe,0x7ffe,0x3ffc,0x1ff8,0x0ff0,0x07e0,0x03c0,0x0180,0],
-        2=>[0x0180,0x05a0,0x0990,0x1188,0x2184,0x0180,0x03c0,0x03c0,0x07e0,0x07e0,0x0ff0,0x0ff0,0x1ff8,0x3ffc,0x7ffe,0],
-        _=>return,
-    };
     let mut pixels=[0u8;32];
-    for (i,row) in rows.iter().enumerate() {
-        pixels[i*2..i*2+2].copy_from_slice(&row.to_be_bytes());
+    if t.splash == 3 {
+        if t.logo_offset == 0 || !storage.norflash.read_bytes_checked(base+u32::from(t.logo_offset), &mut pixels) {return;}
+    } else {
+        let rows: [u16;16]=match t.splash {
+            1=>[0x0000,0x0780,0x0840,0x103c,0x1002,0x33e2,0x4202,0x4204,0x4384,0x4202,0x2202,0x1204,0x1004,0x0878,0x0c80,0x0300],
+            2=>[0x2928,0x4fe4,0x2928,0x0100,0x0280,0x0540,0x0640,0x0540,0x04c0,0x0540,0x0640,0x0540,0x04c0,0x0540,0x0640,0x0920],
+            _=>return,
+        };
+        for (i,row) in rows.iter().enumerate() {
+            pixels[i*2..i*2+2].copy_from_slice(&row.to_be_bytes());
+        }
     }
     let image=ImageRaw::<BinaryColor>::new(&pixels,16);
     Image::new(&image,Point::new(20,8)).draw(lcd).ok();

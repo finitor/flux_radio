@@ -50,7 +50,7 @@ level_new = '    level: if cfg!(feature = "fd6818b") { 20 } else { 9 },'
 if level_old in text:
     text = text.replace(level_old, level_new, 1)
 elif not any(f'    level: if cfg!(feature = "fd6818b") {{ {level} }} else {{ 9 }},' in text
-             for level in (20, 21, 22)):
+             for level in (20, 21, 22, 23)):
     raise SystemExit("pager.rs: cannot locate FD6818B API level")
 
 init_anchor = "    lcd_explore_header: mod_lcd_explore_header,\n"

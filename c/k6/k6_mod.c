@@ -28,6 +28,7 @@ uint16_t km_tone_decode(uint16_t r68, uint16_t r69, uint16_t r6a) {
    a toolchain). While the placeholder is there, every module is refused. Read through a
    volatile pointer so the compiler can't fold it into the code, where keyimage couldn't
    find it. */
+#ifndef KM_CABLE_ONLY
 #define KM_PLACEHOLDER 's', 'o', 't', 't', 'o', '-', 'K', '6', 'M', 'O', 'D', '-', 'k', 'e', 'y', '!'
 #define X(c) (uint8_t)((c) ^ 0xFF)  /* stored inverted, so the placeholder is in the image once */
 static const uint8_t placeholder_inv[16] = {X('s'), X('o'), X('t'), X('t'), X('o'), X('-'), X('K'), X('6'),
@@ -38,13 +39,27 @@ static const uint8_t key_store[16] = {KM_KEY};
 __attribute__((used)) static const uint8_t key_store[16] = {KM_PLACEHOLDER};
 #endif
 
+#endif
+
 static km_status_t K;
 static uint8_t seen[32];        /* a bit per chunk: up to 255 */
 static uint8_t ready;
 static uint32_t crc_diag;        /* last packet: calculated CRC in high half, received in low */
 
 uint32_t km_crc_diag(void) { return crc_diag; }
+uint32_t km_serial_highwater(void) { return K.serial; }
+void km_init(void) {
+  K.xfer = K.have = K.count = K.active = 0;
+  K.last = K.chunk = 0;
+  K.code_len = 0;
+  K.serial = 0;
+  K.reply = K.tlm = K.missing = K.pad = 0;
+  for (unsigned i = 0; i < sizeof seen; i++) seen[i] = 0;
+  ready = 0;
+  crc_diag = 0;
+}
 
+#ifndef KM_CABLE_ONLY
 static uint64_t le64(const uint8_t *p) {
   uint64_t v = 0;
   int i;
@@ -98,6 +113,17 @@ int km_capability_proof(const uint8_t record[16], const uint8_t nonce[16], uint8
   return 0;
 }
 
+#else
+static uint32_t image_crc(const uint8_t *p,unsigned n) {
+  uint32_t c=0xffffffffu;
+  while(n--){unsigned i;c^=*p++;for(i=0;i<8;i++)c=(c>>1)^(0xedb88320u & (0u-(c&1)));}
+  return ~c;
+}
+int km_capability_proof(const uint8_t record[16],const uint8_t nonce[16],uint8_t tag[8]){
+  (void)record;(void)nonce;(void)tag;return KM_NO_KEY;
+}
+#endif
+
 /* the whole image is in: is it a module of ours? */
 static int check(const uint8_t *a, unsigned have_bytes, unsigned dl) {
   unsigned code = a[4] | a[5] << 8, entry = a[6] | a[7] << 8, total = KM_HDR + code + KM_TAG;
@@ -118,6 +144,13 @@ static int check(const uint8_t *a, unsigned have_bytes, unsigned dl) {
 }
 
 int km_tag_check(const uint8_t *a, unsigned code) {
+#ifdef KM_CABLE_ONLY
+  const uint8_t *t=a+KM_HDR+code;
+  uint32_t c=image_crc(a,KM_HDR+code);
+  unsigned i;
+  for(i=0;i<4;i++)if(t[i]!=(uint8_t)(c>>(8*i))||t[4+i]!=(uint8_t)(~c>>(8*i)))return KM_BAD_TAG;
+  return 0;
+#else
   const volatile uint8_t *kp = key_store;
   uint8_t key[16];
   int i, same = 1;
@@ -125,6 +158,7 @@ int km_tag_check(const uint8_t *a, unsigned code) {
   if (same) return KM_NO_KEY;
   if (km_siphash(key, a, KM_HDR + code) != le64(a + KM_HDR + code)) return KM_BAD_TAG;
   return 0;
+#endif
 }
 
 void km_arm(const uint8_t *a, int air) {
@@ -148,7 +182,7 @@ int km_again(const uint8_t *a, unsigned cap) {
   return (int)code;
 }
 
-int km_packet(const uint8_t *payload, int len, void *arena, unsigned arena_bytes) {
+static int packet(const uint8_t *payload, int len, void *arena, unsigned arena_bytes) {
   uint8_t d[SP_PAYLOAD_MAX], *a = (uint8_t *)arena;
   const uint8_t *w;
   unsigned dl = (unsigned)len - 6u, off, n, i, idx, cnt;
@@ -184,6 +218,19 @@ int km_packet(const uint8_t *payload, int len, void *arena, unsigned arena_bytes
   K.active = 0;
   n = (cnt - 1u) * dl + n;      /* bytes of image held */
   return K.last = (int8_t)check(a, n, dl);
+}
+
+/* Separate physical cable and RF ingress; no sticky session permission. */
+int km_packet(const uint8_t *payload,int len,void *arena,unsigned arena_bytes){
+#ifdef KM_CABLE_ONLY
+  (void)payload;(void)len;(void)arena;(void)arena_bytes;
+  return KM_NOT_MINE;
+#else
+  return packet(payload,len,arena,arena_bytes);
+#endif
+}
+int km_cable_packet(const uint8_t *payload,int len,void *arena,unsigned arena_bytes){
+  return packet(payload,len,arena,arena_bytes);
 }
 
 int km_run(void *arena, const k6_api_t *api) {
@@ -260,7 +307,7 @@ __attribute__((naked)) int km_packet_on_stack(const uint8_t *payload, int len, v
                  "ldr r3, =_stack_start\n"
                  "mov sp, r3\n"
                  "push {r4, lr}\n"
-                 "bl km_packet\n"
+                 "bl km_cable_packet\n"
                  "pop {r4}\n"
                  "add sp, #4\n"
                  "mov sp, r4\n"
@@ -270,7 +317,7 @@ __attribute__((naked)) int km_packet_on_stack(const uint8_t *payload, int len, v
 
 #if !defined(__thumb__)
 int km_packet_on_stack(const uint8_t *payload, int len, void *arena, unsigned arena_bytes) {
-  return km_packet(payload, len, arena, arena_bytes);
+  return km_cable_packet(payload, len, arena, arena_bytes);
 }
 #endif
 
@@ -282,6 +329,9 @@ void km_cable_begin(void) {
   sp_set_packet_yield(0, 0);
 #endif
   km_reset();
+  /* The cable session has RF disabled and always ends in a reboot. Start a fresh
+     replay epoch here so stale or uninitialized RAM can never reject wired installs. */
+  K.serial = 0;
 }
 int km_armed(void) { return ready; }
 

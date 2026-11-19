@@ -15,6 +15,20 @@ THEMES = {
     'minimal': {'name': 'Minimal', 'description': 'Clean left rail, no horizontal border.'},
 }
 DEFAULT_THEME = 'flux'
+TX_PROFILES = {
+    'ce': {'name': 'CE', 'band_lock': 0}, 'fcc': {'name': 'FCC', 'band_lock': 1},
+    'gb': {'name': 'GB', 'band_lock': 2}, '400-430': {'name': '400–430 MHz', 'band_lock': 3},
+    '400-438': {'name': '400–438 MHz', 'band_lock': 4}, 'pmr446': {'name': 'PMR446', 'band_lock': 5},
+    'gmrs-frs': {'name': 'GMRS/FRS + MURS', 'band_lock': 6}, 'ca': {'name': 'Canada', 'band_lock': 7},
+    'all-lock': {'name': 'All locked', 'band_lock': 8},
+    'unlocked': {'name': 'Unrestricted (hardware limits only)', 'band_lock': 9},
+}
+DEFAULT_TX_PROFILE = 'ce'
+
+def validate_tx_profile(profile):
+    if profile not in TX_PROFILES:
+        raise ValueError('unknown transmit profile')
+    return profile
 # Editable representations of the exact built-in VFO focus decorations.
 THEME_EDITOR_PRESETS = {
     'flux': 'custom-11-0000000000000000',
@@ -25,11 +39,12 @@ THEME_EDITOR_PRESETS = {
 
 _CUSTOM_RE = re.compile(
     r'custom-[01][01]-[0-9a-f]{16}'
-    r'(?:-[01][0-3][0-2][0-2]|-[01][0-3]3[0-2]-m[0-9a-f]{28})?'
+    r'(?:-[01][0-3][0-3][0-3]|-[01][0-3]3[0-3]-m[0-9a-f]{28})?'
     r'(?:-b[0-9a-f]{240})?'
+    r'(?:-g[0-9a-f]{64})?'
     r'(?:-l(?:0|s[0-9a-f]+|p[0-9a-f]{4096})(?:\.(?:0|s[0-9a-f]+|p[0-9a-f]{4096})){2})?'
     r'(?:-f[0-9a-f]{264})?'
-    r'(?:-w(?:[0-9a-f]{30}|[0-9a-f]{100}|[0-9a-f]{150}|[0-9a-f]{290}|[0-9a-f]{320}))?'
+    r'(?:-w(?:[0-9a-f]{30}|[0-9a-f]{100}|[0-9a-f]{150}|[0-9a-f]{290}|[0-9a-f]{320}|[0-9a-f]{340}))?'
 )
 def _meter_bitmap_rows(suffix_hex):
     """Parse 28 hex digits into two 7-row tuples; enforce byte-per-row shape."""
@@ -102,16 +117,24 @@ def validate_theme(theme):
     if theme.startswith("custom-"):
         parts = theme.split("-")
         flags, bitmap = parts[1:3]
+        splash = int(parts[3][3]) if len(parts)>3 and len(parts[3])==4 else 0
+        logo = next((bytes.fromhex(p[1:]) for p in parts[3:] if p.startswith("g")), None)
+        if (splash == 3) != (logo is not None):
+            raise ValueError("custom startup icon requires its 16 by 16 sprite")
+        if logo is not None and not any(logo):
+            raise ValueError("custom startup icon needs visible pixels")
         layers = None
         if parts[-1].startswith("w"):
             w=validate_widgets(bytes.fromhex(parts.pop()[1:]))
-            if len(w)==160 and any(w[i+3]==2 for i in range(0,len(w),5)) and not parts[-1].startswith("f"):
+            if len(w)>=160 and any(w[i+3]==2 for i in range(0,len(w),5)) and not parts[-1].startswith("f"):
                 raise ValueError("custom frequency font missing")
         if parts[-1].startswith("f"):
             f=bytes.fromhex(parts.pop()[1:])
             if any(not any(f[i:i+12]) for i in range(0,132,12)):raise ValueError("blank digit glyph")
         if parts[-1].startswith("l"):
             layers = tuple(decode_layer(p) for p in parts.pop()[1:].split("."))
+        if parts[-1].startswith("g"):
+            parts.pop()
         if parts[-1].startswith("b"):
             battery = bytes.fromhex(parts.pop()[1:])
             for i in range(0,120,24):
@@ -149,14 +172,20 @@ def theme_battery(theme):
     return next((bytes.fromhex(p[1:]) for p in theme.split("-")[3:] if p.startswith("b")),None)
 
 
+def theme_logo(theme):
+    validate_theme(theme)
+    return next((bytes.fromhex(p[1:]) for p in theme.split("-")[3:] if p.startswith("g")), None)
+
+
 def theme_layers(theme):
     validate_theme(theme)
     part = next((p for p in theme.split("-")[3:] if p.startswith("l")), "")
     return tuple(decode_layer(p) for p in part[1:].split(".")) if part.startswith("l") else None
 
 
-def resolve(spec, selected, theme=DEFAULT_THEME):
+def resolve(spec, selected, theme=DEFAULT_THEME, tx_profile=DEFAULT_TX_PROFILE):
     validate_theme(theme)
+    validate_tx_profile(tx_profile)
     packs = spec['packs']
     resolved, visiting = [], set()
 
@@ -188,7 +217,7 @@ def resolve(spec, selected, theme=DEFAULT_THEME):
         missing = set(required) - set(capabilities)
         if missing:
             raise ValueError(f'module {module} missing capabilities: {sorted(missing)}')
-    return {'target': spec['target'], 'theme': theme, 'packs': resolved,
+    return {'target': spec['target'], 'theme': theme, 'tx_profile': tx_profile, 'packs': resolved,
             'cargo_features': collect('cargo_features'),
             'capabilities': capabilities, 'modules': collect('modules'),
             'module_install': 'explicit post-flash action; no automatic radio writes'}
@@ -196,7 +225,7 @@ def resolve(spec, selected, theme=DEFAULT_THEME):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('packs', nargs='+', help='e.g. scan aprs')
+    parser.add_argument('packs', nargs='+', help='e.g. scan data')
     parser.add_argument('--spec', type=Path, default=DEFAULT)
     parser.add_argument('--theme', type=validate_theme, default=DEFAULT_THEME, metavar="THEME")
     args = parser.parse_args()
@@ -214,19 +243,19 @@ FLAT_V5_SIZES=FLAT_SIZES.copy()
 FLAT_V5_SIZES[9]=FLAT_V5_SIZES[14]=MODE_SIZES[0]
 FLAT_V5_SIZES+=MODE_SIZES[1:]*2
 def validate_flat(data):
-    if len(data) not in (75,145,160): raise ValueError("invalid flat layout length")
+    if len(data) not in (75,145,160,170): raise ValueError("invalid flat layout length")
     seen=set()
     for i in range(0,len(data),5):
         source,x,y,font,flags=data[i:i+5]
-        if source>=len(data)//5 or source in seen or flags>1 or font>((2 if len(data)==160 else 1) if source in (8,13) else 0):
+        if source>=len(data)//5 or source in seen or flags>1 or font>((2 if len(data)>=160 else 1) if source in (8,13) else 0):
             raise ValueError("invalid flat widget")
         seen.add(source)
-        w,h=(72,12) if font==2 else (54,10) if font else (FLAT_V5_SIZES+[(10,8),(10,8),(10,8)] if len(data)==160 else FLAT_V5_SIZES if len(data)==145 else FLAT_SIZES)[source]
+        w,h=(72,12) if font==2 else (54,10) if font else (FLAT_V5_SIZES+[(10,8),(10,8),(10,8)]+([(60,8),(60,8)] if len(data)==170 else []) if len(data)>=160 else FLAT_V5_SIZES if len(data)==145 else FLAT_SIZES)[source]
         if x+w>128 or y+h>64: raise ValueError("widget outside LCD")
     return data
 
 def validate_widgets(data):
-    if len(data) in (75,145,160): return validate_flat(data)
+    if len(data) in (75,145,160,170): return validate_flat(data)
     sizes = [(128,8),(128,24),(128,24),(128,8),(17,8)]
     if len(data) not in (15,50):
         raise ValueError("invalid layout length")

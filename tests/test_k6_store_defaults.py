@@ -106,6 +106,45 @@ def test_radio_status_reuses_session_settings(tmp_path, monkeypatch):
     assert status_call[-3:] == ['--port', '/dev/ttyUSB9', 'status']
 
 
+def test_radio_remove_forms_build_safe_module_only_commands(tmp_path, monkeypatch):
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, 'module removal complete', '')
+
+    monkeypatch.setattr(k6_store.subprocess, 'run', run)
+    client = k6_store.create_app(k6_store.ModuleStore(config=tmp_path / 'config')).test_client()
+    client.post('/settings', data={'port': '/dev/ttyUSB9', 'key_file': ''})
+    single = client.post('/radio/remove', data={'action': 'single', 'slot': '4'})
+    assert single.status_code == 200
+    assert calls[-1][-3:] == ['remove-slots', '4', '--yes']
+    selected = client.post('/radio/remove', data={'action': 'selected', 'slot': ['4', '17']})
+    assert selected.status_code == 200
+    assert calls[-1][-3:] == ['remove-slots', '4,17', '--yes']
+    all_modules = client.post('/radio/remove', data={'action': 'all'})
+    assert all_modules.status_code == 200
+    assert calls[-1][-2:] == ['--all-modules', '--yes']
+    assert client.post('/radio/remove', data={'action': 'selected'}).status_code == 400
+    assert client.post('/radio/remove', data={'action': 'selected', 'slot': ['4', '4']}).status_code == 400
+
+
+def test_radio_inventory_shows_simple_and_bulk_module_actions(tmp_path, monkeypatch):
+    def run(command, **kwargs):
+        return subprocess.CompletedProcess(command, 0,
+            'Flux cable session 2\nslot 4 module Example 42 B code, serial 123\n', '')
+
+    monkeypatch.setattr(k6_store.subprocess, 'run', run)
+    client = k6_store.create_app(k6_store.ModuleStore(config=tmp_path / 'config')).test_client()
+    client.post('/settings', data={'port': '/dev/ttyUSB9', 'key_file': ''})
+    page = client.post('/radio').data
+    assert b'Remove selected' in page
+    assert b'Remove all modules' in page
+    assert b'name="slot" value="4"' in page
+    assert b'Type ERASE' not in page
+    assert b'radio.js' in page
+
+
 def test_manual_source_deduplicated_and_not_written_as_default(tmp_path, monkeypatch):
     monkeypatch.setattr(k6_store, 'ROOT', tmp_path)
     repo = make_repo(tmp_path / 'local-modules' / 'example')
@@ -166,3 +205,18 @@ def test_shipped_default_does_not_duplicate_manual(tmp_path, monkeypatch):
     assert store.sources() == [manual]
     assert store.remove(manual['id'])
     assert not store.sources()
+
+
+def test_archived_local_bundle_hidden_but_explicitly_addable(tmp_path,monkeypatch):
+    monkeypatch.setattr(k6_store,'ROOT',tmp_path)
+    hidden=make_repo(tmp_path/'local-modules'/'old')
+    current=make_repo(tmp_path/'local-modules'/'current')
+    policy=tmp_path/'config'/'flux-catalog.json'
+    policy.parent.mkdir()
+    policy.write_text(json.dumps({'format':1,'sources':[],'archived_local':['old'],
+                                  'local_metadata':{'current':{'title':'Current app'}}}))
+    store=k6_store.ModuleStore(config=tmp_path/'user.json')
+    assert [e['source'] for e in store.sources()]==[str(current)]
+    assert store.catalog()[0]['title']=='Current app'
+    store.add(str(hidden))
+    assert {e['source'] for e in store.sources()}=={str(hidden),str(current)}

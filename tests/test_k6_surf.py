@@ -219,7 +219,10 @@ def at(frames, us):
 def test_builds_level_6_and_fits_the_store(src):
     from modem import k6mod
     code, entry = k6mod.build(src)
-    assert k6mod.source_level(src) == 6 and entry == 16   # after its name
+    assert k6mod.source_level(src) == (16 if src == SRC else 6)
+    assert entry == k6mod.bin_entry(code) == (24 if src == SRC else 16)
+    if src == SRC:
+        assert code[16:24] == b"K6A\x01\x20\0\0\0"
     # the arena, with the remembered peaks (128 x 8 B, the rest of the store) and room to grow
     # (the bitmap and the state: the stack)
     assert len(code) <= ARENA - 24 - 8 * 128 - 200

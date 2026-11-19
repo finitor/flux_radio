@@ -205,7 +205,7 @@ class K6Workbench:
             self.spi_data[:] = self.board.flash_data
             at = DESIGNER_BASE
             old = bytes(self.spi_data[at:at+0x4000])
-            if old != b"\xff"*0x4000 and old[:4] not in (b"K6T\x01",b"K6T\x02",b"K6T\x03",b"K6T\x04",b"K6T\x05",b"K6T\x06"):
+            if old != b"\xff"*0x4000 and old[:4] not in (b"K6T\x01",b"K6T\x02",b"K6T\x03",b"K6T\x04",b"K6T\x05",b"K6T\x06",b"K6T\x07",b"K6T\x08",b"K6T\x09"):
                 raise ValueError("slot 31 is occupied by non-theme data")
             self.spi_data[at:at+0x4000] = b"\xff"*0x4000
             if blob is not None:
@@ -221,7 +221,7 @@ class K6Workbench:
         for slot in range(32):
             at = 0x110000 + slot * 0x4000
             header = bytes(flash[at:at + 16])
-            if header[:4] in (b"K6T\x01",b"K6T\x02",b"K6T\x03",b"K6T\x04",b"K6T\x05",b"K6T\x06"):
+            if header[:4] in (b"K6T\x01",b"K6T\x02",b"K6T\x03",b"K6T\x04",b"K6T\x05",b"K6T\x06",b"K6T\x07",b"K6T\x08",b"K6T\x09"):
                 found.append({"slot": slot, "name": "Designer theme", "bytes": 12+int.from_bytes(header[4:6],"little"),
                               "serial": 0, "type": "protected data"})
                 continue
@@ -329,7 +329,7 @@ def module_bundle_catalog(include_experimental=False):
         if parent.is_dir():
             manifests.extend(parent.glob("*/manifest.json"))
     bundles = []
-    preferred = {"surf", "vfo", "cardlink", "explore_scan", "aprsdfsk"}
+    preferred = {"surf", "vfo", "cardlink", "explore_scan", "aprs", "aprs-beacon", "aprs-gps-sync", "aprs-kiss-rx"}
     for manifest_path in sorted(manifests):
         try:
             manifest = json.loads(manifest_path.read_text())

@@ -70,16 +70,29 @@ K6_MODULE_NAME(K6_NAME);
 
 static char *put(char *p, const char *s) { while (*s) *p++ = *s++; return p; }
 static void cw_init_shared(const k6_api_t *api, cw_t *c) {
-  if (api->level >= 17) api->cw_init(c); else cw_init(c);
+  cw_init(c); /* local fallback stays usable when Base omits shared Scan helpers */
+  if (api->level >= 17) api->cw_init(c);
 }
 static int cw_feed_shared(const k6_api_t *api, cw_t *c, uint32_t ms, int keyed) {
-  return api->level >= 17 ? api->cw_feed(c, ms, keyed) : cw_feed(c, ms, keyed);
+  if (api->level >= 17) {
+    int r = api->cw_feed(c, ms, keyed);
+    if (r != -128) return r;
+  }
+  return cw_feed(c, ms, keyed);
 }
 static int cw_flush_shared(const k6_api_t *api, cw_t *c, uint32_t ms) {
-  return api->level >= 17 ? api->cw_flush(c, ms) : cw_flush(c, ms);
+  if (api->level >= 17) {
+    int r = api->cw_flush(c, ms);
+    if (r != -128) return r;
+  }
+  return cw_flush(c, ms);
 }
 static int cw_call_shared(const k6_api_t *api, const char *s, char call[11], uint8_t *flags) {
-  return api->level >= 17 ? api->cw_call(s, call, flags) : cw_call(s, call, flags);
+  if (api->level >= 17) {
+    int r = api->cw_call(s, call, flags);
+    if (r >= 0) return r;
+  }
+  return cw_call(s, call, flags);
 }
 static char *sdec(char *p, int32_t v) {
   if (v < 0) { *p++ = '-'; v = -v; }

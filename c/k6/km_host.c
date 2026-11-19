@@ -22,6 +22,11 @@ int main(int argc, char **argv) {
   const km_status_t *st = km_status();
   memset(arena, 0xEE, sizeof arena);
   while (fgets(line, sizeof line, stdin)) {
+    if (!strncmp(line, "cable_begin", 11)) {
+      km_cable_begin();
+      printf("cable_serial=%u\n", (unsigned)st->serial);
+      continue;
+    }
     for (n = 0; n < sizeof p && sscanf(line + 2 * n, "%2hhx", &p[n]) == 1; n++) {}
     int r = km_packet(p, (int)n, arena, bytes);
     printf("r=%d have=%u/%u active=%u\n", r, st->have, st->count, st->active);

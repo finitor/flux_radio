@@ -7,6 +7,8 @@
 .theme-card strong{display:block;margin-top:8px}
 .theme-desc{display:block;margin-top:4px;color:var(--muted);font-size:11px}
 .theme-preview{display:block;width:100%;max-width:256px;height:auto;border-radius:6px;border:1px solid #465341}
+.saved-theme-preview{aspect-ratio:2/1;background:#b7c8a1;color:#172211;display:grid;place-items:center;font:700 16px monospace;letter-spacing:.14em}
+.saved-theme-preview:is(img){object-fit:contain;image-rendering:pixelated}
 .pack-list{margin:8px 0 0;padding:0;border:0}
 .builder-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}
 .builder-actions button{border:0;border-radius:7px;padding:10px 14px;color:#16200e;background:var(--acid);font-size:12px;font-weight:750}
@@ -14,6 +16,17 @@
 .builder-actions button[type=submit]:first-child{background:transparent;color:var(--text);border:1px solid var(--line)}
 .builder-live{margin-top:18px;padding:16px;border:1px solid var(--line);border-radius:10px;background:#121714}
 .builder-live h2{margin:0 0 8px;font-size:18px}
+.flash-estimate{margin:14px 0;padding:14px;border:1px solid var(--line);border-radius:8px;background:#0d120f}
+.flash-estimate-heading{display:flex;justify-content:space-between;gap:12px;align-items:baseline;font-size:12px}
+.flash-estimate-heading output{font-variant-numeric:tabular-nums;color:var(--acid)}
+.flash-meter-wrap{padding:12px 0 4px}
+.flash-meter{height:14px;position:relative;border-radius:8px;background:#29322b;overflow:hidden}
+.flash-meter-fill{display:block;height:100%;width:0;background:var(--acid);transition:width .2s ease,background .2s ease}
+.flash-meter.over-budget .flash-meter-fill{background:#ff6b5e}
+.flash-marker{position:absolute;top:0;bottom:0;width:2px;background:#f0f1dc;opacity:.9}
+.flash-marker.base-marker{left:80%}.flash-marker.hard-marker{right:0;background:#ff6b5e}
+.flash-legend{display:flex;justify-content:space-between;gap:8px;color:var(--muted);font-size:10px}
+.flash-estimate .radio-note{margin:8px 0 0;font-size:11px}
 .builder-summary{display:grid;gap:8px;margin:12px 0}
 .builder-summary div{display:grid;grid-template-columns:120px 1fr;gap:10px}
 .builder-summary dt{color:var(--subtle);font-size:11px}
@@ -61,9 +74,51 @@
 .editor-layer-controls label{font-size:12px}
 .battery-grid{gap:2px;max-width:100%;overflow:auto;padding:2px}
 .battery-grid button{min-width:0}
+.icon-grid{gap:2px;max-width:100%;overflow:auto;padding:2px}
+.icon-grid button{min-width:0}
 
 [data-designer-panel][hidden]{display:none!important}.theme-editor>summary{cursor:pointer;font-weight:700;padding:8px 0}.theme-editor[open]>summary{margin-bottom:12px}
 
 .font-pixel-grid {display:grid;grid-template-columns:repeat(8,18px);gap:2px;margin:12px 0}
 .font-pixel-grid button {padding:0;min-height:18px;width:18px;background:#b7c8a1;border:1px solid #839279;border-radius:2px}
 .font-pixel-grid button[aria-pressed="true"] {background:#172211}
+
+/* Unified Designer studio: one LCD, mode-specific tools, common library. */
+.studio-workspace{grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);align-items:start;gap:18px}
+.studio-toolbar{align-items:center;border-bottom:1px solid var(--line);padding-bottom:10px}
+.studio-toolbar-spacer{flex:1}
+.studio-stage{position:sticky;top:16px;min-width:0}
+.studio-inspector{min-width:0}
+.studio-inspector [hidden],.theme-editor [hidden]{display:none!important}
+.studio-inspector h3{font-size:14px;margin:0 0 12px}
+.studio-library{margin-top:16px}
+.studio-library .editor-library{grid-template-columns:minmax(0,1fr) auto}
+.studio-workspace .editor-radio svg{image-rendering:pixelated;touch-action:none}
+.studio-workspace .layout-moving [data-widget]{cursor:move}
+.studio-inspector input[type=number],.studio-inspector input:not([type]){width:100%;min-width:0;padding:7px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--text)}
+.studio-inspector button:disabled,.studio-toolbar button:disabled{opacity:.45;cursor:not-allowed}
+@media(max-width:680px){.studio-workspace{grid-template-columns:1fr}.studio-stage{position:static}.studio-library .editor-library{grid-template-columns:1fr}}
+
+/* Give the design surface most of the available width. The scrollport remains
+   separate from the SVG so inverse screen transforms stay accurate at any zoom. */
+.profile-workspace{width:min(1800px,calc(100% - 44px))}
+.studio-workspace{grid-template-columns:minmax(0,1fr) minmax(280px,350px)}
+.studio-zoombar{align-items:center;margin:0 0 10px}
+.studio-zoombar select{background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:7px}
+.studio-zoombar output{font-size:12px;color:var(--muted);margin-left:auto;font-variant-numeric:tabular-nums}
+.studio-viewport{overflow:auto;max-height:70vh;overscroll-behavior:contain;scrollbar-gutter:stable;box-sizing:border-box;padding:12px}
+.studio-surface{width:max-content;min-width:100%;min-height:100%;display:flex;justify-content:center}
+.studio-viewport svg{width:var(--lcd-width,512px);height:var(--lcd-height,256px);max-width:none;flex:none;shape-rendering:crispEdges}
+.theme-editor.studio-expanded{position:fixed;inset:12px;z-index:1000;margin:0;overflow:auto;box-shadow:0 0 0 100vmax #0f1411df}
+.theme-editor.studio-expanded>summary{display:none}
+.theme-editor.studio-expanded .studio-workspace{grid-template-columns:minmax(0,1fr) minmax(280px,350px)}
+.theme-editor.studio-expanded .studio-stage{top:0}
+@media(max-width:850px){.studio-workspace,.theme-editor.studio-expanded .studio-workspace{grid-template-columns:1fr}.studio-stage{position:static}}
+@media(max-width:480px){.profile-workspace{width:calc(100% - 20px)}.theme-editor.studio-expanded{inset:4px;padding:8px}.studio-viewport{padding:6px}}
+
+.tx-profile-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;margin:14px 0 0;padding:0;border:0}
+.tx-profile-card{display:flex;align-items:flex-start;gap:9px;padding:11px;border:1px solid var(--line);border-radius:8px;background:var(--surface);cursor:pointer}
+.tx-profile-card:has(input:checked){border-color:var(--acid);box-shadow:inset 0 0 0 1px var(--acid)}
+.tx-profile-card input{margin-top:3px;accent-color:var(--acid)}
+.tx-profile-card strong,.tx-profile-card small{display:block}
+.tx-profile-card strong{font-size:12px}.tx-profile-card small{margin-top:4px;color:var(--muted);font-size:10px}

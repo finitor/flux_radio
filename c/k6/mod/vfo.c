@@ -9,6 +9,7 @@
 #include "k6ui.h"
 
 K6_MODULE_NAME("VFO RADIO");
+K6_ACTION(K6_ACTION_VFO_OPEN);
 
 #define VFO_MEMORIES 10
 #define VFO_STEP_HZ 12500u

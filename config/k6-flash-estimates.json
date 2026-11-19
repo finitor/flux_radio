@@ -1,0 +1,27 @@
+{
+  "format": 1,
+  "base_bytes": 97756,
+  "base_source": "Matched audit/base/size.txt, out-vfo-spi-probe/audit, 2026-11-18",
+  "deltas": {
+    "scan": {
+      "bytes": 14632,
+      "source": "matched linked Scan delta retained from the current source: Base+Scan 114684 B minus Base 100052 B before the PXK6 cable-storage gate; gate removes only Data-owned code from Base"
+    },
+    "data": {
+      "bytes": 3888,
+      "source": "Matched ordinary Data 101644 minus Base 97756; out-vfo-spi-probe/audit/matrix.json"
+    },
+    "ota": {
+      "bytes": 844,
+      "source": "docs/k6-feature-refactor-roadmap.md Base+OTA minus Base"
+    },
+    "designer": {
+      "bytes": 7688,
+      "source": "Measured Base 97380 B and optimized Designer 105068 B; theme-management-size-audit/opt4/size.txt"
+    }
+  },
+  "unknown_packs": [
+    "sotto"
+  ],
+  "note": "Matched ordinary Base 97756 B, Data 101644 B. Experimental SPI resident runtime adds 1360 B to Data (103004 B); with Designer 110540 B. Runtime is opt-in and not included in normal pack estimates. Other pack estimates retained pending matched production builds."
+}

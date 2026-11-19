@@ -20,16 +20,22 @@ anchor = '            CMD_CABLE_INFO => {\n'
 if text.count(anchor) != 1:
     raise SystemExit('could not uniquely locate Blowfang cable info dispatcher')
 scan = os.environ.get('K6_SCAN_SERVICE', '1')
-fsk = os.environ.get('K6_FSK_RX_SERVICE', '1')
+fsk = os.environ.get('K6_FSK_RX_SERVICE', '0')
 if scan not in ('0', '1') or fsk not in ('0', '1'):
     raise SystemExit('capability gates must be 0 or 1')
 # Do not claim capabilities just because a source file was present. These are
 # declared build gates; a future attested image measurement is still required.
-mask = 1 | (2 if scan == '1' else 0) | (4 if fsk == '1' else 0)
+ota = os.environ.get("K6_OTA_SERVICE", "0")
+if ota not in ("0","1"): raise SystemExit("invalid OTA gate")
+designer = os.environ.get("K6_DESIGNER_SERVICE", "0")
+if designer not in ("0", "1"): raise SystemExit("invalid Designer gate")
+sotto = os.environ.get("K6_SOTTO_SERVICE", "0")
+if sotto not in ("0", "1"): raise SystemExit("invalid Sotto gate")
+mask = (32 if designer == "1" else 0) | (8 if ota == "1" else 16) | 1 | (2 if scan == '1' else 0) | (4 if fsk == '1' else 0) | (64 if sotto == "1" else 0)
 insert = f'''            // Read-only capability query: K6CP, format 2, flags, API ceiling, reserved.
             // Version 2 includes the embedded linker build ID (not a runtime measurement).
             CMD_CABLE_CAPS if f.addr == 0 && (f.len == 0 || f.len == 16) => {{
-                let mut d: [u8; 16] = [b'K', b'6', b'C', b'P', 2, {mask}, 22, 0,
+                let mut d: [u8; 16] = [b'K', b'6', b'C', b'P', 2, {mask}, 23, 0,
                                    0, 0, 0, 0, 0, 0, 0, 0];
                 extern "C" {{
                     static k6_build_id: [u8; 8];
@@ -48,6 +54,11 @@ insert = f'''            // Read-only capability query: K6CP, format 2, flags, A
                     cable_send(CMD_CABLE_CAPS, 0, &reply);
                 }}
             }}
+            CMD_CABLE_SERIAL if f.addr == 0 && f.len == 0 => {{
+                extern "C" {{ fn km_serial_highwater() -> u32; }}
+                let serial = unsafe {{ km_serial_highwater() }}.to_le_bytes();
+                cable_send(CMD_CABLE_SERIAL, 0, &serial);
+            }}
 '''
 if marker in text:
     start = text.index(marker)
@@ -61,6 +72,7 @@ else:
 constant = 'const CMD_CABLE_INFO: u8 = 0x56;'
 if text.count(constant) != 1:
     raise SystemExit('could not locate Blowfang cable command definitions')
-if 'const CMD_CABLE_CAPS: u8 = 0x49;' not in text:
-    text = text.replace(constant, "const CMD_CABLE_CAPS: u8 = 0x49; // 'I' read-only capabilities\n" + constant, 1)
+serial_constant = 'const CMD_CABLE_SERIAL: u8 = 0x4A; // read-only replay watermark'
+if serial_constant not in text:
+    text = text.replace(constant, serial_constant + "\n" + constant, 1)
 path.write_text(text)

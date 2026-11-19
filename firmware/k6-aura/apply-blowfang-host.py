@@ -173,7 +173,12 @@ new_select = '''                #[cfg(feature = "explore")]
                 } else {
                     queue_lib_run(m.slots[(sel - MENU_CORE) as usize]);
                 }'''
-if new_select not in text:
+# A later dispatcher patch may already have replaced the host-only queue call.
+dispatched_select = new_select.rsplit(
+    "                    queue_lib_run(m.slots[(sel - MENU_CORE) as usize]);",
+    1)
+dispatched_select = "                    let _ = host_dispatch_slot(m.slots[(sel - MENU_CORE) as usize], true);".join(dispatched_select)
+if new_select not in text and dispatched_select not in text:
     if text.count(old_select) != 1:
         raise SystemExit("pager.rs: could not locate menu row dispatch")
     text = text.replace(old_select, new_select, 1)

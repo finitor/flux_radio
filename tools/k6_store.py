@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import json
 import os
@@ -16,8 +17,37 @@ from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATES = Path(__file__).with_name("k6_store_templates")
+FLUX_ART_DIR = Path(os.environ.get("K6_FLUX_ART_DIR", ROOT / "flux-art-kit/flux-arrays"))
+THEME_LOGOS = FLUX_ART_DIR / "logos.py"
+THEME_BOOT_SPLASH = FLUX_ART_DIR / "splash.bin"
 IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(<?([^\s)>]+)>?(?:\s+[^)]*)?\)")
 HTML_IMAGE_RE = re.compile(r"<img\b[^>]*\bsrc=[\"']([^\"']+)[\"']", re.I)
+
+
+def theme_splash_preview_logos() -> list[list[int]]:
+    """Load the same artwork arrays used by the firmware splash build."""
+    names = ("FACTORY_LOGO", "DIAMOND_LOGO", "ANTENNA_LOGO")
+    values = {}
+    for statement in ast.parse(THEME_LOGOS.read_text()).body:
+        if not isinstance(statement, ast.Assign):
+            continue
+        for target in statement.targets:
+            if isinstance(target, ast.Name) and target.id in names:
+                values[target.id] = ast.literal_eval(statement.value)
+    logos = [values.get(name) for name in names]
+    if any(not isinstance(rows, list) or len(rows) != 16
+           or any(type(value) is not int or not 0 <= value <= 0xFFFF for value in rows)
+           for rows in logos):
+        raise ValueError(f"invalid theme preview logo artwork in {THEME_LOGOS}")
+    return logos
+
+
+def theme_boot_splash_bytes() -> list[int]:
+    """The page-major boot bitmap used by the radio's stored-logo renderer."""
+    data = THEME_BOOT_SPLASH.read_bytes()
+    if len(data) != 1024:
+        raise ValueError(f"invalid 128 by 64 boot artwork in {THEME_BOOT_SPLASH}")
+    return list(data)
 
 
 def default_config() -> Path:
@@ -165,6 +195,13 @@ class ModuleStore:
             entries.append(entry)
         return entries
 
+    def local_policy(self) -> dict:
+        path = ROOT / "config" / "flux-catalog.json"
+        try:
+            return json.loads(path.read_text())
+        except FileNotFoundError:
+            return {}
+
     def sources(self) -> list[dict]:
         entries = self.configured_sources()
         seen = {(e["source"], e.get("ref", "")) for e in entries}
@@ -179,8 +216,9 @@ class ModuleStore:
         directory = ROOT / 'local-modules'
         if not directory.is_dir():
             return entries
+        archived = set(self.local_policy().get('archived_local', []))
         for path in sorted(directory.iterdir()):
-            if not path.is_dir():
+            if not path.is_dir() or path.name in archived:
                 continue
             source = str(path.resolve())
             # Local module bundles are useful artifacts in their own right; they don't need
@@ -266,7 +304,11 @@ class ModuleStore:
     def repo(self, entry: dict, refresh: bool = False) -> dict:
         path = self.sync(entry, refresh=refresh)
         info = readme_info(path)
+        if path.parent == (ROOT / "local-modules").resolve():
+            info.update(self.local_policy().get("local_metadata", {}).get(path.name, {}))
         try:
+            if not (path / ".git").exists():
+                raise FileNotFoundError("standalone bundle")
             commit = subprocess.check_output(["git", "-C", str(path), "rev-parse", "HEAD"],
                                              text=True, stderr=subprocess.DEVNULL).strip()
         except (subprocess.CalledProcessError, FileNotFoundError):
@@ -305,9 +347,12 @@ def create_app(store: ModuleStore | None = None):
     app.secret_key = os.environ.get("FLUX_STORE_SECRET") or os.environ.get("BLOWFANG_STORE_SECRET") or secrets.token_bytes(32)
     catalog = store or ModuleStore()
     from k6_build_jobs import BuildJobs
+    from k6_theme_library import ThemeLibrary
     build_jobs = BuildJobs()
+    theme_library = ThemeLibrary()
     app.config["build_jobs"] = build_jobs
     app.config["module_store"] = catalog
+    app.config["theme_library"] = theme_library
 
     def radio_settings() -> dict:
         return {"port": session.get("radio_port", ""),
@@ -349,20 +394,23 @@ def create_app(store: ModuleStore | None = None):
         except ValueError as exc:
             repos = []
             flash(str(exc), "error")
-        return render_template("index.html", repos=repos)
+        return render_template("index.html", repos=repos, catalog_themes=theme_library.list())
 
-    def profile_plan(selected, theme):
-        from k6_feature_packs import DEFAULT, resolve
+    def profile_plan(selected, theme, tx_profile):
+        from k6_feature_packs import DEFAULT, resolve, DEFAULT_TX_PROFILE
         from k6_pack_policy import POLICY, validate, gate_environment
         spec = json.loads(DEFAULT.read_text())
         policy = json.loads(POLICY.read_text())
-        choices = {name: item for name, item in spec['packs'].items() if name != 'base'}
+        choices = {name: dict(item) for name, item in spec['packs'].items() if name != 'base'}
+        if 'sotto' in choices:
+            choices['sotto']['status'] = 'Temporarily tabled until a linked size is verified'
         try:
-            if any(name not in choices for name in selected):
+            if any(name not in choices or choices[name].get('status') for name in selected):
                 raise ValueError('unknown feature pack')
             validate(spec, policy)
-            plan = resolve(spec, selected or ['base'], theme)
-            result = {'ok': True, 'plan': plan, 'gates': gate_environment(plan, policy)}
+            plan = resolve(spec, selected or ['base'], theme, tx_profile)
+            from k6_flash_estimate import estimate
+            result = {'ok': True, 'plan': plan, 'gates': gate_environment(plan, policy), 'estimate': estimate(plan)}
         except (ValueError, KeyError) as exc:
             result = {'ok': False, 'error': str(exc)}
         return choices, result
@@ -370,12 +418,26 @@ def create_app(store: ModuleStore | None = None):
     @app.get("/profiles")
     @app.post("/profiles")
     def profiles():
-        from k6_feature_packs import THEMES, DEFAULT_THEME, THEME_EDITOR_PRESETS
+        from k6_feature_packs import THEMES, DEFAULT_THEME, TX_PROFILES, DEFAULT_TX_PROFILE
         selected = request.form.getlist('pack')
         theme = request.form.get('theme', DEFAULT_THEME)
-        choices, result = profile_plan(selected, theme)
+        theme_name = request.form.get('theme_name', '')
+        tx_profile = request.form.get('tx_profile', DEFAULT_TX_PROFILE)
+        choices, result = profile_plan(selected, theme, tx_profile)
+        saved_themes = theme_library.list()
+        matching_theme_index = next((i for i, item in enumerate(saved_themes)
+                                     if item['token'] == theme and (not theme_name or item['name'] == theme_name)), -1)
         return render_template('profiles.html', choices=choices, result=result,
-                               selected=selected, themes=THEMES, selected_theme=theme, theme_editor_presets=THEME_EDITOR_PRESETS), (200 if result['ok'] else 400)
+                               selected=selected, themes=THEMES, selected_theme=theme, selected_theme_name=theme_name,
+                               saved_themes=saved_themes, matching_theme_index=matching_theme_index,
+                               tx_profiles=TX_PROFILES, selected_tx_profile=tx_profile), (200 if result['ok'] else 400)
+
+    @app.get("/themes")
+    def themes_page():
+        from k6_feature_packs import THEMES, THEME_EDITOR_PRESETS
+        return render_template('themes.html', themes=THEMES, theme_editor_presets=THEME_EDITOR_PRESETS,
+                               theme_splash_logos=theme_splash_preview_logos(),
+                               theme_boot_splash=theme_boot_splash_bytes())
 
     # Preserve the existing form endpoint name for templates and callers.
     app.add_url_rule('/profiles', endpoint='plan_profile', view_func=profiles, methods=['POST'])
@@ -386,7 +448,7 @@ def create_app(store: ModuleStore | None = None):
         from k6_theme_package import pack, unpack
         try:
             token = request.form.get("theme", "")
-            blob = pack(token)
+            blob = pack(token, request.form.get('name', ''))
             unpack(blob)
             return Response(blob, mimetype="application/octet-stream",
                             headers={"Content-Disposition": "attachment; filename=flux-theme.fluxtheme"})
@@ -399,26 +461,60 @@ def create_app(store: ModuleStore | None = None):
         try:
             file = request.files.get("theme")
             if file is None: raise ValueError("choose a theme file")
-            return jsonify(theme=migrate(unpack(file.stream.read(8193))))
+            token, name = unpack(file.stream.read(8193), include_name=True)
+            return jsonify(theme=migrate(token), name=name)
         except (ValueError, TypeError) as exc:
             return jsonify(error=str(exc)), 400
 
+    @app.get("/themes/library")
+    def list_saved_themes():
+        try:
+            return jsonify(themes=theme_library.list(), path=str(theme_library.path))
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            return jsonify(error=str(exc)), 500
+
+    @app.post("/themes/library")
+    def save_theme_to_disk():
+        try:
+            item = theme_library.save(request.form.get("name", ""), request.form.get("theme", ""),
+                                      request.form.get("preview", ""))
+            return jsonify(theme=item, path=str(theme_library.path))
+        except (ValueError, TypeError) as exc:
+            return jsonify(error=str(exc)), 400
+        except OSError as exc:
+            return jsonify(error=str(exc)), 500
+
+    @app.delete("/themes/library")
+    def delete_saved_theme():
+        try:
+            if not theme_library.delete(request.form.get("name", "")):
+                return jsonify(error="saved theme was not found"), 404
+            return jsonify(ok=True, path=str(theme_library.path))
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            return jsonify(error=str(exc)), 500
+
     @app.post("/profiles/preview")
     def preview_profile():
-        from k6_feature_packs import DEFAULT_THEME
-        _, result = profile_plan(request.form.getlist('pack'), request.form.get('theme', DEFAULT_THEME))
+        from k6_feature_packs import DEFAULT_THEME, DEFAULT_TX_PROFILE
+        _, result = profile_plan(request.form.getlist('pack'), request.form.get('theme', DEFAULT_THEME),
+                                 request.form.get('tx_profile', DEFAULT_TX_PROFILE))
         return jsonify(result), (200 if result['ok'] else 400)
 
     @app.post("/profiles/build")
     def build_profile():
-        from k6_feature_packs import DEFAULT_THEME
+        from k6_feature_packs import DEFAULT_THEME, DEFAULT_TX_PROFILE
         selected = request.form.getlist('pack')
         theme = request.form.get('theme', DEFAULT_THEME)
-        _, result = profile_plan(selected, theme)
+        theme_name = request.form.get('theme_name', '').strip()
+        tx_profile = request.form.get('tx_profile', DEFAULT_TX_PROFILE)
+        _, result = profile_plan(selected, theme, tx_profile)
         if not result['ok']:
             abort(400)
+        if not result['estimate']['allowed']:
+            flash('Estimated firmware size exceeds this profile’s flash budget. Remove feature sets before building.', 'error')
+            return redirect(url_for('profiles'))
         try:
-            job_id = app.config['build_jobs'].start(selected, theme)
+            job_id = app.config['build_jobs'].start(selected, theme, tx_profile, theme_name)
         except (ValueError, OSError) as exc:
             flash(str(exc), 'error')
             return redirect(url_for('profiles'))
@@ -439,7 +535,7 @@ def create_app(store: ModuleStore | None = None):
         if not token or not secrets.compare_digest(token, request.form.get('token', '')):
             abort(403)
         action = request.form.get('action')
-        if action not in ('flash', 'install', 'preview'):
+        if action not in ('flash', 'install', 'preview', 'theme', 'splash', 'flash-install'):
             abort(400)
         if action != 'preview' and request.form.get('confirm') != 'yes':
             flash('Confirm the write to the selected radio first.', 'error')
@@ -451,7 +547,8 @@ def create_app(store: ModuleStore | None = None):
         try:
             radio_id = app.config['build_jobs'].start_radio(
                 job_id, action, settings['port'], settings['key_file'],
-                already_update=action == 'flash' and request.form.get('mode') == 'update')
+                already_update=action in ('flash', 'flash-install') and request.form.get('mode') == 'update',
+                theme_slot=None)
         except KeyError:
             abort(404)
         except (OSError, ValueError) as exc:
@@ -491,7 +588,7 @@ def create_app(store: ModuleStore | None = None):
         protocol_match = re.search(r"cable session (\d+)", result.stdout)
         protocol = int(protocol_match.group(1)) if protocol_match else 0
         slots = []
-        pattern = re.compile(r"^slot\s+(\d+)\s+(page|cards|module)\s+(.+?)\s+(\d+)\s+B code, serial (\d+)$")
+        pattern = re.compile(r"^slot\s+(\d+)\s+(page|cards|module|theme)\s+(.+?)\s+(\d+)\s+B code, serial (\d+)$")
         for line in result.stdout.splitlines():
             match = pattern.search(line.strip())
             if not match:
@@ -515,28 +612,93 @@ def create_app(store: ModuleStore | None = None):
                                "output": output, "slots": slots, "protocol": protocol}, port=port,
                                key_file=key_file, action_result=None)
 
-    @app.post("/radio/remove")
-    def erase_radio_slot():
+    @app.post("/radio/remove-theme")
+    def erase_radio_theme():
         try:
             slot = int(request.form.get("slot", ""))
-        except ValueError:
-            abort(400)
-        confirmation = request.form.get("confirmation", "").strip()
-        if confirmation != f"ERASE {slot}":
-            return render_template("radio.html", inventory=None,
-                                   action_result={"ok": False,
-                                                  "output": f"Erase cancelled. Type ERASE {slot} exactly to confirm."}), 400
+            if not (0 <= slot <= 8 or 16 <= slot <= 31):
+                abort(400)
+            command = cable_command("remove-theme", str(slot), "--yes")
+        except ValueError as exc:
+            flash(str(exc), "error")
+            return redirect(url_for("radio"))
         try:
-            command = cable_command("remove-slot", str(slot), "--yes")
+            result = subprocess.run(command, text=True, capture_output=True, timeout=300)
+        except subprocess.TimeoutExpired:
+            return render_template("radio.html", inventory=None, action_result={
+                "ok": False, "output": "Theme removal timed out; inspect the radio before retrying."}), 504
+        return render_template("radio.html", inventory=None, action_result={
+            "ok": result.returncode == 0, "output": result.stdout + "\n" + result.stderr}), (200 if result.returncode == 0 else 500)
+
+    @app.post("/themes/catalog/add")
+    def add_catalog_theme():
+        from k6_theme_package import unpack
+        try:
+            file = request.files.get("theme")
+            if file is None:
+                raise ValueError("Choose a .fluxtheme package")
+            token, name = unpack(file.stream.read(8193), include_name=True)
+            theme_library.save(request.form.get("name", "").strip() or name or "Imported theme", token)
+            flash("Added theme to the catalog.", "success")
+        except (ValueError, OSError) as exc:
+            flash(str(exc), "error")
+        return redirect(url_for("index") + "#themes")
+
+    @app.post("/themes/catalog/install")
+    def install_catalog_theme():
+        import tempfile
+        from k6_theme_package import pack
+        name = request.form.get("name", "")
+        item = next((item for item in theme_library.list() if item["name"] == name), None)
+        if item is None:
+            abort(404)
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".fluxtheme") as file:
+                file.write(pack(item["token"], name))
+                file.flush()
+                command = cable_command("install-theme", file.name, "--yes")
+                result = subprocess.run(command, text=True, capture_output=True, timeout=300)
+        except (ValueError, OSError) as exc:
+            flash(str(exc), "error")
+            return redirect(url_for("index") + "#themes")
+        except subprocess.TimeoutExpired:
+            flash("Theme install timed out; inspect My Radio before retrying.", "error")
+            return redirect(url_for("radio"))
+        return render_template("radio.html", inventory=None, action_result={
+            "ok": result.returncode == 0, "output": result.stdout + "\n" + result.stderr}), (200 if result.returncode == 0 else 500)
+
+    @app.post("/radio/remove")
+    def erase_radio_slot():
+        action = request.form.get("action", "single")
+        if action not in ("single", "selected", "all"):
+            abort(400)
+        if action == "all":
+            args = ("remove-slots", "--all-modules", "--yes")
+        else:
+            raw_slots = request.form.getlist("slot")
+            if action == "single" and len(raw_slots) != 1:
+                abort(400)
+            if action == "selected" and not raw_slots:
+                abort(400)
+            try:
+                slots = [int(value) for value in raw_slots]
+            except ValueError:
+                abort(400)
+            if len(set(slots)) != len(slots) or any(not (0 <= slot <= 8 or 16 <= slot <= 31) for slot in slots):
+                abort(400)
+            args = ("remove-slots", ",".join(map(str, slots)), "--yes")
+        try:
+            command = cable_command(*args)
         except ValueError as exc:
             flash(str(exc), "error")
             return redirect(url_for("settings_page"))
         settings = radio_settings()
         port, key_file = settings["port"], settings["key_file"]
         try:
-            result = subprocess.run(command, text=True, capture_output=True, timeout=180)
+            result = subprocess.run(command, text=True, capture_output=True,
+                                    timeout=900 if action == "all" else 300)
         except subprocess.TimeoutExpired as exc:
-            output = (exc.stdout or "") + "\nSlot erase timed out. Reconnect and inspect the radio before retrying."
+            output = (exc.stdout or "") + "\nModule removal timed out. Reconnect and inspect the radio before retrying."
             return render_template("radio.html", inventory=None, port=port, key_file=key_file,
                                    action_result={"ok": False, "output": output}), 504
         output = result.stdout + ("\n" + result.stderr if result.stderr else "")

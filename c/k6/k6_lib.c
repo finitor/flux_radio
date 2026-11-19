@@ -101,6 +101,28 @@ static int load(int slot, const kl_flash_t *fl, uint8_t *dst, unsigned cap, unsi
   return (int)code;
 }
 
+static int action_id(const uint8_t *a) {
+  if (a[13] != KM_F_LIB || u16le(a+4) <= 24 || u16le(a+6) != 24 ||
+      a[16]!='K' || a[17]!='6' || a[18]!='N' || a[19]!='M' ||
+      a[32]!='K' || a[33]!='6' || a[34]!='A' || a[35]!=1 ||
+      a[36]<32 || a[36]==255 || a[37]!=0 || a[38]!=0 || a[39]!=0) return KL_NOT_MODULE;
+  return a[36];
+}
+int kl_action(int slot, const kl_flash_t *fl) {
+  uint8_t h[40];
+  if (slot<0 || slot>=KL_SLOTS) return KL_SLOT;
+  if (fl->read(KL_SLOT_ADDR(slot),h,sizeof h)) return KL_IO;
+  if (!hdr_len(h)) return KL_BAD_HDR;
+  return action_id(h);
+}
+int kl_load_action(int slot, const kl_flash_t *fl, uint8_t *dst, unsigned cap, unsigned action) {
+  int r=load(slot,fl,dst,cap,0);
+  if (r<=0) return r;
+  if (action_id(dst)!=(int)action) return KL_NOT_MODULE;
+  km_arm(dst,0);
+  return r;
+}
+
 int kl_load(int slot, const kl_flash_t *fl, uint8_t *dst, unsigned cap) {
   int r = load(slot, fl, dst, cap, 0);
   if (r > 0) km_arm(dst, 0);

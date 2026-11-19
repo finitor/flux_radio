@@ -12,6 +12,7 @@
 #include "../xscan.h"
 
 K6_MODULE_NAME("EXPLORE");
+K6_ACTION(K6_ACTION_EXPLORE_OPEN);
 
 #define EX_CANDIDATES 7
 #define BAND_COUNT 3

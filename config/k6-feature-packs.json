@@ -15,9 +15,9 @@
         "module-loader"
       ],
       "modules": [
-        "vfo",
-        "cardlink"
-      ]
+        "vfo"
+      ],
+      "description": "Core radio, module loader and shared services for APRS, including AFSK, KISS and position settings."
     },
     "scan": {
       "requires": [
@@ -26,24 +26,14 @@
       "cargo_features": [],
       "capabilities": [
         "explore-scanner-api",
+        "explore-engine-api",
+        "explore-ui-api",
         "candidate-ranking",
         "cw-tone-observation"
       ],
       "modules": [
         "surf",
         "explore_scan"
-      ]
-    },
-    "aprs": {
-      "requires": [
-        "base"
-      ],
-      "cargo_features": [],
-      "capabilities": [
-        "fd6818-fsk-rx"
-      ],
-      "modules": [
-        "aprsdfsk"
       ]
     },
     "sotto": {
@@ -55,7 +45,7 @@
         "sotto-decoder"
       ],
       "modules": [],
-      "status": "planned; requires decoder/build integration and pager module"
+      "description": "Sotto voice pager with the fixed-point decoder, packet reassembly and PWM playback, gated by K6_SOTTO_SERVICE."
     },
     "designer": {
       "requires": [
@@ -66,6 +56,30 @@
         "theme-renderer"
       ],
       "modules": []
+    },
+    "data": {
+      "requires": [
+        "base"
+      ],
+      "cargo_features": [],
+      "capabilities": [
+        "fd6818-fsk-rx"
+      ],
+      "modules": [
+        "cardlink"
+      ],
+      "description": "Raw fixed-frame FSK plus PXK6 cable record list/read/write/erase for Card Link and experimental digital data. Not required for APRS."
+    },
+    "ota": {
+      "requires": [
+        "base"
+      ],
+      "cargo_features": [],
+      "capabilities": [
+        "authenticated-ota"
+      ],
+      "modules": [],
+      "description": "Authenticated over-the-air native module uploads. Requires a personal module key."
     }
   },
   "module_requirements": {
@@ -73,18 +87,18 @@
       "module-loader"
     ],
     "cardlink": [
-      "module-loader"
+      "module-loader",
+      "fd6818-fsk-rx"
     ],
     "surf": [
       "module-loader"
     ],
     "explore_scan": [
       "explore-scanner-api",
+      "explore-engine-api",
+      "explore-ui-api",
       "candidate-ranking",
       "cw-tone-observation"
-    ],
-    "aprsdfsk": [
-      "fd6818-fsk-rx"
     ]
   }
 }

@@ -53,7 +53,7 @@ extern "C" {
 #define KM_HDR 16
 #define KM_TAG 8
 #define KM_ABI 1
-#define KM_LEVEL 22
+#define KM_LEVEL 23
 
 struct km_explore_frame;
 typedef struct k6_api {
@@ -223,6 +223,11 @@ typedef struct k6_api {
   void (*lcd_explore_frame)(const struct km_explore_frame *frame);
   /* level 22: local action feedback; kind 0 success, 1 unavailable. */
   int (*action_chirp)(uint8_t kind);
+  /* Level 23: atomically update the live APRS position and save through
+     the normal settings store. Signed degrees * 100000. At most one
+     changed position per module invocation; no TX or arbitrary writes.
+     Returns 1 changed/saved, 0 unchanged, -1 refused. */
+  int (*aprs_position_set)(int32_t lat, int32_t lon);
 } k6_api_t;
 
 #define KM_SETTINGS_BYTES 212u
@@ -326,6 +331,14 @@ typedef struct {
 #define K6_MODULE_NAME(s) \
   __attribute__((used, section(".k6name"))) const km_name_t k6_module_name = {{'K', '6', 'N', 'M'}, s}
 
+/* Stable extension action IDs 32..254. One registration per module in v1.
+   The registration explicitly exports the standard entry as an action.
+   Additional callbacks can use a versioned action table in a later ABI. */
+#define K6_ACTION(id) \
+  __attribute__((used, section(".k6action"))) const uint8_t k6_action[8] = {'K','6','A',1,id,0}
+#define K6_ACTION_SURF_OPEN 32
+#define K6_ACTION_VFO_OPEN 33
+#define K6_ACTION_EXPLORE_OPEN 34
 /* REG 0x67 bits 8:1 = RSSI in dB above -174 dBm (as Aura's get_rssi) */
 #define KM_RSSI_DBM(reg67) ((int)(((reg67) & 0x1FF) >> 1) - 174)
 
@@ -370,6 +383,7 @@ enum { KM_REP_STATUS = 1, KM_REP_TEXT = 2 };
 enum { KM_ST_PARTWAY = 0, KM_ST_RAN = 1, KM_ST_REFUSED = 2 };
 
 /* payload: the packet as received (whitened), len 64 or 128. arena: the message store. */
+int km_cable_packet(const uint8_t *payload, int len, void *arena, unsigned arena_bytes);
 int km_packet(const uint8_t *payload, int len, void *arena, unsigned arena_bytes);
 /* Cable packets can arrive with little room below Aura's current application stack. */
 int km_packet_on_stack(const uint8_t *payload, int len, void *arena, unsigned arena_bytes);
@@ -385,6 +399,8 @@ void km_call_host_stack(void (*fn)(void *), void *arg, void *stack_top);
 void km_call_on_stack(void *stack_top, void (*fn)(void *), void *arg);
 void km_reset(void);                  /* drop a transfer partway */
 void km_cable_begin(void);             /* reset the loader and clear radio packet-yield hook */
+void km_init(void);                    /* initialize loader state once at firmware startup */
+uint32_t km_serial_highwater(void);    /* read-only cable installer replay floor */
 int km_armed(void);                   /* 1 while km_run would run a module */
 const km_status_t *km_status(void);
 /* The report packets, whitened and ready for the chip's FIFO (64 bytes). status: from km_status

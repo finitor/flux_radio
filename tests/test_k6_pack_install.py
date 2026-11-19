@@ -18,7 +18,7 @@ def pack(tmp_path):
         (folder / 'manifest.json').write_text(json.dumps({'library': [
             {'id': f'org.blowfang.k6.{name}', 'level': 16, 'file': 'module.bin'}]}))
     root = tmp_path / 'pack'
-    assemble(resolve(SPEC, ['scan', 'aprs']), root, image, module_builder=build)
+    assemble(resolve(SPEC, ['scan', 'data']), root, image, module_builder=build)
     return root
 
 
@@ -26,7 +26,7 @@ def test_unattested_firmware_refused(tmp_path):
     root = pack(tmp_path)
     with pytest.raises(PackError, match='not implemented'):
         verify_pack(root, SPEC)
-    assert len(verify_pack(root, SPEC, require_attested=False)['modules']) == 5
+    assert len(verify_pack(root, SPEC, require_attested=False)['modules']) == 4
     lock = json.loads((root / 'pack.lock.json').read_text())
     lock['firmware']['capabilities_verified'] = True
     (root / 'pack.lock.json').write_text(json.dumps(lock))
@@ -77,7 +77,7 @@ def test_compatibility_report_fails_closed_even_if_capabilities_match(tmp_path):
     report = compatibility_report(lock, {**reported, 'scanner': False, 'module_api_max': 15})
     assert not report['capabilities_match']
     assert 'candidate-ranking' in report['missing_capabilities']
-    assert len(report['unsupported_modules']) == 5
+    assert len(report['unsupported_modules']) == 4
 
 
 def test_radio_preflight_checks_artifacts_before_opening_port(tmp_path, monkeypatch):

@@ -144,9 +144,9 @@ function create(editor,svg,hooks){
     }
     const bytes=layers.reduce((n,p)=>{const s=encode(p);return n+(s==='0'?0:(s.length-1)/2);},0);
     status.textContent=bytes+' bytes encoded · '+(locked(i)?'Layer locked.':points.length?'Polygon: click vertices, Enter to close, Esc to cancel.':anchor?'Click endpoint; Shift snaps, Esc cancels.':'Shift-click from last pen point for a line. Live readouts mask artwork; Isolate reveals all pixels.');
-    guide.style.display=q('[data-layer-guide]').checked?'':'none';
+    guide.style.display=drawing()&&q('[data-layer-guide]').checked?'':'none';
     svg.classList.toggle('layer-drawing',drawing());
-    svg.setAttribute('aria-label',drawing()?'Draw on '+['background','VFO A cursor','VFO B cursor'][i]:'Theme LCD preview');
+    svg.setAttribute('aria-label',drawing()?'Draw on '+['background','VFO A cursor','VFO B cursor'][i]:'Designer LCD canvas');
   }
   function resetView(){cancel();selected();hooks.update(false);}
   which.addEventListener('change',resetView);
@@ -228,6 +228,10 @@ function create(editor,svg,hooks){
     q(sel).addEventListener('click',()=>{if(locked(to))return;cancel();which.value=String(to);selected();commit(to,shift(layers[from],dy));});
   }
   return {
+    cancel,
+    snapshot(){return layers.map(p=>Array.from(p));},
+    restore(v){cancel();layers=v.map(p=>Uint8Array.from(p));},
+    migrateLegacy(border,rail,ys){for(let i=1;i<=2;i++){const y=ys[i-1];if(border)line(layers[i],0,y,127,y,1);if(rail)line(layers[i],0,y+1,0,y+22,1);}},
     load(s){cancel();layers=s?parse(s):[blank(),blank(),blank()];history=[];future=[];lastPoint=null;lastLayer=-1;bars();},
     suffix(){const parts=layers.map((p,i)=>encode(drag&&drag.i===i?drag.before:p));return parts.every(s=>s==='0')?'':'-l'+parts.join('.');},
     hasCursor(a){return layers[a+1].some(Boolean);},

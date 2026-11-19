@@ -8,10 +8,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='store.css') }}">
 </head>
 <body>
-  <header class="topbar">
-    <a class="brand" href="{{ url_for('index') }}"><span class="brand-mark">F</span> Flux <span>Catalog</span></a>
-    <nav class="top-actions"><a href="{{ url_for('profiles') }}">Feature packs</a> <a href="{{ url_for('index') }}">Catalog</a><a href="{{ url_for('radio') }}">My radio</a></nav>
-  </header>
+  {% with nav_section = 'settings' %}{% include '_navbar.html' %}{% endwith %}
   <main class="layout detail-layout">
     <p class="eyebrow">SESSION SETTINGS</p>
     <div class="detail-title"><div><h1>Device connection</h1><p class="summary">Set the cable and key once. Catalog installs, radio status, and module removal will reuse them for this browser session.</p></div></div>

@@ -10,7 +10,7 @@ ROOT = os.path.join(os.path.dirname(__file__), "..")
 LIST = os.path.join(ROOT, "tools", "k6_release_modules.txt")
 MOD = os.path.join(ROOT, "c", "k6", "mod")
 BLOCK = 11752                      # the module block less its header and tag (test_k6_gw.py)
-LEVEL_MAX = 9                      # the images' API level
+LEVEL_MAX = 22                      # the images' API level
 PAGE_AND_DECK_SLOTS = range(9, 16) # EXPLORE's pages 9-11, the editor's 12, help decks 13-15
 
 need_clang = pytest.mark.skipif(not shutil.which("clang") or not shutil.which("ld.lld"),
@@ -46,7 +46,7 @@ def test_each_builds_named_and_fits(slot, src):
     name = k6mod.module_name(code)
     assert name and len(name) <= 12, src
     assert all(c.isupper() or c.isdigit() or c in " -/." for c in name), name
-    assert entry == 16 and k6mod.bin_entry(code) == 16
+    assert entry == k6mod.bin_entry(code) == (24 if src in ("surf", "vfo") else 16)
     assert len(code) <= BLOCK, (src, len(code))
     assert 1 <= k6mod.source_level(path) <= LEVEL_MAX
 

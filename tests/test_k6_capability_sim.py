@@ -102,10 +102,10 @@ def test_compiled_base_cable(simulated_radio):
     assert bytes(port.board.flash_data) == before
 
 
-def test_compiled_scan_aprs_pack_preflight(simulated_radio, tmp_path, monkeypatch):
-    pack_path = os.environ.get("K6_SIM_SCAN_APRS_PACK")
+def test_compiled_scan_data_pack_preflight(simulated_radio, tmp_path, monkeypatch):
+    pack_path = os.environ.get("K6_SIM_SCAN_DATA_PACK")
     if not pack_path:
-        pytest.skip("set K6_SIM_SCAN_APRS_PACK to the output of tools/k6.py build scan aprs")
+        pytest.skip("set K6_SIM_SCAN_DATA_PACK to the output of tools/k6.py build scan data")
     pack = Path(pack_path)
     port = simulated_radio((pack / "firmware.bin").read_bytes())
     before = bytes(port.board.flash_data)
@@ -116,7 +116,7 @@ def test_compiled_scan_aprs_pack_preflight(simulated_radio, tmp_path, monkeypatc
 
     report = k6_pack_install.radio_preflight(pack, spec, "simulated", key_file)
 
-    assert set(report["packs"]) == {"base", "scan", "aprs"}
+    assert set(report["packs"]) == {"base", "scan", "data"}
     assert report["build_id_match"]
     assert report["capabilities_match"]
     assert report["capability_report_authenticated"]
@@ -126,9 +126,9 @@ def test_compiled_scan_aprs_pack_preflight(simulated_radio, tmp_path, monkeypatc
 
 
 def test_compiled_pack_install_and_retry(simulated_radio, tmp_path, monkeypatch):
-    pack_path = os.environ.get("K6_SIM_SCAN_APRS_PACK")
+    pack_path = os.environ.get("K6_SIM_SCAN_DATA_PACK")
     if not pack_path:
-        pytest.skip("set K6_SIM_SCAN_APRS_PACK to a built Scan + APRS pack")
+        pytest.skip("set K6_SIM_SCAN_DATA_PACK to a built Scan + Data pack")
     pack = Path(pack_path)
     port = simulated_radio((pack / "firmware.bin").read_bytes())
     key_file = tmp_path / "synthetic.key"
@@ -170,11 +170,11 @@ def test_compiled_pack_install_and_retry(simulated_radio, tmp_path, monkeypatch)
                                    action="install", log=messages.append)
     after = bytes(port.board.flash_data)
     assert sum("already verified" in line for line in messages) == 1
-    assert sum("module" in line and " B" in line for line in messages) == 4
+    assert sum("module" in line and " B" in line for line in messages) == 3
     messages.clear()
     k6_pack_install.provision_pack(pack, spec, "simulated", key_file,
                                    action="install", log=messages.append)
-    assert sum("already verified" in line for line in messages) == 5
+    assert sum("already verified" in line for line in messages) == 4
     assert bytes(port.board.flash_data) == after
 
 

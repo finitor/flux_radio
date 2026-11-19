@@ -160,6 +160,8 @@ if new_callback not in text and 'draw_cable_screen_on_arena' not in text:
     assert text.count(old_inner) == 1
     text = text.replace(old_inner, 'fn run_cable_session_inner(app: &mut App, syst: &mut SYST) -> ! {', 1)
     old_draw = '    uart::send_byte(ACK);\n    crate::screen!(display, |lcd| ui::cps::draw_lines(lcd, "FLUX", "CATALOG LOAD..."));'
+    if old_draw not in text:
+        old_draw = old_draw.replace('"FLUX", "CATALOG LOAD..."', '"BLOWFANG", "CABLE LOAD..."')
     assert text.count(old_draw) == 1
     text = text.replace(old_draw, '    uart::send_byte(ACK);', 1)
     path.write_text(text)

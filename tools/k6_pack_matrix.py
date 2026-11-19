@@ -26,7 +26,7 @@ def profiles(spec, features):
             yield ('base',) + subset, resolve(spec, subset or ('base',))
 
 
-def report(profile_sizes, *, required=('scan', 'aprs')):
+def report(profile_sizes, *, required=('scan', 'data')):
     rows = []
     for names, used in profile_sizes:
         packs = list(names)
@@ -43,7 +43,7 @@ def report(profile_sizes, *, required=('scan', 'aprs')):
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--spec', type=Path, default=DEFAULT)
-    p.add_argument('--features', nargs='+', default=['scan', 'aprs'])
+    p.add_argument('--features', nargs='+', default=['scan', 'data'])
     p.add_argument('--size-dir', type=Path, help='read PROFILE/size.txt from this directory instead of building')
     p.add_argument('--build', action='store_true', help='compile all profiles sequentially; no radio writes')
     p.add_argument('--build-dir', type=Path, default=ROOT / 'firmware/k6-aura/out-fd6818b/profile-matrix')

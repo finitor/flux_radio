@@ -1,5 +1,5 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Firmware build · Flux</title><link rel="stylesheet" href="{{ url_for('static', filename='store.css') }}">{% if job.state == 'running' %}<meta http-equiv="refresh" content="4">{% endif %}</head>
-<body><header class="topbar"><a class="brand" href="{{ url_for('index') }}"><span class="brand-mark">F</span> Flux <span>Firmware build</span></a><nav class="top-actions"><a href="{{ url_for('profiles') }}">Feature packs</a><a href="{{ url_for('radio') }}">My radio</a></nav></header>
+<body>{% with nav_section = 'profiles' %}{% include '_navbar.html' %}{% endwith %}
 <main class="layout detail-layout">
 {% for category, message in get_flashed_messages(with_categories=true) %}
 <p class="notice {{ category }}">{{ message }}</p>
@@ -8,18 +8,32 @@
 <section class="panel"><h2>Compiler output</h2><pre class="install-result" style="white-space:pre-wrap;max-height:55vh;overflow:auto">{{ job.log }}</pre></section>
 {% if job.state == 'success' %}
 <section class="panel">
-  <h2>Provision radio</h2>
+  <h2>Install on your radio</h2>
   <p><a href="{{ url_for('settings_page') }}">Device settings</a> · {{ radio_settings.port or 'Serial port not selected' }}</p>
-  <p>Flash this profile, then boot the radio and install its modules. Use UPDATE mode for a first flash and complete the radio's first-boot format prompt before installing. Back up the radio’s SPI flash before its first format.</p>
-  <form method="post" action="{{ url_for('provision_profile', job_id=job.id) }}">
+  <p>Install the firmware, bundled module updates, selected theme and startup artwork in one operation. Unrelated installed modules are preserved.</p>
+  <form method="post" action="{{ url_for('provision_profile', job_id=job.id) }}" data-provision>
     <input type="hidden" name="token" value="{{ radio_token }}">
-    <label>Flash mode <select name="mode"><option value="cable">Running Flux</option><option value="update">Already showing UPDATE</option></select></label>
-    <label><input type="checkbox" name="confirm" value="yes"> Authorize writing to this radio</label>
-    <div class="top-actions">
-      <button name="action" value="flash">Flash firmware</button>
-      <button name="action" value="preview">Preview module slots</button>
-      <button name="action" value="install">Install modules</button>
-    </div>
+    <input type="hidden" name="confirm" value="">
+    <input type="hidden" name="action" value="flash-install">
+    <label>Radio state <select name="mode"><option value="cable">Running Flux</option><option value="update">Already showing UPDATE (first install / recovery)</option></select></label>
+    <div class="top-actions"><button type="button" data-provision-action="flash-install">Install firmware</button></div>
+    <details class="readme"><summary>Advanced installation options</summary>
+      <p>Install individual components or retry after a first-boot format prompt.</p>
+      <div class="top-actions">
+        <button type="button" data-provision-action="flash">Flash firmware only</button>
+        <button type="button" data-provision-action="preview">Preview module slots</button>
+        <button type="button" data-provision-action="install">Install modules only</button>
+        {% if job.lock and job.lock.theme_package %}<button type="button" data-provision-action="theme">Install theme only</button>{% endif %}
+        {% if job.lock and job.lock.boot_splash %}<button type="button" data-provision-action="splash">Install splash only</button>{% endif %}
+      </div>
+    </details>
+    <noscript>JavaScript is required for the installation confirmation.</noscript>
+    <dialog id="provision-confirm" aria-labelledby="confirm-title">
+      <h2 id="confirm-title">Confirm radio installation</h2>
+      <p data-confirm-message></p>
+      <p data-confirm-first hidden><strong>First-time installation:</strong> The original firmware will not be recoverable through this installer. If the radio requires first-boot SPI formatting, back up its settings and storage first; formatting can erase existing data.</p>
+      <div class="top-actions"><button type="button" data-confirm-cancel autofocus>Cancel</button><button type="button" data-confirm-ok>Okay</button></div>
+    </dialog>
   </form>
 </section>
-{% endif %}</main></body></html>
+{% endif %}</main><script src="{{ url_for('static', filename='provision.js') }}" defer></script></body></html>

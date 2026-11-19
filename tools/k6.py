@@ -8,7 +8,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
-from k6_feature_packs import DEFAULT, resolve, THEMES, DEFAULT_THEME, validate_theme
+from k6_feature_packs import DEFAULT, resolve, THEMES, DEFAULT_THEME, validate_theme, TX_PROFILES, DEFAULT_TX_PROFILE, validate_tx_profile
 
 
 def command(argv):
@@ -31,6 +31,8 @@ def command(argv):
     build.add_argument('--spec', type=Path)
     for cmd_parser in (plan, build):
         cmd_parser.add_argument('--theme', type=validate_theme, default=DEFAULT_THEME, metavar="THEME")
+        cmd_parser.add_argument('--tx-profile', type=validate_tx_profile, choices=TX_PROFILES, default=DEFAULT_TX_PROFILE)
+    build.add_argument('--theme-name', default='', help='optional display name carried by the theme package')
     inspect = sub.add_parser('inspect', help='check staged feature-pack integrity (no radio writes)')
     inspect.add_argument('pack', type=Path)
     inspect.add_argument('--spec', type=Path)
@@ -39,14 +41,16 @@ def command(argv):
     preflight.add_argument('--port', required=True)
     preflight.add_argument('--spec', type=Path)
     preflight.add_argument('--key-file', type=Path, help='authenticate capability report using an existing key')
-    for verb in ('flash-pack', 'install-pack'):
-        pack = sub.add_parser(verb, help='flash pack firmware' if verb == 'flash-pack' else 'install compatible pack modules')
+    for verb in ('flash-pack', 'install-pack', 'flash-install-pack'):
+        help_text = {'flash-pack': 'flash pack firmware', 'install-pack': 'install compatible pack modules',
+                     'flash-install-pack': 'flash firmware, then replace and install its bundled modules'}
+        pack = sub.add_parser(verb, help=help_text[verb])
         pack.add_argument('pack', type=lambda value: Path(value).expanduser().resolve())
         pack.add_argument('--port', required=True)
         pack.add_argument('--key-file', type=Path)
         confirm = pack.add_mutually_exclusive_group(required=True)
         confirm.add_argument('--yes', action='store_true', help='authorize this radio write')
-        if verb == 'flash-pack':
+        if verb != 'install-pack':
             pack.add_argument('--already-update', action='store_true', help='the radio is already showing UPDATE')
         else:
             confirm.add_argument('--preview', action='store_true', help='show module destinations without writing')
@@ -61,12 +65,14 @@ def command(argv):
     radio.add_argument('args', nargs=argparse.REMAINDER)
     args = p.parse_args(argv)
     if args.command == 'plan':
-        print(json.dumps(resolve(json.loads(args.spec.read_text()), args.packs, args.theme), indent=2))
+        print(json.dumps(resolve(json.loads(args.spec.read_text()), args.packs, args.theme, args.tx_profile), indent=2))
         return 0
-    if args.command in ('flash-pack', 'install-pack'):
+    if args.command in ('flash-pack', 'install-pack', 'flash-install-pack'):
         from k6_pack_install import provision_pack
         from k6_install import InstallError
-        action = 'flash' if args.command == 'flash-pack' else ('preview' if args.preview else 'install')
+        action = ('flash' if args.command == 'flash-pack' else
+                  'flash-install' if args.command == 'flash-install-pack' else
+                  'preview' if args.preview else 'install')
         try:
             provision_pack(args.pack, json.loads(DEFAULT.read_text()), args.port, args.key_file,
                            action=action, mode='update' if getattr(args, 'already_update', False) else 'cable')
@@ -74,7 +80,8 @@ def command(argv):
             p.error(str(exc))
         return 0
     if args.command == 'build':
-        cmd = ['k6_pack_build.py', *args.packs, '--theme', args.theme]
+        cmd = ['k6_pack_build.py', *args.packs, '--tx-profile', args.tx_profile, '--theme', args.theme]
+        if args.theme_name: cmd += ['--theme-name', args.theme_name]
         if args.output: cmd += ['--output', str(args.output.expanduser().resolve())]
         if args.spec: cmd += ['--spec', str(args.spec.expanduser().resolve())]
     elif args.command == 'inspect':

@@ -5,7 +5,7 @@ ENTRY(k6_main)
 SECTIONS
 {
   . = MODULE_BASE;
-  .text : { KEEP(*(.k6name)) *(.text.k6_main) *(.text .text.*) *(.rodata .rodata.*) *(.k6tail) }
+  .text : { KEEP(*(.k6name)) KEEP(*(.k6action)) *(.text.k6_main) *(.text .text.*) *(.rodata .rodata.*) *(.k6tail) }
   .data : { *(.data .data.* .bss .bss.* COMMON) }
   /DISCARD/ : { *(.ARM.exidx* .ARM.extab* .comment .ARM.attributes) }
 }

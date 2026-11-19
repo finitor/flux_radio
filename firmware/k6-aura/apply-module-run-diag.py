@@ -457,7 +457,13 @@ new = ('    pub fn poll_pager(&mut self, syst: &mut SYST) {\n'
        '        #[cfg(not(feature = "blowfang-host"))]\n'
        '        pager::poll(self, syst);\n'
        '    }')
-if new not in app_text:
+new_sotto = ('    pub fn poll_pager(&mut self, syst: &mut SYST) {\n'
+             '        #[cfg(all(feature = "blowfang-host", k6_no_sotto))]\n'
+             '        pager::poll_library_queue(self, syst);\n'
+             '        #[cfg(any(not(feature = "blowfang-host"), not(k6_no_sotto)))]\n'
+             '        pager::poll(self, syst);\n'
+             '    }')
+if new not in app_text and new_sotto not in app_text:
     if app_text.count(old) != 1:
         raise SystemExit(f"expected one poll_pager wrapper anchor, found {app_text.count(old)}")
     app_mod.write_text(app_text.replace(old, new, 1))

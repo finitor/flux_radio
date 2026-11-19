@@ -10,8 +10,9 @@ Theme selection comes from ``K6_THEME`` via
 ``tools/k6_feature_packs.py:theme_layout`` (font, inset, meter, splash):
 
 * splash 0 -- exact factory 16x16 logo from ``apply-flux-branding.py``
-* splash 1 -- filled diamond
+* splash 1 -- vibrating string loop (legacy diamond slot)
 * splash 2 -- antenna / tower
+* splash 3 -- the custom 16x16 icon from a theme code
 
 The script is idempotent: running it twice with the same theme yields
 identical output, and splash 0 restores the factory bitmap byte-for-byte.
@@ -23,33 +24,33 @@ import re
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
-from k6_feature_packs import theme_layout
+from k6_feature_packs import theme_layout, theme_logo
 
 ROOT = Path(__file__).resolve().parent / "build/aura-fd6818b-port/src"
 BOOT_RS = ROOT / "ui/boot.rs"
 
 # Exact factory 16x16 Flux glyph from apply-flux-branding.py boot().
 FACTORY_LOGO = [
-    0x0000, 0x00F0, 0x03F8, 0x0FF0,
-    0x1F80, 0x3C00, 0x7800, 0xFFE0,
-    0xFFF8, 0x007C, 0x001E, 0x000F,
-    0x0007, 0x0003, 0x0000, 0x0000,
+    0x0000, 0x07FE, 0x07FE, 0x0F7E,
+    0x0EFC, 0x1DC0, 0x1DF8, 0x1830,
+    0x3070, 0x38E0, 0x3900, 0x7200,
+    0x7400, 0xE800, 0xF000, 0x0000,
 ]
 
-# Splash 1: filled diamond, 16x16, centered.
+# Splash 1: vibrating string loop, 16x16. Keep the legacy name and slot for compatibility.
 DIAMOND_LOGO = [
-    0x0000, 0x0180, 0x03C0, 0x07E0,
-    0x0FF0, 0x1FF8, 0x3FFC, 0x7FFE,
-    0x7FFE, 0x3FFC, 0x1FF8, 0x0FF0,
-    0x07E0, 0x03C0, 0x0180, 0x0000,
+    0x0000, 0x0780, 0x0840, 0x103C,
+    0x1002, 0x33E2, 0x4202, 0x4204,
+    0x4384, 0x4202, 0x2202, 0x1204,
+    0x1004, 0x0878, 0x0C80, 0x0300,
 ]
 
-# Splash 2: antenna mast with side radiating arcs over a solid base.
+# Splash 2: standalone antenna tower with aerial crossbars and open lattice legs.
 ANTENNA_LOGO = [
-    0x0180, 0x05A0, 0x0990, 0x1188,
-    0x2184, 0x0180, 0x03C0, 0x03C0,
-    0x07E0, 0x07E0, 0x0FF0, 0x0FF0,
-    0x1FF8, 0x3FFC, 0x7FFE, 0x0000,
+    0x2928, 0x4FE4, 0x2928, 0x0100,
+    0x0280, 0x0540, 0x0640, 0x0540,
+    0x04C0, 0x0540, 0x0640, 0x0540,
+    0x04C0, 0x0540, 0x0640, 0x0920,
 ]
 
 LOGOS = {
@@ -68,7 +69,7 @@ def splash_for_theme(theme):
     """Return the splash logo index for a K6 theme string."""
     layout = theme_layout(theme)
     splash = layout[3]
-    if splash not in LOGOS:
+    if splash not in LOGOS and splash != 3:
         raise SystemExit(f"theme splash: unknown splash index {splash} for theme {theme!r}")
     return splash
 
@@ -81,9 +82,9 @@ def format_logo(rows):
     return f"const LOGO: [u16; 16] = [\n{lines}\n    ];"
 
 
-def apply_splash(text, splash):
+def apply_splash(text, splash, custom_logo=None):
     """Replace only the LOGO array inside draw_flux_splash; return new text."""
-    if splash not in LOGOS:
+    if splash not in LOGOS and not (splash == 3 and custom_logo is not None and len(custom_logo) == 32):
         raise SystemExit(f"theme splash: unknown splash index {splash}")
     if "pub fn draw_flux_splash" not in text:
         raise SystemExit("theme splash: draw_flux_splash not found; run apply-flux-branding.py first")
@@ -92,7 +93,8 @@ def apply_splash(text, splash):
             "theme splash: expected one LOGO array anchor, "
             f"found {text.count('const LOGO: [u16; 16]')}"
         )
-    replacement = format_logo(LOGOS[splash])
+    rows = LOGOS[splash] if splash in LOGOS else [int.from_bytes(custom_logo[i:i+2], 'big') for i in range(0,32,2)]
+    replacement = format_logo(rows)
     new = LOGO_RE.sub(replacement, text, count=1)
     if new == text:
         return text
@@ -108,7 +110,7 @@ def main():
     if not BOOT_RS.is_file():
         raise SystemExit(f"theme splash: generated file not found: {BOOT_RS}")
     old = BOOT_RS.read_text()
-    new = apply_splash(old, splash)
+    new = apply_splash(old, splash, theme_logo(theme) if splash == 3 else None)
     if old != new:
         BOOT_RS.write_text(new)
     print(f"Applied theme splash {splash} for theme {theme!r}")

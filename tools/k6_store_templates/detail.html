@@ -8,10 +8,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='store.css') }}">
 </head>
 <body>
-  <header class="topbar">
-    <a class="brand" href="{{ url_for('index') }}"><span class="brand-mark">F</span> Flux <span>Catalog</span></a>
-    <nav class="top-actions"><a href="{{ url_for('profiles') }}">Feature packs</a> <a href="{{ url_for('radio') }}">My radio</a><a href="{{ url_for('settings_page') }}">Device settings{% if radio_settings.port %} · {{ radio_settings.port }}{% endif %}</a><a class="quiet link-button" href="{{ url_for('index') }}">← All repos</a></nav>
-  </header>
+  {% with nav_section = 'catalog' %}{% include '_navbar.html' %}{% endwith %}
   <main class="layout detail-layout">
     <p class="eyebrow">MODULE PROJECT</p>
     <div class="detail-title"><div><h1>{{ repo.title }}</h1><p class="summary">{{ repo.summary }}</p></div>

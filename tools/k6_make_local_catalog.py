@@ -17,12 +17,14 @@ import k6_install
 def make_repo(name, source, output):
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
-    dest = output / name
+    aliases = {"aprsapp": "aprs", "aprsbeacon": "aprs-beacon", "aprsgpssync": "aprs-gps-sync", "aprskissrx": "aprs-kiss-rx"}
+    dest = output / aliases.get(name,name)
     if dest.exists():
         raise FileExistsError(f"{dest} already exists; not overwriting it")
     with tempfile.TemporaryDirectory(prefix=".building-", dir=output) as temp:
         build = Path(temp)
-        args = SimpleNamespace(source=str(source), id=f"org.blowfang.k6.{name}", level=None,
+        module_id = "org.ag7su.k6."+("aprs" if name=="aprsapp" else name) if name in aliases else f"org.blowfang.k6.{name}"
+        args = SimpleNamespace(source=str(source), id=module_id, level=None,
                                output=str(build))
         k6_install.cmd_module_bundle(args, log=lambda *args: None)
         if name == "explore_scan":
@@ -49,19 +51,21 @@ def make_repo(name, source, output):
                 "ported yet. The host renders the compact original-style Explore list UI. "
                 "Requires module API level 21.\n\n"
             )
-        elif name == "aprsdfsk":
-            readme = (
-                "# APRS RX\n\n"
-                "Receive-only Bell 202 1200-baud APRS/AX.25 decoder for the FD6818B. It listens "
-                "on 144.390 MHz, samples the chip's plain-FSK discriminator output, "
-                "and reports valid frames and usable timestamps over the cable. This is a "
-                "diagnostic receiver; it does not transmit, digipeat, or expose a KISS TNC.\n\n"
-                "The Bell 202 software slicer handles pre-emphasized packets and ignores stale "
-                "FIFO words. Emulator captures decode clean packets; weak/noisy RF may still fail.\n\n"
-                "The compact Aura module still needs a live-radio check after installing this "
-                "FIFO-sentinel fix.\n\n"
-                "Source: `c/k6/mod/aprsdfsk.c`; see `docs/k6-aprs-clock.md`. SPDX-License-Identifier: MIT.\n"
-            )
+        elif name in aliases:
+            readme = {
+                "aprsapp": "# APRS\n\nNative software Bell 202 receive and packet browser. No optional feature set.\n",
+                "aprsbeacon": "# APRS Beacon\n\nManually confirmed position beacon; RF TX validation pending.\n",
+                "aprsgpssync": "# GPS Sync\n\nOne-shot position import into native settings from AG7SU-7. API 23 required.\n",
+                "aprskissrx": "# APRS KISS RX\n\nReceive-only KISS serial bridge; physical UART validation pending.\n",
+            }[name]
+        elif name in ("rflimits", "rffskrx", "rffsktx", "rfbaseb"):
+            title, summary = {
+                "rflimits": ("RF Limits", "Receive-only frequency survey on both chip IDs; raw status and RSSI at each frequency and +30 kHz. No PLL-lock claim."),
+                "rffskrx": ("RF FSK RX", "FD6818B Data feature set, 60-second managed native 1200-baud FIFO listener. Raw words over serial."),
+                "rffsktx": ("RF FSK TX", "FD6818B Data feature set. Dummy load required; fresh MENU confirmation for one low-power test frame on selected 2m/70cm VFO. Configured APRS call required."),
+                "rfbaseb": ("RF IF B", "FD6818B only, receive-only IF-selector and GP0 capture diagnostic. Needs steady reference carrier; serial report."),
+            }[name]
+            readme = f"# {title}\n\n{summary} Experimental; RF validation pending. See docs/k6-rf-lab.md.\n\n"
         else:
             readme = (
                 f"# {name.upper()}\n\n"
@@ -69,8 +73,7 @@ def make_repo(name, source, output):
                 "Check this module's documented behavior and radio compatibility before use. "
                 "Transmit only when the module explicitly supports it and you have verified its settings.\n\n"
             )
-        if name != "aprsdfsk":
-            readme += (
+        readme += (
                 f"Source: `c/k6/mod/{name}.c` in the Flux checkout. This local bundle is built "
                 "from that checkout and uses an automatically allocated library slot. Rebuild it after "
                 "updating the source. See the main project's documentation and MIT license.\n")
@@ -86,7 +89,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     # Keep the local starter catalog aligned with the current FD6818B Flux host.
     # Other upstream modules can be added when they are ported and validated there.
-    names = ["surf", "vfo", "cardlink", "explore_scan", "aprsdfsk"]
+    names = ["surf", "vfo", "cardlink", "explore_scan", "aprsapp", "aprsbeacon", "aprsgpssync", "aprskissrx", "rflimits", "rffskrx", "rffsktx", "rfbaseb"]
     failed = []
     for name in names:
         source = ROOT / "c/k6/mod" / (name + ".c")

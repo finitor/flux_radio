@@ -112,6 +112,10 @@ int kl_resident_info(int slot, const kl_flash_t *fl, kl_resident_t *out);
 int kl_find_resident(unsigned id, const kl_flash_t *fl);
 int kl_load_resident(int slot, const kl_flash_t *fl, uint8_t *dst, unsigned cap,
                      unsigned id, kl_resident_t *out);
+/* Discover a declared action; metadata is advisory until authenticated load. */
+int kl_action(int slot, const kl_flash_t *fl);
+/* Load only if the signed image still exports this action. */
+int kl_load_action(int slot, const kl_flash_t *fl, uint8_t *dst, unsigned cap, unsigned action);
 /* Read the page in slot n into dst (cap bytes) and check it as kl_load does, without arming
    km_run: the code length (its code at dst + KM_HDR), or KL_* (KL_BAD_HDR: not a page). The
    caller checks that the page was linked against it (the page's last bytes). */

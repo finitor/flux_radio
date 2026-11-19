@@ -36,12 +36,15 @@ class Radio:
     """A serial port with an emulated K6 behind it: the cable session (kl_host for the loader
     and the SPI flash), then the bootloader for a moment after each restart"""
 
-    def __init__(self, build_id=BUILD_ID, drop=(), mangle=(), chatter=True):
+    def __init__(self, build_id=BUILD_ID, drop=(), mangle=(), chatter=True,
+                 protocol=1, serial_watermark=0):
         self.kl = subprocess.Popen([HOST], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
         self.out = b""
         self.inb = b""
         self.state = "app"
         self.build_id = build_id
+        self.protocol = protocol
+        self.serial_watermark = serial_watermark
         self.drop, self.mangle = list(drop), list(mangle)    # answers to lose / damage, by count
         self.answers = 0
         self.chatter = chatter
@@ -130,7 +133,9 @@ class Radio:
             elif self.state == "dump" and cmd not in (ki.CMD_READ, ki.CMD_END):
                 self._answer(ki.CMD_ERROR, addr, bytes([3]))
             elif cmd == ki.CMD_INFO:
-                self._answer(cmd, addr, b"BLWF" + bytes([1, 32]) + struct.pack("<H", 11776) + self.build_id)
+                self._answer(cmd, addr, b"BLWF" + bytes([self.protocol, 32]) + struct.pack("<H", 11776) + self.build_id)
+            elif cmd == ki.CMD_SERIAL:
+                self._answer(cmd, addr, struct.pack("<I", self.serial_watermark))
             elif cmd == ki.CMD_CHUNK:
                 w = dict(kv.split("=") for kv in self.kl_cmd("pkt " + data.hex()).split())
                 r, put = int(w["r"]), int(w.get("install", 0))
@@ -256,6 +261,37 @@ def test_auto_slot_installs_and_updates_same_identity(tmp_path):
         ki.load(cable, bundle, KEY, serials, log=lambda *a, **k: None, verify=True)
         assert slot_info(radio, 0)["r"] == "0"
         assert slot_info(radio, 1)["r"] == "-1"
+    finally:
+        radio.shutdown()
+
+
+def test_installer_serials_advance_past_radio_replay_watermark():
+    serials = ki.Serials(start=100)
+    serials.advance_after(250)
+    assert serials.next() == 251
+    serials.advance_after(200)
+    assert serials.next() == 252
+
+
+def test_capability_record_remains_wire_compatible():
+    record = b'K6CP' + bytes([2, 0x11, 23, 0]) + bytes.fromhex('0102030405060708')
+    caps = ki.Cable.parse_capabilities(record)
+    assert caps['cable_only'] is True
+    assert caps['module_api_max'] == 23
+
+
+def test_load_uses_radio_replay_watermark(tmp_path):
+    radio = Radio(protocol=3, serial_watermark=3_000_000_000)
+    cable = ki.Cable(radio, lambda *a, **k: None)
+    assert cable.handshake(ki.CABLE_HANDSHAKE)
+    path = tmp_path / "module.bin"
+    path.write_bytes(code_named("TEST", 64, 4))
+    bundle = {"build_id": BUILD_ID.hex(), "library": [
+        {"kind": "module", "slot": 0, "name": "TEST", "level": 1, "path": str(path)}]}
+    try:
+        ki.load(cable, bundle, KEY, ki.Serials(start=10), log=lambda *a, **k: None, verify=True)
+        fields = dict(kv.split("=") for kv in radio.kl_cmd("info 0").split())
+        assert int(fields["serial"]) == 3_000_000_002
     finally:
         radio.shutdown()
 
@@ -446,7 +482,7 @@ def test_flash_creates_default_key_and_uses_it(bundle, tmp_path, monkeypatch):
     try:
         result, log = run(["flash", str(bundle / "aura-voice-explore.bin")], radio, monkeypatch)
         assert result == 0, log
-        key_path = tmp_path / ".config/blowfang/k6-mod.key"
+        key_path = tmp_path / ".config/flux/k6-mod.key"
         key = k6mod.read_key(key_path)
         expected = k6mod.key_image(image, key)
         assert radio.flashed[:len(expected)] == expected
@@ -506,8 +542,8 @@ def test_install_on_a_new_radio(start, out_dir, keyfile, tmp_path, monkeypatch):
     assert [f[:4] for f in radio.flashes] == [b"CBI-", b"VLRI", b"\0\0\0\0"]
     assert all(KEY in f and k6mod.PLACEHOLDER not in f for f in radio.flashes)
     assert sum("switch it ON" in q for q in asked) == 3 and any("press MENU" in q for q in asked)
-    backups = os.listdir(tmp_path / "blowfang-backups")
-    assert len(backups) == 1 and os.path.getsize(tmp_path / "blowfang-backups" / backups[0]) == 0x10000
+    backups = os.listdir(tmp_path / "flux-backups")
+    assert len(backups) == 1 and os.path.getsize(tmp_path / "flux-backups" / backups[0]) == 0x10000
     assert slot_info(radio, 9)["r"] == "0" and slot_info(radio, 7)["r"] == "0"
     assert radio.restarts == 1                               # the session's end: into EXPLORE
     radio.shutdown()
@@ -532,7 +568,7 @@ def test_update_needs_no_hands(why, bundle, keyfile, tmp_path, monkeypatch):
     log = "\n".join(lines)
     assert r == 0, log
     assert ("No backup (--no-backup)" in log) == (why == "--no-backup")
-    assert ("A backup is there already" in log) == (why == "have one")
+    assert ("An existing SPI backup was found" in log) == (why == "have one")
     assert (tmp_path / "blowfang-backups").exists() == (why == "have one")
     assert not asked and len(radio.flashes) == 1 and radio.restarts == 2
     assert slot_info(radio, 10)["r"] == "0"

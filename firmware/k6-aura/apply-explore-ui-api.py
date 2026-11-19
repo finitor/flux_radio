@@ -21,7 +21,7 @@ if level_old in text:
     text = text.replace(level_old, level_new, 1)
 elif level_new not in text and not any(
     f'    level: if cfg!(feature = "fd6818b") {{ {level} }} else {{ 9 }},' in text
-    for level in (22,)
+    for level in (22, 23)
 ):
     raise SystemExit("pager.rs: cannot locate FD6818B API level 20")
 
