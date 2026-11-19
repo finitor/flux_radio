@@ -98,3 +98,6 @@ c/common/fsk_rx_host
 *.pfx
 *.hex
 *.a
+
+# Required source artwork (not firmware).
+!/flux-art-kit/flux-arrays/splash.bin
