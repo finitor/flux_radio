@@ -177,3 +177,9 @@ Flux builds on [Blowfang](https://github.com/baitisj/blowfang),
 is preserved in [LICENSE](LICENSE); Aura-derived patches and linked
 firmware carry GPL-3.0 obligations. See [THIRD_PARTY.md](THIRD_PARTY.md)
 for the full attribution and licensing scope.
+
+### Cross-platform development
+
+Native macOS and Windows firmware builds are experimental work in progress.
+See the [cross-platform build plan and macOS quick start](docs/k6-windows-build-plan.md)
+for the shared Python C-library builder and contributor tests.

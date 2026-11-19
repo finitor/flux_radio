@@ -1,8 +1,9 @@
-# Native Windows firmware builder
+# Cross-platform firmware builder (Windows and macOS)
 
 Goal: the same Flux Catalog and CLI can customize, compile and install firmware
-on native Windows without WSL. Develop on the windows branch; do not merge until
-Linux regression and Windows CI builds pass.
+on native Windows without WSL and on macOS. Shared infrastructure may land on
+main while full native builds remain experimental and gated. Do not advertise
+full support until native build and hardware validation pass.
 
 ## Milestones
 
@@ -32,3 +33,32 @@ Linux regression and Windows CI builds pass.
 Portable build lock and platform-neutral staged pack paths. These are shared
 infrastructure independent of the actual compilation backend. Native Windows
 build remains gated until the backend and tools are verified.
+
+## Contributor quick start (macOS)
+
+Clone with submodules (`git clone --recurse-submodules https://github.com/tcarwash/flux_radio.git`).
+On macOS, install Homebrew LLVM and Python 3.10+; use `brew install llvm python`
+and `export PATH="$(brew --prefix llvm)/bin:$PATH"` to select LLVM rather than
+Apple's system compiler for the embedded target. Install Rust separately if
+working on Aura (`rustup target add thumbv6m-none-eabi`).
+
+```sh
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt pytest
+python -m serial.tools.list_ports
+python -m pytest -q tests/test_k6_portable_c_build.py tests/test_k6_port_lock.py tests/test_k6_build_lock.py tests/test_k6_starter_install.py
+K6_VOICE=0 K6_CB=spi K6_EXPLORE_HOST=1 K6_SCAN_SERVICE=1 K6_PKT_YIELD=0 K6_OTA_SERVICE=0 K6_OUT=/tmp/flux-c-build python tools/k6_build.py
+```
+
+The portable Python C-library builder is available for direct testing; the
+existing full firmware pipeline still uses the legacy shell builder by default.
+The command above produces an ARM static library and codebook, **not** a flashable
+firmware image. Test both Scan settings (0 and 1). On Linux, the archive and
+codebook matched the legacy shell builder byte-for-byte for both settings.
+Native macOS and Windows compiler execution and full firmware builds remain
+unverified. Do not flash artifacts from an unvalidated full build.
+
+Next steps: validate the C builder on each host, port the Aura orchestration
+and module compiler, then add full firmware matrix builds. Report host OS,
+architecture, LLVM/Rust versions, commands and errors when filing issues.

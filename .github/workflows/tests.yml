@@ -44,3 +44,23 @@ jobs:
           python tools/k6.py starter-install --help
           python tools/k6.py radio --help
           python -m serial.tools.list_ports
+
+  macos-tooling:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: |
+          brew install llvm
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+          python -m pip install -r requirements.txt pytest
+      - name: Portable C library and installer smoke tests
+        run: >-
+          python -m pytest -q tests/test_k6_portable_c_build.py
+          tests/test_k6_build_lock.py tests/test_k6_port_lock.py
+          tests/test_k6_starter_install.py tests/test_k6_pack_install.py
+      - run: python -m serial.tools.list_ports
