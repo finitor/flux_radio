@@ -51,3 +51,16 @@ def test_policy_covers_legacy_tx_and_current_compact_game():
         assert policy[slug]['status'] == 'wip'
     assert policy['gw']['source_module'] == 'gw_flux'
     assert policy['explore_scan']['expected_api'] == 21
+
+
+def test_confirmed_modules_keep_preflight_without_experimental_ack():
+    root = Path(__file__).resolve().parents[1]
+    policy = json.loads((root/'config/flux-catalog.json').read_text())['local_metadata']
+    for slug in ('aprs', 'aprs-gps-sync', 'cardlink', 'midi', 'aprs-beacon', 'gw'):
+        info = store.local_compatibility(policy[slug], None)
+        assert info['status'] == 'tested'
+        assert info['status_label'] == 'Hardware tested'
+        assert not info['install_blocked']
+        assert '--require-capability' in store.catalog_install_flags(info)
+    assert 'fsk_rx' in store.catalog_install_flags(store.local_compatibility(policy['cardlink'], None))
+    assert policy['aprs-gps-sync']['expected_api'] == 23

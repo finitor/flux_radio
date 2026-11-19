@@ -323,7 +323,8 @@ footer { display: flex; align-items: center; justify-content: space-between; gap
 #provision-confirm [hidden] { display: none; }
 
 /* Local module compatibility: readable on the dark catalog background. */
-.badge.targeted { color: #c8f16d; }
+.badge.tested { color: #c8f16d; }
+.badge.targeted { color: #a6cde9; }
 .badge.experimental { color: #f8cf82; }
 .badge.wip, .badge.blocked { color: #ffaaa2; }
-.badge.targeted i, .badge.experimental i, .badge.wip i, .badge.blocked i { background: currentColor; }
+.badge.tested i, .badge.targeted i, .badge.experimental i, .badge.wip i, .badge.blocked i { background: currentColor; }

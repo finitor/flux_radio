@@ -33,7 +33,7 @@ def make_repo(name, source, output):
         data["flux_source_module"] = name
         manifest.write_text(json.dumps(data, indent=2) + "\n")
         if name == "gw_flux":
-            readme = "# Groundwave\n\nCompact local two-player artillery game. No RF multiplayer or transmit path. Physical validation pending.\n"
+            readme = "# Groundwave\n\nCompact local two-player artillery game. No RF multiplayer or transmit path. Local play confirmed on FD6818B hardware.\n"
         elif name == "explore_scan":
             readme = (
                 "# EXPLORE_SCAN\n\n"
@@ -61,7 +61,7 @@ def make_repo(name, source, output):
         elif name in aliases:
             readme = {
                 "aprsapp": "# APRS\n\nNative software Bell 202 receive and packet browser. No optional feature set.\n",
-                "aprsbeacon": "# APRS Beacon\n\nManually confirmed position beacon; RF TX validation pending.\n",
+                "aprsbeacon": "# APRS Beacon\n\nManually confirmed position beacon; operation confirmed on FD6818B hardware.\n",
                 "aprsgpssync": "# GPS Sync\n\nOne-shot position import into native settings from AG7SU-7. API 23 required.\n",
                 "aprskissrx": "# APRS KISS RX\n\nReceive-only KISS serial bridge; physical UART validation pending.\n",
             }[name]

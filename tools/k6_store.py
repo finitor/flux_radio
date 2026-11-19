@@ -151,7 +151,7 @@ def bundle_info(path: Path | None) -> dict | None:
             "modules": modules}
 
 
-STATUS_LABELS = {"targeted": "Flux targeted", "experimental": "Experimental", "wip": "WIP / port required", "blocked": "Blocked", "unreviewed": "Unreviewed"}
+STATUS_LABELS = {"tested": "Hardware tested", "targeted": "Flux targeted", "experimental": "Experimental", "wip": "WIP / port required", "blocked": "Blocked", "unreviewed": "Unreviewed"}
 PACK_CAPS = {"scan": "scanner", "data": "fsk_rx", "designer": "designer", "sotto": "sotto", "ota": "ota"}
 
 
@@ -184,7 +184,7 @@ def local_compatibility(info, bundle):
     return {"status": status, "status_label": STATUS_LABELS.get(status, STATUS_LABELS["unreviewed"]),
             "blocked_reason": reason, "install_blocked": status in ("wip", "blocked"),
             "required_packs": info.get("required_packs", []),
-            "required_caps": (["module_loader"] if status in ("targeted", "experimental") else []) + [PACK_CAPS[p] for p in info.get("required_packs", []) if p in PACK_CAPS]}
+            "required_caps": (["module_loader"] if status in ("tested", "targeted", "experimental") else []) + [PACK_CAPS[p] for p in info.get("required_packs", []) if p in PACK_CAPS]}
 
 
 def catalog_install_flags(repo, acknowledge=False):
@@ -372,7 +372,7 @@ class ModuleStore:
                               "summary": f"Catalog refresh failed: {exc}",
                               "screenshots": [], "readme": "", "error": str(exc),
                               "bundle": None, "path": self.location(entry)})
-        order = {"targeted": 0, "experimental": 1, "unreviewed": 2, "wip": 3, "blocked": 4}
+        order = {"tested": 0, "targeted": 1, "experimental": 2, "unreviewed": 3, "wip": 4, "blocked": 5}
         return sorted(repos, key=lambda repo: order.get(repo.get("status"), 2))
 
     def by_id(self, repo_id: str, refresh: bool = False) -> dict:

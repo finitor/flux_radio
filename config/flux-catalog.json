@@ -30,24 +30,24 @@
   "local_metadata": {
     "aprs": {
       "title": "APRS",
-      "summary": "Native software Bell 202 receive; bench reception demonstrated, real on-air acceptance pending.",
-      "status": "experimental",
+      "summary": "Native software Bell 202 receive and packet browser. Working on FD6818B hardware; reception performance can still be improved.",
+      "status": "tested",
       "required_packs": [],
       "source_module": "aprsapp",
       "expected_api": 6
     },
     "aprs-gps-sync": {
       "title": "GPS Sync",
-      "summary": "One-shot direct APRS position import from AG7SU-7; reception and save callback demonstrated, reboot/readback pending.",
-      "status": "experimental",
+      "summary": "One-shot direct APRS position import from AG7SU-7 into native radio settings. Working on FD6818B hardware; requires API 23.",
+      "status": "tested",
       "required_packs": [],
       "source_module": "aprsgpssync",
       "expected_api": 23
     },
     "aprs-beacon": {
       "title": "APRS Beacon",
-      "summary": "Manually confirmed position beacon. RF TX not physically validated.",
-      "status": "experimental",
+      "summary": "Manually confirmed AX.25 position beacon using radio settings. Working on FD6818B hardware.",
+      "status": "tested",
       "required_packs": [],
       "source_module": "aprsbeacon",
       "expected_api": 15
@@ -62,8 +62,8 @@
     },
     "cardlink": {
       "title": "Card Link",
-      "summary": "PixelQSO card transfers; managed FD6818B Data service required. RF interoperability pending.",
-      "status": "experimental",
+      "summary": "PixelQSO card transfers working on FD6818B hardware. Requires the Data feature set.",
+      "status": "tested",
       "required_packs": [
         "data"
       ],
@@ -100,8 +100,8 @@
     },
     "gw": {
       "title": "Groundwave",
-      "summary": "Compact local two-player game only. Legacy RF multiplayer is not compatible; physical radio validation pending.",
-      "status": "experimental",
+      "summary": "Compact local two-player artillery game working on FD6818B hardware. Legacy RF multiplayer still requires a separate Data transport port.",
+      "status": "tested",
       "required_packs": [],
       "source_module": "gw_flux",
       "expected_api": 6,
@@ -217,8 +217,8 @@
     },
     "midi": {
       "title": "MIDI",
-      "summary": "Local speaker player; physical audio and compact runtime scratch validation pending.",
-      "status": "experimental",
+      "summary": "Local speaker music player, working on FD6818B hardware.",
+      "status": "tested",
       "required_packs": [],
       "source_module": "midi",
       "expected_api": 2
