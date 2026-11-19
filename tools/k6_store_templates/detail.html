@@ -18,7 +18,7 @@
 
     {% if repo.bundle %}
       <section class="panel install-panel">
-        <div class="section-heading"><div><p class="eyebrow">MODULE BUNDLE</p><h2>{{ repo.bundle.build or 'Module bundle' }}</h2></div>{% if repo.bundle.build_id %}<span class="badge ready">firmware {{ repo.bundle.build_id }}</span>{% else %}<span class="badge ready">firmware ID unset</span>{% endif %}</div>
+        <div class="section-heading"><div><p class="eyebrow">INSTALLABLE MODULES</p><h2>Modules in this project</h2></div>{% if repo.bundle.build_id %}<span class="badge ready">firmware {{ repo.bundle.build_id }}</span>{% else %}<span class="badge ready">firmware ID unset</span>{% endif %}</div>
         <div class="module-list">
           {% for module in repo.bundle.modules %}
             <div class="module-row"><strong>{{ module.name }}</strong><span>{{ module.kind }}</span><span>{% if module.slot is none %}automatic slot{% else %}slot {{ module.slot }}{% endif %}</span>{% if module.level %}<span>API {{ module.level }}</span>{% endif %}</div>
@@ -29,12 +29,12 @@
         <form method="post" action="{{ url_for('install', repo_id=repo.id) }}" class="install-form">
           {% if repo.status == 'experimental' %}<label class="check"><input type="checkbox" name="experimental" value="yes" required> I understand this module is experimental and not fully hardware validated.</label>{% endif %}
           <label class="check"><input type="checkbox" name="verify" value="yes"> Read back installed slots to verify</label>
-          <button type="submit" {% if not radio_settings.port %}disabled{% endif %}>Install bundle to radio</button>
+          <button type="submit" {% if not radio_settings.port %}disabled{% endif %}>Install on radio</button>
         </form>{% endif %}
         {% if result %}<pre class="install-result {{ 'ok' if result.ok else 'failed' }}">{{ result.output or 'Installer finished without output.' }}</pre>{% endif %}
       </section>
     {% else %}
-      <section class="panel notice"><strong>README entry only.</strong> This repository does not contain a format-1 Flux bundle, so it can be browsed but not installed from here yet.</section>
+      <section class="panel notice"><strong>README entry only.</strong> This project has no installable Flux module package yet. You can still browse its documentation.</section>
     {% endif %}
 
     {% if repo.screenshots %}

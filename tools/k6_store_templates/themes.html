@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Theme editor · Flux</title><link rel="stylesheet" href="{{ url_for('static', filename='store.css') }}"><link rel="stylesheet" href="{{ url_for('static', filename='builder.css') }}"></head>
 <body>{% with nav_section = 'themes' %}{% include '_navbar.html' %}{% endwith %}
-<main class="layout detail-layout profile-workspace"><p class="eyebrow">RADIO APPEARANCE</p><div class="detail-title"><div><h1>Design your theme</h1><p class="summary">Create, edit, preview and save themes for your radio. Saved themes are available in the <a href="{{ url_for('profiles') }}">bundle builder</a>.</p></div></div>
+<main class="layout detail-layout profile-workspace"><p class="eyebrow">RADIO APPEARANCE</p><div class="detail-title"><div><h1>Design your theme</h1><p class="summary">Create, edit, preview and save themes for your radio. Saved themes are available in the <a href="{{ url_for('profiles') }}">firmware builder</a>.</p></div></div>
 <section class="theme-editor" data-theme-editor>
   <div class="section-heading"><div><p class="eyebrow">DESIGN STUDIO</p><h2>Theme editor</h2></div><span class="badge">128 × 64 LCD</span></div>
   <div class="studio-toolbar editor-tabs" role="group" aria-label="Designer mode">
@@ -130,7 +130,7 @@
       <div class="editor-library"><label>Import theme package <input type="file" data-editor-file accept=".fluxtheme,.k6t"></label><button type="button" data-editor-export>Export .fluxtheme</button></div>
 <p class="radio-note">Theme data is separate from firmware. Artwork is composed below ordered live widgets. Preview values are not exported.</p>
 <input type="hidden" data-editor-custom value="{{ theme_editor_presets['flux'] }}">
-      <p class="radio-note" data-editor-message role="status">Save theme stores a named design on this computer and makes it available in the bundle builder.</p>
+      <p class="radio-note" data-editor-message role="status">Save theme stores a named design on this computer and makes it available in the firmware builder.</p>
       <p class="radio-note" data-theme-library-location></p>
       <div class="editor-library"><label>Share or import theme code <input data-editor-code spellcheck="false" autocomplete="off" aria-label="Theme code"></label><button type="button" data-editor-import>Load code</button></div>
   </details>

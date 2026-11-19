@@ -18,7 +18,7 @@
     <p>Once the radio has booted, return to the firmware pack to preview or install its modules.</p>
     {% endif %}
     {% if operation.state == 'success' and operation.action == 'flash-install' %}
-    <p>The firmware flashed and its bundled modules were verified on the radio.</p>
+    <p>The firmware flashed and its included modules were verified on the radio.</p>
     {% endif %}
     {% if operation.state == 'failed' and operation.action == 'flash-install' and 'flashed; the radio restarts' in operation.log %}
     <p>The firmware flash completed, but the module update did not. Check the message below and use Install modules on this build after the radio is ready.</p>

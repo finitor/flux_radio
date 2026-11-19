@@ -14,7 +14,7 @@
       <div class="intro-copy">
         <p class="eyebrow"><span class="eyebrow-dot"></span> THE OPEN RADIO APP SHELF</p>
         <h1>More radio.<br><em>Less menu diving.</em></h1>
-        <p>Discover community-built tools for your K6. Browse the code, see it on the radio, and load a bundle when you're ready.</p>
+        <p>Discover community-built tools for your K6. Browse the code, see it on the radio, and install modules when you're ready.</p>
         <a class="primary-link" href="#catalog">Browse modules <span>↓</span></a>
       </div>
       <aside class="radio-preview" aria-label="Illustrative K6 module screen">
@@ -31,7 +31,7 @@
     </section>
 
     <form class="add-source" method="post" action="{{ url_for('add_source') }}">
-      <div class="add-icon">↗</div><div class="add-copy"><label for="source">Add a module project</label><span>Paste a Git URL, local checkout, or bundle directory.</span></div>
+      <div class="add-icon">↗</div><div class="add-copy"><label for="source">Add a module project</label><span>Paste a Git URL, local checkout, or module package directory.</span></div>
       <div class="source-fields">
         <input id="source" name="source" placeholder="https://github.com/you/k6-module" required>
         <input name="ref" placeholder="Branch or tag" aria-label="branch or tag">
@@ -46,7 +46,7 @@
     <section class="catalog-head" id="catalog"><div><p class="eyebrow">YOUR SOURCES</p><h2>Find your next tool</h2><p>Hardware-tested and Flux-targeted tools first; experimental and WIP ports are clearly marked.</p></div><div class="catalog-source-actions"><span class="count"><b>{{ repos|length }}</b> repositories</span><form method="post" action="{{ url_for('refresh_all') }}"><button class="quiet" type="submit">↻ Refresh</button></form></div></section>
     {% if repos %}
       <section class="catalog-tools"><label class="search-box"><span>⌕</span><input id="catalog-search" type="search" placeholder="Search modules and projects…" autocomplete="off"></label>
-        <div class="filter-pills" role="group" aria-label="Filter modules"><button class="filter-pill active" type="button" data-filter="all" aria-pressed="true">All projects <span>{{ repos|length }}</span></button><button class="filter-pill" type="button" data-filter="ready" aria-pressed="false">Bundle eligible <span>{{ repos|selectattr('bundle')|rejectattr('install_blocked')|list|length }}</span></button><button class="filter-pill" type="button" data-filter="tested" aria-pressed="false">Hardware tested</button><button class="filter-pill" type="button" data-filter="native" aria-pressed="false">Flux native</button><button class="filter-pill" type="button" data-filter="experimental" aria-pressed="false">Experimental</button><button class="filter-pill" type="button" data-filter="wip" aria-pressed="false">WIP / blocked</button></div>
+        <div class="filter-pills" role="group" aria-label="Filter modules"><button class="filter-pill active" type="button" data-filter="all" aria-pressed="true">All projects <span>{{ repos|length }}</span></button><button class="filter-pill" type="button" data-filter="ready" aria-pressed="false">Installable <span>{{ repos|selectattr('bundle')|rejectattr('install_blocked')|list|length }}</span></button><button class="filter-pill" type="button" data-filter="tested" aria-pressed="false">Hardware tested</button><button class="filter-pill" type="button" data-filter="native" aria-pressed="false">Flux native</button><button class="filter-pill" type="button" data-filter="experimental" aria-pressed="false">Experimental</button><button class="filter-pill" type="button" data-filter="wip" aria-pressed="false">WIP / blocked</button></div>
       </section>
       <section class="cards">
       {% for repo in repos %}
@@ -59,7 +59,7 @@
             {% if repo.bundle %}<div class="module-tags">{% for module in repo.bundle.modules[:3] %}<span>{{ module.name }}</span>{% endfor %}{% if repo.bundle.modules|length > 3 %}<span>+{{ repo.bundle.modules|length - 3 }}</span>{% endif %}</div>{% endif %}
           </a>
           <div class="card-foot">
-            {% if repo.status_label %}<span class="badge {{ repo.status }}"><i></i>{{ repo.status_label }}</span>{% elif repo.bundle %}<span class="badge">Bundle available</span>{% else %}<span class="badge">Project page</span>{% endif %}{% if repo.native_flux %}<span class="badge native">Flux native</span>{% endif %}{% if repo.required_packs %}<span class="badge">{{ repo.required_packs|join(' + ')|title }}</span>{% endif %}
+            {% if repo.status_label %}<span class="badge {{ repo.status }}"><i></i>{{ repo.status_label }}</span>{% elif repo.bundle %}<span class="badge">Available to install</span>{% else %}<span class="badge">Project page</span>{% endif %}{% if repo.native_flux %}<span class="badge native">Flux native</span>{% endif %}{% if repo.required_packs %}<span class="badge">{{ repo.required_packs|join(' + ')|title }}</span>{% endif %}
             <span class="commit">{{ repo.commit[:8] }}</span>
           </div>
         </article>
@@ -67,7 +67,7 @@
       </section>
       <div class="no-results" id="no-results" hidden>No projects match that search.</div>
     {% else %}
-      <section class="empty"><div class="empty-art"><span>＋</span><i></i><i></i><i></i></div><p class="eyebrow">A SHELF WITH ROOM TO GROW</p><h3>Start with a project you trust</h3><p>Add a Git repository above. We’ll use its README for the description and screenshots, and its bundle manifest for install details.</p><code>python3 tools/k6_store.py add https://github.com/you/k6-module</code></section>
+      <section class="empty"><div class="empty-art"><span>＋</span><i></i><i></i><i></i></div><p class="eyebrow">A SHELF WITH ROOM TO GROW</p><h3>Start with a project you trust</h3><p>Add a Git repository above. We’ll use its README for the description and screenshots, and its module manifest for installation details.</p><code>python3 tools/k6_store.py add https://github.com/you/k6-module</code></section>
     {% endif %}
     <section class="catalog-head" id="themes"><div><p class="eyebrow">RADIO APPEARANCE</p><h2>Themes</h2><p>Requires the Designer feature set. Install a theme without reflashing compatible firmware.</p></div></section>
     <form class="add-source" method="post" enctype="multipart/form-data" action="{{ url_for('add_catalog_theme') }}">

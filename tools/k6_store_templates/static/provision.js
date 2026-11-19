@@ -4,9 +4,9 @@
   if (!form) return;
   const dialog = form.querySelector('dialog');
   const messages = {
-    'flash-install': 'This will re-flash your radio and install the selected firmware pack. On an existing Flux radio, settings and unrelated installed modules and themes will be preserved. Bundled modules may be updated and included startup artwork replaced.',
+    'flash-install': 'This will re-flash your radio and install the selected firmware pack. On an existing Flux radio, settings and unrelated installed modules and themes will be preserved. Included modules may be updated and included startup artwork replaced.',
     flash: 'This will re-flash your radio. On an existing Flux radio, settings and installed modules and themes will be preserved.',
-    install: 'This will install or update the bundled modules. Settings and unrelated installed modules and themes will be preserved.',
+    install: 'This will install or update the included modules. Settings and unrelated installed modules and themes will be preserved.',
     theme: 'This will install the named theme into an empty slot. Existing modules and themes will be preserved.',
     splash: 'This will back up and replace the existing full-screen startup artwork.'
   };

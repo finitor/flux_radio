@@ -288,13 +288,13 @@ class ModuleStore:
         if local.exists():
             source = str(local.resolve())
             if not local.is_dir():
-                raise ValueError("a local source must be a module bundle or Git repository directory")
+                raise ValueError("a local source must be a module package or Git repository directory")
             if find_bundle(local) is None:
                 try:
                     subprocess.run(["git", "-C", source, "rev-parse", "--is-inside-work-tree"],
                                    check=True, capture_output=True, text=True, timeout=10)
                 except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired) as exc:
-                    raise ValueError("a local source must contain an installable bundle or be a Git checkout") from exc
+                    raise ValueError("a local source must contain an installable module package or be a Git checkout") from exc
         elif not source.startswith(("https://", "ssh://", "git@")):
             raise ValueError("source must be an HTTPS/SSH Git URL or an existing directory")
         entries = self.configured_sources()
@@ -788,7 +788,7 @@ def create_app(store: ModuleStore | None = None):
         except KeyError:
             abort(404)
         if not repo.get("bundle"):
-            flash("This repository has no installable format-1 module bundle.", "error")
+            flash("This project has no installable module package.", "error")
             return redirect(url_for("detail", repo_id=repo_id))
         try:
             flags = catalog_install_flags(repo, request.form.get("experimental") == "yes")

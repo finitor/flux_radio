@@ -106,7 +106,7 @@
     radio.value=token;
     if(!error)code.value=token;
     q('[data-studio-status]').textContent=error||'Design updated · ready to export';
-    message.textContent=error||'Design updated. Save to use it in the bundle builder.';
+    message.textContent=error||'Design updated. Save to use it in the firmware builder.';
     q('[data-editor-export]').disabled=!!error;q('[data-editor-save]').disabled=!!error;q('[data-layout-package]').disabled=!!error;
     checkpoint();
   }
@@ -206,7 +206,7 @@
       persistBrowser();refresh();
       library.value=String(saved.findIndex(x=>x.name===n));
       load(result.theme.token,false);
-      message.textContent='Saved '+n+' to disk. Select it in the bundle builder.';
+      message.textContent='Saved '+n+' to disk. Select it in the firmware builder.';
     }catch(err){message.textContent='Save failed: '+err.message;}
   });
   library.addEventListener('change',()=>{
