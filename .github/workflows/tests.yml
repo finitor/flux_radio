@@ -26,6 +26,11 @@ jobs:
           tests/test_k6_pack_install.py tests/test_k6_starter_install.py
           tests/test_k6_port_lock.py tests/test_k6_host_feature.py
           tests/test_k6_capability_query.py
+      - name: EXPLORE Try audio and cleanup regression
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq clang lld llvm
+          python -m pytest -q tests/test_k6_explore_try_audio.py
       - name: Native loader and APRS host regressions
         run: |
           make -C c/k6 km_host kl_host
