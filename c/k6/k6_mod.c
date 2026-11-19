@@ -190,6 +190,8 @@ int km_run(void *arena, const k6_api_t *api) {
   const uint8_t *a = (const uint8_t *)arena;
   if (!ready) return -100;
   ready = 0;
+  /* Defense in depth: a resident callback never has the foreground API ABI. */
+  if (a[13] & KM_F_RESIDENT) return KM_BAD_HDR;
 #if defined(__thumb__)
   {
     typedef int (*entry_t)(const k6_api_t *);

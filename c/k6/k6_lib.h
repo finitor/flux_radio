@@ -59,6 +59,10 @@ extern "C" {
 #define KM_F_REMOVE 0x08
 /* Signed cable-only theme envelope. Also sets CARDS so older load paths refuse execution. */
 #define KM_F_THEME 0x10
+/* Experimental resident callback envelope. CARDS keeps older foreground loaders
+   from executing it; it is not a help deck. No published runtime capability. */
+#define KM_F_RESIDENT 0x20
+#define KL_RESIDENT_FLAGS (KM_F_LIB | KM_F_CARDS | KM_F_RESIDENT)
 /* the module name block (K6_MODULE_NAME): magic, then KL_NAME characters */
 #define KL_NAME 12
 
@@ -91,6 +95,23 @@ int kl_remove(int slot, const kl_flash_t *fl);
 /* Read slot n into dst (cap bytes) and check it: the code length and arm km_run, or KL_*.
    A page (KM_F_PAGE) is refused: KL_BAD_HDR. */
 int kl_load(int slot, const kl_flash_t *fl, uint8_t *dst, unsigned cap);
+/* Experimental RX-only resident descriptor at code offset zero: K6VM, version=1,
+   ID (32..254), state bytes u16, callback offset u16, RX-only=1, reserved=0,
+   eight printable ASCII label bytes (NUL padded). Header entry must be zero.
+   Discovery is advisory; only kl_load_resident authenticates and checks RAM fit.
+   cap is the caller's exclusive lease, excluding stack reserve and guard.
+   On success state follows the aligned image+tag; no foreground entry is armed.
+   Callers must stop any prior resident before overwriting its arena. */
+#define KL_RESIDENT_DESC_BYTES 20u
+typedef struct {
+  uint16_t state_bytes, callback, state_offset;
+  uint8_t id;
+  char label[8];
+} kl_resident_t;
+int kl_resident_info(int slot, const kl_flash_t *fl, kl_resident_t *out);
+int kl_find_resident(unsigned id, const kl_flash_t *fl);
+int kl_load_resident(int slot, const kl_flash_t *fl, uint8_t *dst, unsigned cap,
+                     unsigned id, kl_resident_t *out);
 /* Read the page in slot n into dst (cap bytes) and check it as kl_load does, without arming
    km_run: the code length (its code at dst + KM_HDR), or KL_* (KL_BAD_HDR: not a page). The
    caller checks that the page was linked against it (the page's last bytes). */

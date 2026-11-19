@@ -45,7 +45,7 @@ int kl_remove(int slot, const kl_flash_t *fl) {
   unsigned off, i;
   if (slot < 0 || slot >= KL_SLOTS) return KL_SLOT;
   if (kl_info(slot, fl, &info) != 0 || !(info.flags & KM_F_LIB) ||
-      (info.flags & (KM_F_PAGE | KM_F_CARDS))) return KL_NOT_MODULE;
+      ((info.flags & (KM_F_PAGE | KM_F_CARDS)) && info.flags != KL_RESIDENT_FLAGS)) return KL_NOT_MODULE;
   base = KL_SLOT_ADDR(slot);
   /* Clear the full slot, including stale data beyond the previous image's final sector. */
   for (off = 0; off < KL_SLOT_BYTES; off += KL_SECTOR)
@@ -89,10 +89,14 @@ static int load(int slot, const kl_flash_t *fl, uint8_t *dst, unsigned cap, unsi
   if (!total) return KL_BAD_HDR;
   code = u16le(dst + 4);
   flags = dst[13];
-  if (!!(flags & KM_F_PAGE) != !!page || (flags & (KM_F_CARDS | KM_F_THEME))) return KL_BAD_HDR;
+  if (page == 2) {
+    if (flags != KL_RESIDENT_FLAGS) return KL_BAD_HDR;
+  } else if (!!(flags & KM_F_PAGE) != !!page ||
+             (flags & (KM_F_CARDS | KM_F_THEME | KM_F_RESIDENT))) return KL_BAD_HDR;
   if (total > cap) return KL_BAD_HDR;
   if (fl->read(KL_SLOT_ADDR(slot), dst, total)) return KL_IO;
-  if (!hdr_len(dst) || dst[13] != flags) return KL_BAD_HDR;       /* changed between the two reads */
+  if (hdr_len(dst) != total || u16le(dst + 4) != code || dst[13] != flags)
+    return KL_BAD_HDR;       /* changed between the two reads */
   if (km_tag_check(dst, code)) return KL_BAD_TAG;
   return (int)code;
 }
@@ -105,4 +109,62 @@ int kl_load(int slot, const kl_flash_t *fl, uint8_t *dst, unsigned cap) {
 
 int kl_page(int slot, const kl_flash_t *fl, uint8_t *dst, unsigned cap) {
   return load(slot, fl, dst, cap, 1);
+}
+
+static int resident_desc(const uint8_t *a, kl_resident_t *out) {
+  const uint8_t *d = a + KM_HDR;
+  unsigned code = u16le(a + 4), i, ended = 0;
+  if (a[13] != KL_RESIDENT_FLAGS || u16le(a + 6) != 0 ||
+      code < KL_RESIDENT_DESC_BYTES + 2 ||
+      d[0]!='K' || d[1]!='6' || d[2]!='V' || d[3]!='M' || d[4]!=1 ||
+      d[5]<32 || d[5]==255 || d[10]!=1 || d[11]!=0 ||
+      !u16le(d+6) || (u16le(d+6)&3) || u16le(d+8)<KL_RESIDENT_DESC_BYTES ||
+      u16le(d+8)>code-2 || (u16le(d+8)&1) || !d[12]) return KL_BAD_HDR;
+  for (i=0; i<8; i++) {
+    unsigned c=d[12+i];
+    if (!c) ended=1;
+    else if (ended || c<32 || c>126) return KL_BAD_HDR;
+  }
+  out->id=d[5]; out->state_bytes=(uint16_t)u16le(d+6);
+  out->callback=(uint16_t)u16le(d+8);
+  out->state_offset=(uint16_t)((KM_HDR+code+KM_TAG+3u)&~3u);
+  for (i=0; i<8; i++) out->label[i]=(char)d[12+i];
+  return 0;
+}
+
+int kl_resident_info(int slot, const kl_flash_t *fl, kl_resident_t *out) {
+  uint8_t h[KM_HDR+KL_RESIDENT_DESC_BYTES];
+  if (slot<0 || slot>=KL_SLOTS) return KL_SLOT;
+  if (fl->read(KL_SLOT_ADDR(slot),h,sizeof h)) return KL_IO;
+  if (!hdr_len(h)) return KL_BAD_HDR;
+  return resident_desc(h,out);
+}
+
+int kl_find_resident(unsigned id, const kl_flash_t *fl) {
+  int slot, found=KL_EMPTY;
+  kl_resident_t info;
+  if (id<32 || id>254) return KL_BAD_HDR;
+  for (slot=0; slot<KL_SLOTS; slot++) {
+    int r=kl_resident_info(slot,fl,&info);
+    if (r==KL_IO) return r;
+    if (!r && info.id==id) {
+      if (found>=0) return KL_NOT_MODULE; /* ambiguous provider: fail closed */
+      found=slot;
+    }
+  }
+  return found;
+}
+
+int kl_load_resident(int slot, const kl_flash_t *fl, uint8_t *dst, unsigned cap,
+                     unsigned id, kl_resident_t *out) {
+  kl_resident_t info;
+  int r=load(slot,fl,dst,cap,2);
+  unsigned i;
+  if (r<=0) return r;
+  if (resident_desc(dst,&info)) return KL_BAD_HDR;
+  if (info.id!=id) return KL_NOT_MODULE;
+  if ((unsigned)info.state_offset+info.state_bytes>cap) return KL_BAD_HDR;
+  for (i=0; i<info.state_bytes; i++) dst[info.state_offset+i]=0;
+  *out=info;
+  return r;
 }
