@@ -183,6 +183,7 @@ def local_compatibility(info, bundle):
             status, reason = "blocked", str(exc)
     return {"status": status, "status_label": STATUS_LABELS.get(status, STATUS_LABELS["unreviewed"]),
             "blocked_reason": reason, "install_blocked": status in ("wip", "blocked"),
+            "native_flux": info.get("native_flux") is True,
             "required_packs": info.get("required_packs", []),
             "required_caps": (["module_loader"] if status in ("tested", "targeted", "experimental") else []) + [PACK_CAPS[p] for p in info.get("required_packs", []) if p in PACK_CAPS]}
 
@@ -854,6 +855,8 @@ def print_repo(repo: dict) -> None:
     print(f"{repo['id']}  {repo['title']}")
     print(f"  {repo['summary']}")
     print(f"  status: {repo.get('status_label', 'Unreviewed')}")
+    if repo.get("native_flux"):
+        print("  origin: Flux native")
     if repo.get("blocked_reason"):
         print(f"  blocked: {repo['blocked_reason']}")
     if repo.get("required_packs"):

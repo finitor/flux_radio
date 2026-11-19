@@ -34,7 +34,8 @@
       "status": "tested",
       "required_packs": [],
       "source_module": "aprsapp",
-      "expected_api": 6
+      "expected_api": 6,
+      "native_flux": true
     },
     "aprs-gps-sync": {
       "title": "GPS Sync",
@@ -42,7 +43,8 @@
       "status": "tested",
       "required_packs": [],
       "source_module": "aprsgpssync",
-      "expected_api": 23
+      "expected_api": 23,
+      "native_flux": true
     },
     "aprs-beacon": {
       "title": "APRS Beacon",
@@ -50,7 +52,8 @@
       "status": "tested",
       "required_packs": [],
       "source_module": "aprsbeacon",
-      "expected_api": 15
+      "expected_api": 15,
+      "native_flux": true
     },
     "aprs-kiss-rx": {
       "title": "APRS KISS RX",
@@ -68,7 +71,8 @@
         "data"
       ],
       "source_module": "cardlink",
-      "expected_api": 12
+      "expected_api": 12,
+      "native_flux": true
     },
     "explore_scan": {
       "title": "Explore Scan",

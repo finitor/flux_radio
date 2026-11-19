@@ -11,7 +11,7 @@
     let shown = 0;
     for (const card of cards) {
       const matchesText = card.dataset.search.includes(query);
-      const matchesFilter = filter === "all" || (filter === "ready" && card.dataset.ready === "true") || (filter === "tested" && card.dataset.status === "tested") || (filter === "experimental" && card.dataset.status === "experimental") || (filter === "wip" && ["wip", "blocked"].includes(card.dataset.status));
+      const matchesFilter = filter === "all" || (filter === "ready" && card.dataset.ready === "true") || (filter === "tested" && card.dataset.status === "tested") || (filter === "native" && card.dataset.native === "true") || (filter === "experimental" && card.dataset.status === "experimental") || (filter === "wip" && ["wip", "blocked"].includes(card.dataset.status));
       card.hidden = !(matchesText && matchesFilter);
       if (!card.hidden) shown++;
     }

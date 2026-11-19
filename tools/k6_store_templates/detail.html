@@ -11,7 +11,7 @@
   {% with nav_section = 'catalog' %}{% include '_navbar.html' %}{% endwith %}
   <main class="layout detail-layout">
     <p class="eyebrow">MODULE PROJECT</p>
-    <div class="detail-title"><div><h1>{{ repo.title }}</h1><p class="summary">{{ repo.summary }}</p>{% if repo.status_label %}<span class="badge {{ repo.status }}"><i></i>{{ repo.status_label }}</span>{% endif %}{% if repo.required_packs %}<p class="radio-note">Required firmware: {{ repo.required_packs|join(' + ')|title }}</p>{% endif %}</div>
+    <div class="detail-title"><div><h1>{{ repo.title }}</h1><p class="summary">{{ repo.summary }}</p>{% if repo.status_label %}<span class="badge {{ repo.status }}"><i></i>{{ repo.status_label }}</span>{% endif %}{% if repo.native_flux %} <span class="badge native">Flux native</span>{% endif %}{% if repo.required_packs %}<p class="radio-note">Required firmware: {{ repo.required_packs|join(' + ')|title }}</p>{% endif %}</div>
       {% if repo.source_link %}<a class="quiet link-button" href="{{ repo.source_link }}" target="_blank" rel="noopener">View source ↗</a>{% endif %}
     </div>
     <div class="meta-row"><span>{{ repo.source }}</span><span>commit <code>{{ repo.commit }}</code></span>{% if repo.ref %}<span>ref {{ repo.ref }}</span>{% endif %}</div>
