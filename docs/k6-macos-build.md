@@ -77,6 +77,14 @@ sandbox. A broader suite probe stopped at five failures: 114 passed, 8 skipped,
 because ELF section names are not valid Mach-O section specifiers. The full
 root suite is not yet validated on macOS.
 
+A separate native-host compatibility change subsequently passed all 42
+targeted loader, capability-proof, OTA-mode and APRS regression cases. It uses
+Mach-O section annotations only for native Apple targets and selects the
+native linker's dead-strip/export-list flags. The ARM VFO, SURF and Explore
+Scan module bytes remained identical to the matrix artifacts. The same
+targeted regressions are included in Linux and macOS tooling CI. The complete
+root suite remains a separate validation target.
+
 The separate `Experimental macOS starter firmware` workflow repeats the six
 builds and archive/emulator checks. Its artifacts have a `flux-macos-` prefix;
 the existing Linux release workflow remains the publication path. A workflow
