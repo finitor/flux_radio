@@ -13,7 +13,8 @@ two ways:
 | File | What it is |
 |---|---|
 | `c/k6/mod/gw_game.h` | The rules: terrain, flight, weapons, shields, money. Pure C with integer arithmetic only. |
-| `c/k6/mod/gw.c` | The module: keys, screens and play over the air. |
+| `c/k6/mod/gw.c` | The legacy module: keys, screens and play over the air. |
+| `c/k6/mod/gw_flux.c` | Compact Flux build: local hot-seat play, no radio TX. |
 | `c/k6/mod/gw_auto.c` | Bot build: the radio plays a hot-seat game against itself (bench, tests). |
 | `c/k6/mod/gw_call.c` | Bot build that calls over the radio. |
 | `c/k6/mod/gw_answer.c` | Bot build that answers a call. |
@@ -151,30 +152,42 @@ and the bot never touches the game's random generator, so the two radios stay in
 bit. `modem/k6gw.py`'s `Game` is the same C file built for the PC, so a PC opponent stays in
 step too. `test_radio_game_against_the_pc` checks the hashes every turn.
 
-## Memory
+## Memory and the Flux compact build
 
-| Build | Code (CI's ATfE 22.1 clang, -Oz) |
-|---|---|
-| gw | 11,739 B |
-| gw_auto | 11,365 B |
-| gw_call | 11,245 B |
-| gw_answer | 11,301 B |
+Measured with Ubuntu clang 21.1.8, `-Oz` (position independence checked by linking twice):
 
-The block holds 11,752 B of code, so gw has 13 B to spare: the game is full. The sound took
-about 400 B. To make room, the items' names and shop lines moved into one string (`GW_TEXT`
-in gw.c) instead of fixed-size fields. Ubuntu's clang 18 builds gw about 400 B bigger (12,1xx B),
-so `test_builds_and_fits[gw]` passes only with CI's compiler (docs/k6-compilers.md). The state is about 1.2 KB: the game (392 B), the 480-byte
-bitmap, three packet buffers, and the sound's 32 B of saved registers. The trail dots share the receive and transmit buffers, since
-nothing is sent or received while a shot flies.
+| Build | Binary | Automatic-slot image (binary + 48 B) |
+|---|---:|---:|
+| Old gw | 11,747 B | 11,795 B |
+| gw (legacy radio + hot seat) | 11,259 B | 11,307 B |
+| gw_flux (compact local game) | 7,628 B | 7,676 B |
 
-The code leaves less scratch than the state needs, so `k6_main` puts the state on the stack.
-The emulator measures 1.8 KB of stack at the deepest point. The voice SPI images give a module
-about 3.1 KB (the vlrh image's 3,112 B, docs/k6-modules.md), which leaves about 1.3 KB for
-Aura's own calls. The tests fail above 2,000 B. On the bench, cf9516e vlrh gave the module 3,044 B and
-684 B were never touched: Aura's calls under the module took about 580 B.
+The 16 KiB SPI slot is not the limiting factor. The module runs in the 11,776-byte
+RAM arena, and automatic allocation adds a 16-byte header, 24-byte module identity
+and 8-byte tag. The compact Flux host also reserves 1,040 bytes at the arena's end
+for LCD callbacks and uses a separate 1,152-byte module execution stack. Including
+word alignment, `gw_flux` has 3,060 bytes of scratch available. It stores its game
+state, bitmap, trail and other buffers there and refuses to run if scratch is too
+small rather than falling back to an oversized stack frame.
 
-The game needs a voice SPI image (its 11,776-byte block). The EXPLORE and lean images' 5,376 B
-are too small.
+The compact build retains the original game rules, weapons, shields, shops, help,
+key controls, animations and sound effects. It deliberately omits the legacy
+radio modem; the old direct-register 64-byte FFSK path is not a verified FD6818B
+transport. Bringing over-the-air play to the compact host requires a port to the
+managed Data service and configured station identity. `gw.c` and the existing
+radio bots retain the legacy radio protocol; do not install these builds on the
+compact Flux host, even if the image passes the installation size check.
+
+The legacy module still uses the original large execution stack when scratch is
+insufficient. On the original voice SPI host, the game used about 1.8 KiB of
+module stack; the cf9516e bench run had a 3,044-byte stack and 684 bytes untouched
+(including host callbacks). The old small 5,376-byte lean/EXPLORE arena cannot
+run either variant. Rebuild the compact automatic-slot bundle in place (same stable ID):
+
+```sh
+python3 tools/k6_install.py module-bundle c/k6/mod/gw_flux.c \
+  --id org.blowfang.k6.gw -o local-modules/gw
+```
 
 ## Tests
 

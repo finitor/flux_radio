@@ -227,7 +227,7 @@ static void gw_new_round(gw_t *g) {
 }
 
 /* buy one lot of item i for station j: 0, or -1 (money, or a second shield) */
-static int gw_buy(gw_t *g, int j, int i) {
+__attribute__((noinline)) static int gw_buy(gw_t *g, int j, int i) {
   gw_pl_t *p = &g->p[j];
   const gw_item_t *it = &GW_ITEMS[i];
   if (i <= 0 || i >= GW_NI || p->money < it->price) return -1;
@@ -378,7 +378,7 @@ static int gw_in_station(const gw_t *g, int j, int px, int py) {
   return px >= p->x - 3 && px <= p->x + 3 && py >= p->y - 6 && py < p->y;
 }
 
-static void gw_move(gw_t *g, gw_shot_t *s) {
+__attribute__((noinline)) static void gw_move(gw_t *g, gw_shot_t *s) {
   int j, px, py;
   int32_t ox = s->x, oy = s->y, ovy = s->vy;
   s->age++;

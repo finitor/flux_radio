@@ -25,6 +25,13 @@ from modem import k6gw  # noqa: E402
 
 MOD = os.path.join(ROOT, "c", "k6", "mod")
 BLOCK = 11752                                  # the module block less its header and tag
+FLUX_ARENA = 11776
+FLUX_LCD_STACK = 1040
+FLUX_AUTO_OVERHEAD = 48  # header, identity marker and tag
+FLUX_STACK = 1152
+
+def flux_scratch(code):
+    return FLUX_ARENA - FLUX_LCD_STACK - ((len(code) + FLUX_AUTO_OVERHEAD + 3) & ~3)
 RF_HZ = 440_850_000
 PKT_US = (16 + 4 + 64) * 8 * 1_000_000 // 1800     # preamble, sync, payload at 1800 baud
 WORD_US = 16 * 1_000_000 // 1800
@@ -231,7 +238,7 @@ def play(name, air, count=3_000_000_000, keypad=None, rx_hz=RF_HZ, level=7, snd=
     lcd, tx = {}, {}
     mmio = sound_mmio({} if snd is None else snd)
     ret, said, regs, writes = run({**START, 0x47: 0x6140}, code=(code, entry), level=level, lcd=lcd,
-                                  keypad=keypad or [], spare=BLOCK - len(code), count=count, rx_hz=rx_hz,
+                                  keypad=keypad or [], spare=flux_scratch(code) if name == "gw_flux" else BLOCK - len(code), count=count, rx_hz=rx_hz,
                                   tx=tx, fsk=air, paint=True, mmio=mmio)
     return ret, said, regs, tx, lcd
 
@@ -356,6 +363,7 @@ def test_hits_end_rounds_and_pay():
 @need_clang
 @pytest.mark.parametrize("name", [
     "gw",
+    "gw_flux",
     "gw_answer",
     "gw_auto",
     "gw_call",
@@ -365,6 +373,10 @@ def test_builds_and_fits(name):
     code, entry = build(name)
     assert k6mod.source_level(os.path.join(MOD, name + ".c")) == 6 and entry == 16   # after its name
     assert len(code) <= BLOCK, len(code)         # (build.sh's limit too)
+    if name == "gw_flux":
+        assert flux_scratch(code) >= 2048, len(code)  # state plus headroom; not just install fit
+    else:
+        assert len(code) + FLUX_AUTO_OVERHEAD <= FLUX_ARENA, len(code)
 
 
 @need_clang
@@ -391,10 +403,14 @@ def taps(seq, t0, gap=300_000, hold=120_000):
 
 
 @need_clang
-def test_hot_seat_keys_shop_aim_fire():
+@pytest.mark.parametrize("name", ["gw", "gw_flux"])
+def test_hot_seat_keys_shop_aim_fire(name):
     keys = taps(["1", 0.5, "M", "X", 0.5, "D", "M", "X", 1.0, "#", "4", "4", "2", "9", "9", "7",
                  "M", 8, "X", "X"], 1_000_000)          # (9 is power +10, 7 is -10)
-    ret, said, regs, tx, lcd = play("gw", None, keypad=keys, count=60_000_000)
+    ret, said, regs, tx, lcd = play(name, None, keypad=keys, count=60_000_000)
+    if name == "gw_flux":
+        assert lcd["st"]["stack"] < FLUX_STACK
+        assert "log" not in tx
     fr = lcd["frames"]
     shop = [f for f in fr if f["text"][0].startswith("SHOP P1")]
     assert shop and shop[0]["text"][1].startswith(">Kilowatt") and "$80" in shop[0]["text"][0]
@@ -413,13 +429,17 @@ def test_hot_seat_keys_shop_aim_fire():
 
 
 @need_clang
-def test_hot_seat_sound():
+@pytest.mark.parametrize("name", ["gw_auto", "gw_flux"])
+def test_hot_seat_sound(name):
     """Each shot whistles while it comes down, falling in pitch, and each blast is a burst of noise
     sinking from a crackle to a rumble (Jeff, 2026-11-10). The speaker's registers, the amplifier
     and REG_47 are put back after every shot."""
     snd = {}
-    ret, said, regs, tx, lcd = play("gw_auto", None, count=1_500_000_000, GW_ROUNDS=1, snd=snd)
+    ret, said, regs, tx, lcd = play(name, None, count=1_500_000_000, GW_ROUNDS=1, snd=snd,
+                                   **({"GW_AUTO": 0} if name == "gw_flux" else {}))
     assert ret == 1 and "log" not in tx
+    if name == "gw_flux":
+        assert lcd["st"]["stack"] < FLUX_STACK, lcd["st"]["stack"]
     tones, shots = snd["tones"], sum(ln.startswith("gw shot") for ln in said)
     whistle = [(us, a) for us, a, ccr in tones if 300 <= a and ccr == a >> 5]
     boom = [(us, a, ccr) for us, a, ccr in tones if ccr in (a >> 2, a >> 3, a >> 4) and a >= 60 and ccr > 1]
@@ -552,3 +572,19 @@ def test_radio_game_against_the_pc_opponent():
     assert bought == [k6gw.FARADAY]                       # the PC bought its shield (in step)
     assert air.peer.game.state().p[0].wins == 1, said     # and won the round
     check_tx_rules(tx, air)
+
+
+@need_clang
+def test_flux_radio_key_does_not_transmit():
+    keys = taps(["2", "M", "X"], 1_000_000)
+    ret, said, regs, tx, lcd = play("gw_flux", None, keypad=keys, count=60_000_000)
+    assert ret == 0 and "log" not in tx
+    assert all("2 radio" not in f["text"][1] for f in lcd["frames"])
+
+
+@need_clang
+def test_flux_insufficient_scratch_refuses():
+    code = build("gw_flux")
+    ret, said, _, _ = run(START, code=code, level=7, spare=0, count=1_000_000)
+    assert ret == -5
+    assert "gw: not enough scratch RAM" in said

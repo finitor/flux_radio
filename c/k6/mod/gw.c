@@ -57,6 +57,12 @@
 #endif
 K6_MODULE_NAME(K6_NAME);
 
+#ifndef GW_RADIO
+#define GW_RADIO 1
+#endif
+/* Compile out the legacy direct-register modem for the compact Flux host. */
+#define GW_RADIO_MODE(c) (GW_RADIO && (c)->mode)
+
 #ifndef GW_ROUNDS
 #define GW_ROUNDS 3             /* a game: best of 3 */
 #endif
@@ -216,15 +222,23 @@ static const char HELP[] = "HOW TO PLAY\n4 6 side  angle\n2 8 UP DN power\n* #  
 
 typedef struct {
   const k6_api_t *api;
+  /* Keep frequently accessed scalars before the large arrays for Thumb-1. */
+  uint8_t rxn, rx_on, have, seq, peer_seq, acked, await_seq, lobby, land_x, rounds;
+  uint16_t gid;
+  uint32_t t_sync, t_rd;
+#ifdef GW_AUTO
+  int8_t bias[2];               /* the bot's power correction for each station */
+  uint8_t went;                 /* it has played (or tried to): the title screen quits */
+#endif
+  uint32_t now, t_key, t_rep, t_flush, t_exit, t_msg, seed, rnd;
+  uint8_t key, raw, mode, me, desync, played, cur, nt;
+  char ln[44];
+  char msg[22];                 /* line 5's message, until t_msg */
   uint8_t snd;                  /* sound: 0 off, else 1 | the amplifier's bit as it found it (SPK) */
   uint16_t r47;                 /* and the registers it found: the chip's REG_47, */
   uint32_t sv[NSND];            /* TIM1's and the pins' */
   gw_t g;
   uint8_t bmp[16 * GW_H];
-  uint32_t now, t_key, t_rep, t_flush, t_exit, t_msg, seed, rnd;
-  uint8_t key, raw, mode, me, desync, played, cur, nt;
-  char ln[44];
-  char msg[22];                 /* line 5's message, until t_msg */
   /* radio */
   union {                       /* the packets being taken in and sent, or while a shot flies
                                    (no radio then), its trail dots */
@@ -236,13 +250,6 @@ typedef struct {
     };
   };
   uint8_t inbox[64];
-  uint8_t rxn, rx_on, have, seq, peer_seq, acked, await_seq, lobby, land_x, rounds;
-  uint16_t gid;
-  uint32_t t_sync, t_rd;
-#ifdef GW_AUTO
-  int8_t bias[2];               /* the bot's power correction for each station */
-  uint8_t went;                 /* it has played (or tried to): the title screen quits */
-#endif
 } gc_t;
 
 /* a pulse wave: period per us (the timer counts at 1 MHz), high per >> sh of it */
@@ -321,12 +328,12 @@ static char *pad(gc_t *c, char *p, int w) {
   return p;
 }
 
-static void say(gc_t *c, char *p) {
+__attribute__((noinline)) static void say(gc_t *c, char *p) {
   *p = 0;
   c->api->say(c->ln);
 }
 
-static void text(gc_t *c, int line, char *p) {
+__attribute__((noinline)) static void text(gc_t *c, int line, char *p) {
   *p = 0;
   c->api->lcd_text(line, c->ln);
 }
@@ -338,6 +345,8 @@ static char *say_pkt(gc_t *c, const char *what, int type, int seq) {
   p = put(p, " seq=");
   return num(p, (uint32_t)seq, 1);
 }
+
+__attribute__((noinline)) static void line(gc_t *c, int row, const char *s) { c->api->lcd_text(row, s); }
 
 /* line 5's message for ms */
 static void msg(gc_t *c, const char *s, uint32_t ms) {
@@ -417,13 +426,13 @@ static int exit_twice(gc_t *c) {
   return 0;
 }
 
-static void led(gc_t *c, int on) {
+__attribute__((noinline)) static void led(gc_t *c, int on) {
   if (c->api->level >= 7) c->api->led(on);
 }
 
 /* ---- the field ---- */
 
-static void px(gc_t *c, int x, int y) {
+__attribute__((noinline)) static void px(gc_t *c, int x, int y) {
   if ((unsigned)x < GW_W && (unsigned)y < GW_H) c->bmp[16 * y + (x >> 3)] |= (uint8_t)(0x80 >> (x & 7));
 }
 
@@ -744,7 +753,6 @@ static uint32_t get32(const uint8_t *b) {
    (c->have = 1 until taken). */
 static void rf_service(gc_t *c) {
   uint8_t *b = c->rx, seq, type;
-  int i;
   if (!rf_poll(c)) return;
   type = b[1];
   seq = b[4];
@@ -755,7 +763,7 @@ static void rf_service(gc_t *c) {
   }
   if (b[5] == c->me && type != T_HELLO) return;       /* our own station's: an echo? */
   if (seq != c->peer_seq) {
-    for (i = 0; i < 64; i++) c->inbox[i] = b[i];
+    gw_copy(c->inbox, b, 64);
     c->have = 1;
     c->peer_seq = seq;
   }
@@ -772,7 +780,7 @@ static void status(gc_t *c, const char *s) {
   if (c->g.round) {
     flush(c, 0);
   } else {
-    text(c, 5, put(c->ln, c->msg));
+    line(c, 5, c->msg);
     c->api->lcd_flush();
   }
   c->t_flush = c->api->ms();
@@ -781,12 +789,12 @@ static void status(gc_t *c, const char *s) {
 /* send c->tx (built with rf_new) until it is acknowledged: 1, or 0 after RF_TRIES overs */
 static int rf_reliable(gc_t *c) {
   uint8_t keep[64];
-  int i, t, busy = 0, r;
-  for (i = 0; i < 64; i++) keep[i] = c->tx[i];
+  int t, busy = 0, r;
+  gw_copy(keep, c->tx, 64);
   c->await_seq = keep[4];
   for (t = 0; t < RF_TRIES; t++) {
     uint32_t t0;
-    for (i = 0; i < 64; i++) c->tx[i] = keep[i];
+    gw_copy(c->tx, keep, 64);
     c->acked = 0;
     status(c, t ? "TX again..." : "TX...");
     r = rf_over(c);
@@ -882,7 +890,7 @@ static int aim(gc_t *c) {
       p->wpn = (uint8_t)w;
     }
     if (k == 'M' || k == '5') return 1;
-    if (c->mode) {
+    if (GW_RADIO_MODE(c)) {
       rf_service(c);
       if (c->have && c->inbox[1] == T_BYE) return 0;
     }
@@ -969,12 +977,12 @@ static void shop(gc_t *c, int j) {
       *q++ = ' ';
       text(c, 1 + i, num(q, n >= GW_NWPN ? p->sh == n : p->inv[n], 1));
     }
-    text(c, 5, put(c->ln, (int32_t)(c->t_msg - c->now) > 0 ? c->msg : item_text(c->cur, 1)));
+    line(c, 5, (int32_t)(c->t_msg - c->now) > 0 ? c->msg : item_text(c->cur, 1));
     c->api->lcd_wf(0, 0, 0);
     c->api->lcd_flush();
     do {
       k = kp_event(c);
-      if (c->mode) rf_service(c);
+      if (GW_RADIO_MODE(c)) rf_service(c);
     } while (!k);
     if (k == 'U' || k == '2') c->cur = (uint8_t)(c->cur > 1 ? c->cur - 1 : GW_NI - 1);
     if (k == 'D' || k == '8') c->cur = (uint8_t)(c->cur < GW_NI - 1 ? c->cur + 1 : 1);
@@ -1010,7 +1018,7 @@ static int any_key(gc_t *c) {
   kp_release(c);
   do {
     k = kp_event(c);
-    if (c->mode) rf_service(c);
+    if (GW_RADIO_MODE(c)) rf_service(c);
   } while (!k);
   return k;
 }
@@ -1025,7 +1033,7 @@ static int banner(gc_t *c, const char *s, int who, const char *s5) {
     *q++ = (char)('1' + who);
   }
   text(c, 1, q);
-  text(c, 5, put(c->ln, s5));
+  line(c, 5, s5);
   c->api->lcd_flush();
   return any_key(c);
 }
@@ -1038,16 +1046,16 @@ static int game(gc_t *c, uint32_t seed) {
   for (;;) {
     int j;
     for (j = 0; j < 2; j++)               /* the shops: each station's own, or swapped over air */
-      if (!c->mode || j == c->me) shop(c, j);
-    if (c->mode && !swap_shops(c)) return -1;
+      if (!GW_RADIO_MODE(c) || j == c->me) shop(c, j);
+    if (GW_RADIO_MODE(c) && !swap_shops(c)) return -1;
     gw_new_round(g);
     c->t_msg = 0;
     while (!g->over) {
       gw_pl_t *pl = &g->p[g->mover];
       int me = g->mover, dir = g->p[me ^ 1].x > pl->x ? 1 : -1;
-      if (!c->mode || me == c->me) {
+      if (!GW_RADIO_MODE(c) || me == c->me) {
         if (!aim(c)) return -1;
-        if (c->mode) {
+        if (GW_RADIO_MODE(c)) {
           rf_new(c, T_MOVE);
           put32(c->tx + 8, gw_hash(g));
           c->tx[12] = pl->ang;
@@ -1060,12 +1068,12 @@ static int game(gc_t *c, uint32_t seed) {
         if (!rf_await(c, T_MOVE, "other is aiming")) return -1;
         if (get32(b + 8) && get32(b + 8) != gw_hash(g)) {
           c->desync = 1;
-          say(c, put(c->ln, "gw desync"));
+          c->api->say("gw desync");
         }
         fly(c, b[12], b[13], b[14]);
       }
 #ifdef GW_AUTO
-      if (c->land_x != 0xFF && (!c->mode || me == c->me))
+      if (c->land_x != 0xFF && (!GW_RADIO_MODE(c) || me == c->me))
         c->bias[me] = (int8_t)gw_clamp(c->bias[me] + (((int)g->p[me ^ 1].x - c->land_x) * dir) / 4, -30, 30);
 #endif
       (void)dir;
@@ -1106,8 +1114,8 @@ static int lobby(gc_t *c) {
     int called = c->have && c->inbox[1] == T_HELLO;
     char *p = num(put(c->ln, "listening "), (uint32_t)-rssi(c), 1);
     text(c, 5, put(p, " -dBm"));
-    text(c, 0, put(c->ln, "RADIO 440.850"));
-    text(c, 1, put(c->ln, called ? "AG7EW calls! MENU" : "MENU call  EXIT back"));
+    line(c, 0, "RADIO 440.850");
+    line(c, 1, called ? "AG7EW calls! MENU" : "MENU call  EXIT back");
     api->lcd_flush();
     c->t_flush = api->ms();
     do {
@@ -1153,13 +1161,13 @@ __attribute__((noinline)) static int run(const k6_api_t *api, gc_t *c) {
   for (i = 0; i < sizeof *c; i++) z[i] = 0;
   c->api = api;
   c->seed = c->rnd = api->ticks() * 2654435761u + 1;
-  say(c, put(c->ln, "gw start"));
+  c->api->say("gw start");
   kp_release(c);
   for (;;) {
     backdrop(c);
-    text(c, 0, put(c->ln, "     GROUNDWAVE"));
-    text(c, 1, put(c->ln, "1 hot seat  2 radio"));
-    text(c, 5, put(c->ln, "3 help     EXIT quit"));
+    line(c, 0, "     GROUNDWAVE");
+    line(c, 1, GW_RADIO ? "1 hot seat  2 radio" : "1 hot seat");
+    line(c, 5, "3 help     EXIT quit");
     api->lcd_flush();
 #ifdef GW_AUTO
     k = c->went++ ? 'X' : GW_AUTO ? '2' : '1';
@@ -1172,16 +1180,16 @@ __attribute__((noinline)) static int run(const k6_api_t *api, gc_t *c) {
       page(c, HELP);
       any_key(c);
     }
-    c->mode = k == '2';
+    c->mode = GW_RADIO && k == '2';
     c->rounds = GW_ROUNDS;
     c->me = 0;
     c->desync = 0;
     if (k == '1') game(c, c->seed);
-    if (c->mode && api->rx_hz() != RF_HZ) {
-      text(c, 5, put(c->ln, "radio: 440.850 only"));
+    if (GW_RADIO_MODE(c) && api->rx_hz() != RF_HZ) {
+      line(c, 5, "radio: 440.850 only");
       api->lcd_flush();
       any_key(c);
-    } else if (c->mode && lobby(c) && game(c, c->seed) < 0) {
+    } else if (GW_RADIO_MODE(c) && lobby(c) && game(c, c->seed) < 0) {
       rf_new(c, T_BYE);                   /* (once, unacknowledged) */
       rf_over(c);
     }
@@ -1193,7 +1201,7 @@ __attribute__((noinline)) static int run(const k6_api_t *api, gc_t *c) {
   return c->played;
 }
 
-/* the state (about 1.4 KB) in the scratch RAM past the code if it fits there, else on the stack */
+/* Legacy hosts have a large execution stack; the compact Flux build must use scratch. */
 __attribute__((noinline)) static int on_stack(const k6_api_t *api) {
   gc_t st;
   return run(api, &st);
@@ -1204,5 +1212,7 @@ int k6_main(const k6_api_t *api) {
   void *m;
   if (api->level < 6) return -3;
   m = api->scratch(&room);
-  return room >= sizeof(gc_t) ? run(api, (gc_t *)m) : on_stack(api);
+  if (m && room >= sizeof(gc_t)) return run(api, (gc_t *)m);
+  if (!GW_RADIO) { api->say("gw: not enough scratch RAM"); return -5; }
+  return on_stack(api);
 }
