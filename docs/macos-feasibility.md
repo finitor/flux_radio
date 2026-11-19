@@ -46,6 +46,23 @@ backup command failed partway through. The ordinary backup command therefore
 still needs a reliability fix; a successful workaround is not validation of
 its default transfer settings. Restoring the backup was not tested.
 
+## Scan and EXPLORE audio follow-up
+
+A subsequent Base + Scan / All locked / Flux build (111,680 bytes) passed
+artifact inspection and both compiled cable/install emulator checks. The GUI
+flashed it and verified VFO in slot 16, SURF in slot 17 and EXPLORE in slot 18.
+The user confirmed FLOCK remained ALL LOCK. SURF produced hiss in monitor mode,
+received stations and visibly refreshed its spectrum with monitor disabled.
+
+EXPLORE detected candidates but its Try action was silent. Commit `6b8b84f`
+opens FM audio, the speaker and squelch during Try, then restores their previous
+state before scanning resumes. Four Cortex-M0 regression cases reproduced the
+missing speaker enable before the fix and passed afterwards, including cleanup
+on key exit and power-off. The corrected module (3,522 installed bytes) replaced
+slot 18 with verified cable readback. After unplugging the cable, the user
+confirmed Try now produced sound. This confirms audible output, not the identity
+or intelligibility of every detected signal or receiver sensitivity measurements.
+
 ## Cable dispatcher fix
 
 `apply-capability-query.py` emitted a `CMD_CABLE_CAPS` match arm without declaring
