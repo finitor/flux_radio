@@ -18,10 +18,11 @@ be a branch or tag; refresh checks out its latest commit.
 Sources are cached below `~/.cache/flux/module-store/repos/`, and the Catalog list is stored in
 `~/.config/flux/module-store.json`. Existing Blowfang config and cache locations are detected for backward compatibility.
 
-Use **Device settings** in the top navigation to set the USB serial path and optional module key
-file once for the browser session. Catalog installs, radio status, and module removal reuse those
-values. Only the key-file path is kept in the signed session cookie; the key contents remain in the
-local file.
+Use **Device settings** in the top navigation before using radio tools. Choose a detected
+serial device or enter its path and confirm it. Flux can remember the last serial device on
+the local server, but each new browser session must confirm it: USB device names can change
+when cables are reconnected. Browsing, editing themes and building firmware do not require
+a radio. The optional key-file path is session-only, and the key contents remain in the local file.
 
 Select **My radio** in the top navigation to inspect library slots over the programming cable.
 Enter the serial port and choose **Read radio library**. This runs the existing `k6_install.py

@@ -220,3 +220,30 @@ def test_archived_local_bundle_hidden_but_explicitly_addable(tmp_path,monkeypatc
     assert store.catalog()[0]['title']=='Current app'
     store.add(str(hidden))
     assert {e['source'] for e in store.sources()}=={str(hidden),str(current)}
+
+
+def test_remembered_serial_port_requires_new_session_confirmation(tmp_path):
+    class Store:
+        config = tmp_path / "catalog.json"
+        def catalog(self):
+            return []
+    app = k6_store.create_app(Store())
+    client = app.test_client()
+    assert b"Set serial device" in client.get("/").data
+    assert client.post("/settings", data={"port": "/dev/ttyUSB7",
+                       "key_file": "/private/key", "remember_port": "yes"}).status_code == 302
+    saved = tmp_path / "device-settings.json"
+    assert json.loads(saved.read_text()) == {"port": "/dev/ttyUSB7"}
+    # Simulate a server restart and a new browser session.
+    client = k6_store.create_app(Store()).test_client()
+    page = client.get("/").data
+    assert b"Last used:" in page and b"Confirm serial device" in page
+    assert b"USB device names may change" in page
+    assert b'value="/dev/ttyUSB7"' in client.get("/settings").data
+    with client.session_transaction() as session:
+        assert "radio_port" not in session
+        assert "radio_key_file" not in session
+    assert client.post("/settings", data={"port": "/dev/ttyUSB8",
+                       "remember_port": "no"}).status_code == 302
+    assert not saved.exists()
+    assert b"/dev/ttyUSB8" in client.get("/").data

@@ -16,15 +16,15 @@
     <input type="hidden" name="confirm" value="">
     <input type="hidden" name="action" value="flash-install">
     <label>Radio state <select name="mode"><option value="cable">Running Flux</option><option value="update">Already showing UPDATE (first install / recovery)</option></select></label>
-    <div class="top-actions"><button type="button" data-provision-action="flash-install">Install firmware</button></div>
+    <div class="top-actions"><button type="button" data-provision-action="flash-install" {% if not radio_settings.port %}disabled{% endif %}>Install firmware</button></div>
     <details class="readme"><summary>Advanced installation options</summary>
       <p>Install individual components or retry after a first-boot format prompt.</p>
       <div class="top-actions">
-        <button type="button" data-provision-action="flash">Flash firmware only</button>
-        <button type="button" data-provision-action="preview">Preview module slots</button>
-        <button type="button" data-provision-action="install">Install modules only</button>
-        {% if job.lock and job.lock.theme_package %}<button type="button" data-provision-action="theme">Install theme only</button>{% endif %}
-        {% if job.lock and job.lock.boot_splash %}<button type="button" data-provision-action="splash">Install splash only</button>{% endif %}
+        <button type="button" data-provision-action="flash" {% if not radio_settings.port %}disabled{% endif %}>Flash firmware only</button>
+        <button type="button" data-provision-action="preview" {% if not radio_settings.port %}disabled{% endif %}>Preview module slots</button>
+        <button type="button" data-provision-action="install" {% if not radio_settings.port %}disabled{% endif %}>Install modules only</button>
+        {% if job.lock and job.lock.theme_package %}<button type="button" data-provision-action="theme" {% if not radio_settings.port %}disabled{% endif %}>Install theme only</button>{% endif %}
+        {% if job.lock and job.lock.boot_splash %}<button type="button" data-provision-action="splash" {% if not radio_settings.port %}disabled{% endif %}>Install splash only</button>{% endif %}
       </div>
     </details>
     <noscript>JavaScript is required for the installation confirmation.</noscript>

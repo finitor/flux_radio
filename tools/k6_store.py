@@ -400,9 +400,31 @@ def create_app(store: ModuleStore | None = None):
     app.config["module_store"] = catalog
     app.config["theme_library"] = theme_library
 
+    # Persist only the last port on the local server, not the signing key.
+    # Restored preferences are a suggestion until explicitly confirmed.
+    app.config["device_settings_path"] = Path(getattr(catalog, "config", default_config())).with_name("device-settings.json")
+
+    def saved_port():
+        try:
+            data = json.loads(app.config["device_settings_path"].read_text())
+            port = data.get("port", "")
+            return port if isinstance(port, str) else ""
+        except (OSError, ValueError, AttributeError):
+            return ""
+
     def radio_settings() -> dict:
         return {"port": session.get("radio_port", ""),
+                "saved_port": saved_port(),
                 "key_file": session.get("radio_key_file", "")}
+
+    def serial_devices():
+        try:
+            from serial.tools import list_ports
+            return sorted(({"device": p.device, "description": p.description}
+                           for p in list_ports.comports()), key=lambda p: p["device"])
+        except (ImportError, OSError):
+            return []
+
 
     def cable_command(*args: str) -> list[str]:
         settings = radio_settings()
@@ -419,7 +441,7 @@ def create_app(store: ModuleStore | None = None):
 
     @app.get("/settings")
     def settings_page():
-        return render_template("settings.html", settings=radio_settings())
+        return render_template("settings.html", settings=radio_settings(), devices=serial_devices())
 
     @app.post("/settings")
     def save_settings():
@@ -427,10 +449,29 @@ def create_app(store: ModuleStore | None = None):
         key_file = request.form.get("key_file", "").strip()
         if not port:
             flash("Enter the serial device path, such as /dev/ttyUSB0.", "error")
-            return render_template("settings.html", settings={"port": port, "key_file": key_file}), 400
+            return render_template("settings.html", settings={"port": port, "key_file": key_file, "saved_port": saved_port()}, devices=serial_devices()), 400
         session["radio_port"] = port
         session["radio_key_file"] = key_file
-        flash("Radio connection saved for this browser session.", "success")
+        if request.form.get("remember_port") == "yes":
+            import tempfile
+            path = app.config["device_settings_path"]
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, delete=False) as out:
+                    temporary = Path(out.name)
+                    json.dump({"port": port}, out)
+                try:
+                    temporary.replace(path)
+                finally:
+                    temporary.unlink(missing_ok=True)
+            except OSError:
+                flash("Port selected for this session, but could not save it for next time.", "error")
+        elif request.form.get("remember_port") == "no":
+            try:
+                app.config["device_settings_path"].unlink(missing_ok=True)
+            except OSError:
+                flash("Could not clear the remembered port.", "error")
+        flash("Radio port selected. Confirm the cable is still connected before writing.", "success")
         return redirect(url_for("settings_page"))
 
     @app.get("/")

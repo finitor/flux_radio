@@ -331,3 +331,12 @@ footer { display: flex; align-items: center; justify-content: space-between; gap
 
 .badge.native { color: #a6cde9; border: 1px solid #526b80; border-radius: 99px; padding: 3px 7px; white-space: nowrap; }
 .card-foot { flex-wrap: wrap; }
+
+.connection-strip { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px 16px; padding:9px max(24px, calc((100vw - 1120px) / 2)); background:var(--surface); border-bottom:1px solid var(--line); color:var(--muted); font-size:12px; }
+.connection-strip a { color:var(--acid); font-weight:650; }
+.connection-strip code { color:var(--text); }
+button:disabled { opacity:.5; cursor:not-allowed; }
+
+.settings-form select, [data-provision] select { min-height:37px; max-width:100%; border:1px solid var(--line); border-radius:7px; background:var(--bg); color:var(--text); padding:7px 10px; font:inherit; }
+.settings-form { grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); }
+.settings-form button { justify-self:start; }

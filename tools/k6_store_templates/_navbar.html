@@ -7,3 +7,18 @@
     {% endfor %}
   </nav>
 </header>
+
+{% if nav_section != 'settings' %}
+<div class="connection-strip">
+  {% if radio_settings.port %}
+    <span>Serial device: <code>{{ radio_settings.port }}</code> · Check cable before installing.</span>
+    <a href="{{ url_for('settings_page') }}">Change device</a>
+  {% elif radio_settings.saved_port %}
+    <span>Last used: <code>{{ radio_settings.saved_port }}</code> · USB device names may change.</span>
+    <a href="{{ url_for('settings_page') }}">Confirm serial device</a>
+  {% else %}
+    <span>Getting started? Select your programming cable before using radio tools.</span>
+    <a href="{{ url_for('settings_page') }}">Set serial device</a>
+  {% endif %}
+</div>
+{% endif %}
