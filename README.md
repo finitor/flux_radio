@@ -17,9 +17,9 @@ radio toolkit. Explore the bands, install applications over your programming
 cable, or design your own radio display. You can start with a small firmware
 image and add optional features as your interests grow.
 
-![SURF spectrum displays from the emulator](docs/img/k6-surf-screens.png)
+![Flux Catalog showing hardware-tested and native modules](docs/img/flux-catalog.png)
 
-*SURF band surfing — emulated displays from development.*
+*Discover radio applications, verify compatibility, and install modules over the programming cable.*
 
 ## Choose your starter
 
@@ -109,6 +109,29 @@ Open <http://127.0.0.1:5055>. Choose feature packs, build firmware,
 edit themes, and manage installed modules. The Catalog runs on your
 computer, not on a cloud service. See the [Catalog guide](docs/module-store.md).
 Install only trusted native modules; they are not sandboxed.
+
+## Make Flux your own
+
+<table>
+<tr>
+<td width="50%"><a href="docs/img/flux-builder.png"><img src="docs/img/flux-builder.png" alt="Firmware builder with Scan and Designer selected"></a><br><strong>Firmware builder</strong> — Choose features and estimate flash usage.</td>
+<td width="50%"><a href="docs/img/flux-designer.png"><img src="docs/img/flux-designer.png" alt="Standalone Designer graphics editor"></a><br><strong>Designer</strong> — Arrange the display, draw custom graphics and edit glyphs.</td>
+</tr>
+</table>
+
+See the [Catalog guide](docs/module-store.md) for the browser workflow.
+
+## On the radio
+
+<table>
+<tr><td width="33%"><img src="docs/img/radio-vfo-sim.png" alt="Dual VFO screen"><br>Dual VFO</td><td width="33%"><img src="docs/img/radio-launcher-sim.png" alt="Main radio menu"><br>Radio menu</td><td width="33%"><img src="docs/img/radio-catalog-sim.png" alt="On-radio module Catalog"><br>Module Catalog</td></tr>
+</table>
+
+*Actual LCD output captured from the Base + Scan firmware running in the emulator.*
+
+![SURF spectrum displays from the emulator](docs/img/k6-surf-screens.png)
+
+*SURF band surfing with simulated signals.*
 
 ## Try the radio without flashing
 

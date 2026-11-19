@@ -100,6 +100,28 @@ also available, including if a guided install is interrupted.
    interrupted, return to the normal screen and rerun the install command;
    do not blindly erase an occupied slot.
 
+## Browser firmware builder
+
+If you prefer the local browser interface, start the Catalog, confirm your serial device in
+**Device settings**, then open **Feature packs**. Select the services and the appropriate
+transmit profile, and build. See the [Catalog guide](../module-store.md) for setup.
+
+![Successful firmware build](../img/flux-build-result.png)
+
+For an existing Flux radio, back up SPI flash first and use the installation action on
+the successful build page. Confirm that the selected port still points to your radio.
+For a first installation from stock, follow the backup and format precautions above;
+the browser workflow does not replace the guided first-boot backup.
+
+![Firmware flashing in progress](../img/flux-install-progress.png)
+
+Keep the cable connected and the radio powered during the write. A successful
+installation reports firmware completion and module readback verification.
+
+![Successful firmware and module installation](../img/flux-install-complete.png)
+
+*Screenshots from a development build and an existing-radio update; your profile, module list and output will differ.*
+
 ## First steps on the radio
 
 From the VFO screen, press MENU, navigate to CATALOG with UP/DOWN and
@@ -107,6 +129,12 @@ press MENU. Try the installed modules. EXIT returns to the previous screen.
 In Settings > System > About, check your active feature set and flash budget.
 Configure your callsign, frequency, offset, tones and permitted transmit
 bands before transmitting. Start with receive-only checks.
+
+| Normal VFO screen | Main menu | On-radio Catalog |
+| --- | --- | --- |
+| ![Dual VFO](../img/radio-vfo-sim.png) | ![Main menu](../img/radio-launcher-sim.png) | ![Catalog](../img/radio-catalog-sim.png) |
+
+*LCD captures from the Base + Scan firmware running in the emulator.*
 
 ## Updating an existing Flux radio
 

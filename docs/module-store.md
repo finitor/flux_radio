@@ -4,6 +4,10 @@ The Catalog is a small local application, not a service running on the radio. It
 shows the project README and its screenshots, and can send a compatible module bundle to the K6
 through the existing serial cable loader.
 
+![Flux Catalog](img/flux-catalog.png)
+
+*Catalog projects are grouped by compatibility and validation status. Screenshots show a development instance; labels, module availability and device settings may differ in newer versions.*
+
 ## Start it
 
 ```sh
@@ -31,6 +35,23 @@ slots can link to a matching project in the catalog by module name. Install or u
 that project's page. Remove a module by typing `ERASE <slot>` in its confirmation field. The
 firmware validates the slot type, erases and verifies the full 16 KB slot, and rejects firmware
 pages and help decks. Removal is permanent, and the cable session restarts the radio when it ends.
+
+## Build firmware and design the display
+
+Open **Feature packs**, select your desired services and transmit profile, then preview
+the flash budget. The estimate is not a substitute for the final linked-image size.
+Choose **Build this profile** to compile.
+
+![Feature pack builder](img/flux-builder.png)
+
+Open **Theme editor** to edit a layout, draw graphics and preview the radio display.
+Save a named design and select it in the firmware builder. Designer is required for
+custom display themes on the radio.
+
+![Standalone theme editor](img/flux-designer.png)
+
+After a successful build, follow the [installation guide](manual/install.md) before
+writing firmware or formatting SPI flash.
 
 ## Local starter module repositories
 
@@ -88,8 +109,8 @@ python3 tools/k6_install.py --port /dev/ttyUSB0 remove-slot 30
 
 Add prints the catalog ID used by the other commands. `install` calls `tools/k6_install.py load`
 with the selected repository's bundle. The browser offers the same explicit action and shows the
-installer's output. It never flashes the firmware image; it only loads library entries in the
-bundle manifest.
+installer's output. This module-install action only loads library entries in the
+module manifest; the separate firmware builder can flash firmware.
 
 ## README content
 
