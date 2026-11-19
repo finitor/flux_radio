@@ -43,15 +43,15 @@
       {% if messages %}<section class="messages">{% for category, message in messages %}<p class="{{ category }}">{{ message }}</p>{% endfor %}</section>{% endif %}
     {% endwith %}
 
-    <section class="catalog-head" id="catalog"><div><p class="eyebrow">YOUR SOURCES</p><h2>Find your next tool</h2><p>Independent projects, ready to explore.</p></div><div class="catalog-source-actions"><span class="count"><b>{{ repos|length }}</b> repositories</span><form method="post" action="{{ url_for('refresh_all') }}"><button class="quiet" type="submit">↻ Refresh</button></form></div></section>
+    <section class="catalog-head" id="catalog"><div><p class="eyebrow">YOUR SOURCES</p><h2>Find your next tool</h2><p>Hardware-tested and Flux-targeted tools first; experimental and WIP ports are clearly marked.</p></div><div class="catalog-source-actions"><span class="count"><b>{{ repos|length }}</b> repositories</span><form method="post" action="{{ url_for('refresh_all') }}"><button class="quiet" type="submit">↻ Refresh</button></form></div></section>
     {% if repos %}
       <section class="catalog-tools"><label class="search-box"><span>⌕</span><input id="catalog-search" type="search" placeholder="Search modules and projects…" autocomplete="off"></label>
-        <div class="filter-pills" role="group" aria-label="Filter modules"><button class="filter-pill active" type="button" data-filter="all" aria-pressed="true">All projects <span>{{ repos|length }}</span></button><button class="filter-pill" type="button" data-filter="ready" aria-pressed="false">Installable <span>{{ repos|selectattr('bundle')|list|length }}</span></button></div>
+        <div class="filter-pills" role="group" aria-label="Filter modules"><button class="filter-pill active" type="button" data-filter="all" aria-pressed="true">All projects <span>{{ repos|length }}</span></button><button class="filter-pill" type="button" data-filter="ready" aria-pressed="false">Bundle eligible <span>{{ repos|selectattr('bundle')|rejectattr('install_blocked')|list|length }}</span></button><button class="filter-pill" type="button" data-filter="tested" aria-pressed="false">Hardware tested</button><button class="filter-pill" type="button" data-filter="native" aria-pressed="false">Flux native</button><button class="filter-pill" type="button" data-filter="experimental" aria-pressed="false">Experimental</button><button class="filter-pill" type="button" data-filter="wip" aria-pressed="false">WIP / blocked</button></div>
       </section>
       <section class="cards">
       {% for repo in repos %}
         {% set searchable = repo.title ~ ' ' ~ repo.summary ~ ' ' ~ repo.id ~ ' ' ~ (repo.bundle.modules|map(attribute='name')|join(' ') if repo.bundle else '') %}
-        <article class="card" data-card data-ready="{{ 'true' if repo.bundle else 'false' }}" data-search="{{ searchable|lower }}">
+        <article class="card" data-card data-ready="{{ 'true' if repo.bundle and not repo.install_blocked else 'false' }}" data-status="{{ repo.status|default('unreviewed') }}" data-native="{{ 'true' if repo.native_flux else 'false' }}" data-search="{{ searchable|lower }}">
           <a class="card-main" href="{{ url_for('detail', repo_id=repo.id) }}">
             {% if repo.screenshots %}<div class="card-cover">{% set image = repo.screenshots[0] %}{% set src = screenshot_url(repo, image.src) %}{% if src %}<img src="{{ src }}" alt="{{ image.alt }}" loading="lazy">{% else %}<div class="cover-placeholder"><span>BF</span></div>{% endif %}<span class="cover-label">PROJECT PREVIEW</span></div>{% else %}<div class="card-cover cover-placeholder"><span>BF</span><span class="cover-label">COMMUNITY PROJECT</span></div>{% endif %}
             <div class="card-heading"><div><h3>{{ repo.title }}</h3><span class="repo-id">{{ repo.id }}</span></div><span class="arrow">↗</span></div>
@@ -59,7 +59,7 @@
             {% if repo.bundle %}<div class="module-tags">{% for module in repo.bundle.modules[:3] %}<span>{{ module.name }}</span>{% endfor %}{% if repo.bundle.modules|length > 3 %}<span>+{{ repo.bundle.modules|length - 3 }}</span>{% endif %}</div>{% endif %}
           </a>
           <div class="card-foot">
-            {% if repo.bundle %}<span class="badge ready"><i></i>{{ repo.bundle.modules|length }} installable</span>{% else %}<span class="badge"><i></i>Project page</span>{% endif %}
+            {% if repo.status_label %}<span class="badge {{ repo.status }}"><i></i>{{ repo.status_label }}</span>{% elif repo.bundle %}<span class="badge">Bundle available</span>{% else %}<span class="badge">Project page</span>{% endif %}{% if repo.native_flux %}<span class="badge native">Flux native</span>{% endif %}{% if repo.required_packs %}<span class="badge">{{ repo.required_packs|join(' + ')|title }}</span>{% endif %}
             <span class="commit">{{ repo.commit[:8] }}</span>
           </div>
         </article>

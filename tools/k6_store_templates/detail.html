@@ -11,24 +11,26 @@
   {% with nav_section = 'catalog' %}{% include '_navbar.html' %}{% endwith %}
   <main class="layout detail-layout">
     <p class="eyebrow">MODULE PROJECT</p>
-    <div class="detail-title"><div><h1>{{ repo.title }}</h1><p class="summary">{{ repo.summary }}</p></div>
+    <div class="detail-title"><div><h1>{{ repo.title }}</h1><p class="summary">{{ repo.summary }}</p>{% if repo.status_label %}<span class="badge {{ repo.status }}"><i></i>{{ repo.status_label }}</span>{% endif %}{% if repo.native_flux %} <span class="badge native">Flux native</span>{% endif %}{% if repo.required_packs %}<p class="radio-note">Required firmware: {{ repo.required_packs|join(' + ')|title }}</p>{% endif %}</div>
       {% if repo.source_link %}<a class="quiet link-button" href="{{ repo.source_link }}" target="_blank" rel="noopener">View source ↗</a>{% endif %}
     </div>
     <div class="meta-row"><span>{{ repo.source }}</span><span>commit <code>{{ repo.commit }}</code></span>{% if repo.ref %}<span>ref {{ repo.ref }}</span>{% endif %}</div>
 
     {% if repo.bundle %}
       <section class="panel install-panel">
-        <div class="section-heading"><div><p class="eyebrow">INSTALLABLE RELEASE</p><h2>{{ repo.bundle.build or 'Module bundle' }}</h2></div>{% if repo.bundle.build_id %}<span class="badge ready">firmware {{ repo.bundle.build_id }}</span>{% else %}<span class="badge ready">firmware ID unset</span>{% endif %}</div>
+        <div class="section-heading"><div><p class="eyebrow">MODULE BUNDLE</p><h2>{{ repo.bundle.build or 'Module bundle' }}</h2></div>{% if repo.bundle.build_id %}<span class="badge ready">firmware {{ repo.bundle.build_id }}</span>{% else %}<span class="badge ready">firmware ID unset</span>{% endif %}</div>
         <div class="module-list">
           {% for module in repo.bundle.modules %}
             <div class="module-row"><strong>{{ module.name }}</strong><span>{{ module.kind }}</span><span>{% if module.slot is none %}automatic slot{% else %}slot {{ module.slot }}{% endif %}</span>{% if module.level %}<span>API {{ module.level }}</span>{% endif %}</div>
           {% endfor %}
         </div>
         <p class="radio-note">{% if radio_settings.port %}Install to <strong>{{ radio_settings.port }}</strong>{% if radio_settings.key_file %} · key file <code>{{ radio_settings.key_file }}</code>{% else %} · default key{% endif %}. <a href="{{ url_for('settings_page') }}">Change</a>{% else %}Set the USB device in <a href="{{ url_for('settings_page') }}">Device settings</a> before installing.{% endif %}</p>
+        {% if repo.install_blocked %}<p class="radio-note"><strong>Installation blocked:</strong> {{ repo.blocked_reason or 'This module needs an FD6818B port or further development.' }}</p>{% else %}
         <form method="post" action="{{ url_for('install', repo_id=repo.id) }}" class="install-form">
+          {% if repo.status == 'experimental' %}<label class="check"><input type="checkbox" name="experimental" value="yes" required> I understand this module is experimental and not fully hardware validated.</label>{% endif %}
           <label class="check"><input type="checkbox" name="verify" value="yes"> Read back installed slots to verify</label>
           <button type="submit" {% if not radio_settings.port %}disabled{% endif %}>Install bundle to radio</button>
-        </form>
+        </form>{% endif %}
         {% if result %}<pre class="install-result {{ 'ok' if result.ok else 'failed' }}">{{ result.output or 'Installer finished without output.' }}</pre>{% endif %}
       </section>
     {% else %}

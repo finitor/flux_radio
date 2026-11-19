@@ -151,6 +151,51 @@ def bundle_info(path: Path | None) -> dict | None:
             "modules": modules}
 
 
+STATUS_LABELS = {"tested": "Hardware tested", "targeted": "Flux targeted", "experimental": "Experimental", "wip": "WIP / port required", "blocked": "Blocked", "unreviewed": "Unreviewed"}
+PACK_CAPS = {"scan": "scanner", "data": "fsk_rx", "designer": "designer", "sotto": "sotto", "ota": "ota"}
+
+
+def local_compatibility(info, bundle):
+    """Curated local status is not a claim of hardware validation."""
+    status = info.get("status", "unreviewed")
+    reason = None
+    if bundle and info.get("source_module"):
+        try:
+            manifest = json.loads((bundle["path"] / "manifest.json").read_text())
+            entries = manifest["library"]
+            if len(entries) != 1 or entries[0].get("kind", "module") != "module":
+                raise ValueError("expected one native module")
+            entry = entries[0]
+            name = entry["file"]
+            if Path(name).name != name:
+                raise ValueError("unexpected module filename")
+            binary = (bundle["path"] / name).read_bytes()
+            digest = hashlib.sha256(binary).hexdigest()
+            if manifest["sha256"].get(name) != digest:
+                raise ValueError("bundle checksum mismatch")
+            if len(binary) + 48 + 1040 > 11776:
+                raise ValueError("module exceeds compact Flux arena budget")
+            if entry.get("level") != info.get("expected_api"):
+                raise ValueError("stale module API; rebuild the local bundle")
+            if info.get("expected_sha256") and digest != info["expected_sha256"] and manifest.get("flux_source_module") != info["source_module"]:
+                raise ValueError("legacy or unknown Groundwave build; rebuild the compact gw_flux bundle")
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            status, reason = "blocked", str(exc)
+    return {"status": status, "status_label": STATUS_LABELS.get(status, STATUS_LABELS["unreviewed"]),
+            "blocked_reason": reason, "install_blocked": status in ("wip", "blocked"),
+            "native_flux": info.get("native_flux") is True,
+            "required_packs": info.get("required_packs", []),
+            "required_caps": (["module_loader"] if status in ("tested", "targeted", "experimental") else []) + [PACK_CAPS[p] for p in info.get("required_packs", []) if p in PACK_CAPS]}
+
+
+def catalog_install_flags(repo, acknowledge=False):
+    if repo.get("install_blocked"):
+        raise ValueError(repo.get("blocked_reason") or "This module is WIP and not cleared for the compact FD6818B host.")
+    if repo.get("status") == "experimental" and not acknowledge:
+        raise ValueError("Experimental module: acknowledge the hardware limitations before installing.")
+    return [flag for cap in repo.get("required_caps", []) for flag in ("--require-capability", cap)]
+
+
 class ModuleStore:
     def __init__(self, config: Path | None = None, cache: Path | None = None):
         self.config = (config or default_config()).expanduser()
@@ -314,9 +359,9 @@ class ModuleStore:
         except (subprocess.CalledProcessError, FileNotFoundError):
             commit = "local"
         bundle_path = find_bundle(path)
-        return {**entry, **info, "path": path, "commit": commit,
-                "source_link": repo_url(entry["source"], commit),
-                "bundle": bundle_info(bundle_path)}
+        bundle = bundle_info(bundle_path)
+        return {**entry, **info, **local_compatibility(info, bundle), "path": path, "commit": commit,
+                "source_link": repo_url(entry["source"], commit), "bundle": bundle}
 
     def catalog(self) -> list[dict]:
         repos = []
@@ -328,7 +373,8 @@ class ModuleStore:
                               "summary": f"Catalog refresh failed: {exc}",
                               "screenshots": [], "readme": "", "error": str(exc),
                               "bundle": None, "path": self.location(entry)})
-        return repos
+        order = {"tested": 0, "targeted": 1, "experimental": 2, "unreviewed": 3, "wip": 4, "blocked": 5}
+        return sorted(repos, key=lambda repo: order.get(repo.get("status"), 2))
 
     def by_id(self, repo_id: str, refresh: bool = False) -> dict:
         entry = next((e for e in self.sources() if e.get("id") == repo_id), None)
@@ -745,7 +791,12 @@ def create_app(store: ModuleStore | None = None):
             flash("This repository has no installable format-1 module bundle.", "error")
             return redirect(url_for("detail", repo_id=repo_id))
         try:
-            command = cable_command("load", str(repo["bundle"]["path"]))
+            flags = catalog_install_flags(repo, request.form.get("experimental") == "yes")
+        except ValueError as exc:
+            flash(str(exc), "error")
+            return redirect(url_for("detail", repo_id=repo_id))
+        try:
+            command = cable_command("load", str(repo["bundle"]["path"]), *flags)
         except ValueError as exc:
             flash(str(exc), "error")
             return redirect(url_for("settings_page"))
@@ -803,6 +854,13 @@ def create_app(store: ModuleStore | None = None):
 def print_repo(repo: dict) -> None:
     print(f"{repo['id']}  {repo['title']}")
     print(f"  {repo['summary']}")
+    print(f"  status: {repo.get('status_label', 'Unreviewed')}")
+    if repo.get("native_flux"):
+        print("  origin: Flux native")
+    if repo.get("blocked_reason"):
+        print(f"  blocked: {repo['blocked_reason']}")
+    if repo.get("required_packs"):
+        print("  requires: " + ", ".join(repo["required_packs"]))
     print(f"  source: {repo['source']}  commit: {repo['commit'][:12]}")
     if repo.get("bundle"):
         for module in repo["bundle"]["modules"]:
@@ -837,6 +895,7 @@ def main(argv=None) -> int:
     install.add_argument("--port", required=True)
     install.add_argument("--key-file")
     install.add_argument("--verify", action="store_true")
+    install.add_argument("--experimental", action="store_true", help="acknowledge experimental module limitations")
     args = parser.parse_args(argv)
     store = ModuleStore(args.config, args.cache)
     try:
@@ -878,7 +937,7 @@ def main(argv=None) -> int:
                        "--port", args.port]
             if args.key_file:
                 command += ["--key-file", args.key_file]
-            command += ["load", str(repo["bundle"]["path"])]
+            command += ["load", str(repo["bundle"]["path"]), *catalog_install_flags(repo, args.experimental)]
             if args.verify:
                 command.append("--verify")
             return subprocess.run(command).returncode

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Build local Git repositories containing slot-independent K6 module bundles."""
 import argparse
+import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -17,17 +18,23 @@ import k6_install
 def make_repo(name, source, output):
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
-    aliases = {"aprsapp": "aprs", "aprsbeacon": "aprs-beacon", "aprsgpssync": "aprs-gps-sync", "aprskissrx": "aprs-kiss-rx"}
+    aliases = {"aprsapp": "aprs", "aprsbeacon": "aprs-beacon", "aprsgpssync": "aprs-gps-sync", "aprskissrx": "aprs-kiss-rx", "gw_flux": "gw"}
     dest = output / aliases.get(name,name)
     if dest.exists():
         raise FileExistsError(f"{dest} already exists; not overwriting it")
     with tempfile.TemporaryDirectory(prefix=".building-", dir=output) as temp:
         build = Path(temp)
-        module_id = "org.ag7su.k6."+("aprs" if name=="aprsapp" else name) if name in aliases else f"org.blowfang.k6.{name}"
+        module_id = "org.ag7su.k6."+("aprs" if name=="aprsapp" else name) if name in aliases and name != "gw_flux" else f"org.blowfang.k6.{'gw' if name == 'gw_flux' else name}"
         args = SimpleNamespace(source=str(source), id=module_id, level=None,
                                output=str(build))
         k6_install.cmd_module_bundle(args, log=lambda *args: None)
-        if name == "explore_scan":
+        manifest = build / "manifest.json"
+        data = json.loads(manifest.read_text())
+        data["flux_source_module"] = name
+        manifest.write_text(json.dumps(data, indent=2) + "\n")
+        if name == "gw_flux":
+            readme = "# Groundwave\n\nCompact local two-player artillery game. No RF multiplayer or transmit path. Local play confirmed on FD6818B hardware.\n"
+        elif name == "explore_scan":
             readme = (
                 "# EXPLORE_SCAN\n\n"
                 "Receive only. Scans the supported VHF/UHF band sets one segment at a time, ranks "
@@ -54,7 +61,7 @@ def make_repo(name, source, output):
         elif name in aliases:
             readme = {
                 "aprsapp": "# APRS\n\nNative software Bell 202 receive and packet browser. No optional feature set.\n",
-                "aprsbeacon": "# APRS Beacon\n\nManually confirmed position beacon; RF TX validation pending.\n",
+                "aprsbeacon": "# APRS Beacon\n\nManually confirmed position beacon; operation confirmed on FD6818B hardware.\n",
                 "aprsgpssync": "# GPS Sync\n\nOne-shot position import into native settings from AG7SU-7. API 23 required.\n",
                 "aprskissrx": "# APRS KISS RX\n\nReceive-only KISS serial bridge; physical UART validation pending.\n",
             }[name]
@@ -89,7 +96,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     # Keep the local starter catalog aligned with the current FD6818B Flux host.
     # Other upstream modules can be added when they are ported and validated there.
-    names = ["surf", "vfo", "cardlink", "explore_scan", "aprsapp", "aprsbeacon", "aprsgpssync", "aprskissrx", "rflimits", "rffskrx", "rffsktx", "rfbaseb"]
+    names = ["surf", "vfo", "gw_flux", "cardlink", "explore_scan", "aprsapp", "aprsbeacon", "aprsgpssync", "aprskissrx", "rflimits", "rffskrx", "rffsktx", "rfbaseb"]
     failed = []
     for name in names:
         source = ROOT / "c/k6/mod" / (name + ".c")

@@ -321,3 +321,13 @@ footer { display: flex; align-items: center; justify-content: space-between; gap
 #provision-confirm [data-confirm-first] { color: var(--red); }
 #provision-confirm::backdrop { background: rgba(0,0,0,.55); }
 #provision-confirm [hidden] { display: none; }
+
+/* Local module compatibility: readable on the dark catalog background. */
+.badge.tested { color: #c8f16d; }
+.badge.targeted { color: #a6cde9; }
+.badge.experimental { color: #f8cf82; }
+.badge.wip, .badge.blocked { color: #ffaaa2; }
+.badge.tested i, .badge.targeted i, .badge.experimental i, .badge.wip i, .badge.blocked i { background: currentColor; }
+
+.badge.native { color: #a6cde9; border: 1px solid #526b80; border-radius: 99px; padding: 3px 7px; white-space: nowrap; }
+.card-foot { flex-wrap: wrap; }

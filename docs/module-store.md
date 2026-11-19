@@ -148,3 +148,13 @@ Copy [sdk/module-example](../sdk/module-example/) into a standalone repository.
 Its README and AGENTS.md provide human and coding-agent guidance, and its build
 script uses the canonical Flux compiler and format-1 bundle generator. The example
 includes a host-side test and a catalog-ready bundle when built.
+
+## Local module compatibility (FD6818B)
+
+The curated local catalog (`config/flux-catalog.json`) distinguishes **Hardware tested** (operation confirmed on FD6818B by the maintainer, not an exhaustive validation claim), **Flux targeted** (included in the current host/feature-pack design), **Experimental** (useful development builds with outstanding device validation), **WIP / port required** (kept for reference, but not installable from the catalog), and **Blocked** (invalid, oversized or stale bundle). Targeted is not a claim of hardware acceptance. Third-party projects are unreviewed. The separate **Flux native** badge identifies modules explicitly developed or adapted for the native Flux host. It can coexist with any validation status; it does not override compatibility checks. APRS, GPS Sync, Card Link and APRS Beacon carry both the native and hardware-tested badges.
+
+Experimental installs require explicit acknowledgment in the web store or `k6_store.py install ID --port PORT --experimental`. For curated eligible modules the store also checks the radio's reported API ceiling and required feature capabilities before initiating module writes; unsupported capability queries fail closed. This does not prove RF operation, stack safety or hardware compatibility. The low-level installer remains available for deliberate bench development.
+
+The compact host has an 11,776-byte arena, a 1,040-byte LCD reservation and 48 bytes of automatic-slot overhead. A binary that fits still needs enough scratch and execution stack. Legacy direct FD6818 radio paths and hard-coded bench transmitters are not cleared for this host; do not install them as ordinary end-user modules. Groundwave's supported source for the compact host is `gw_flux.c` (local play only, same module ID as the old game). The legacy RF multiplayer implementation needs a managed Data transport port.
+
+To rebuild the curated starter bundles without overwriting anything, run `python3 tools/k6_make_local_catalog.py --output /path/to/new-directory`. Review the resulting manifests/IDs before replacing old local bundles. In particular, old API-6 EXPLORE is not the current API-21 compact build. Local policy records the currently reviewed API levels; update these intentionally when reviewing an ABI change.
