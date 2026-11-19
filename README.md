@@ -61,7 +61,7 @@ download artifacts from the latest successful [Flux starter firmware workflow](h
 (run for the main branch). Unzip the Actions artifact first, then the starter ZIP.
 For most users, choose `flux-fd6818b-scan-fcc.zip` in the US or the CE variant
 where appropriate. Select a transmit profile that complies with local rules.
-The installer currently supports Linux. Extract the ZIP, open a terminal in
+The installer supports Linux; Windows installation is experimental. Extract the ZIP, open a terminal in
 the extracted directory, and run:
 
 ```sh
@@ -70,6 +70,9 @@ python3 -m venv .venv
 python -m pip install -r requirements.txt
 python tools/k6.py starter-install starter --port /dev/ttyUSB0
 ```
+
+On Windows, extract the ZIP and run `install.bat`, or follow the
+[PowerShell installation instructions](docs/manual/install.md#windows-experimental).
 
 The guided installer prompts for hardware confirmation, handles the SPI
 backup and first-boot format, and installs and verifies bundled modules.

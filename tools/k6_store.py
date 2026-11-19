@@ -448,7 +448,7 @@ def create_app(store: ModuleStore | None = None):
         port = request.form.get("port", "").strip()
         key_file = request.form.get("key_file", "").strip()
         if not port:
-            flash("Enter the serial device path, such as /dev/ttyUSB0.", "error")
+            flash("Enter the serial device, such as /dev/ttyUSB0 or COM5.", "error")
             return render_template("settings.html", settings={"port": port, "key_file": key_file, "saved_port": saved_port()}, devices=serial_devices()), 400
         session["radio_port"] = port
         session["radio_key_file"] = key_file
@@ -589,6 +589,9 @@ def create_app(store: ModuleStore | None = None):
 
     @app.post("/profiles/build")
     def build_profile():
+        if os.name == "nt":
+            flash("Firmware builds require Linux or WSL. Use a prebuilt starter on Windows.", "error")
+            return redirect(url_for("profiles"))
         from k6_feature_packs import DEFAULT_THEME, DEFAULT_TX_PROFILE
         selected = request.form.getlist('pack')
         theme = request.form.get('theme', DEFAULT_THEME)

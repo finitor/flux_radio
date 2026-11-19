@@ -2,6 +2,7 @@
 """Unified Flux radio CLI. Radio writes require explicit subcommands and approval."""
 import argparse
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -91,6 +92,8 @@ def command(argv):
             p.error(str(exc))
         return 0
     if args.command == 'build':
+        if os.name == 'nt':
+            p.error('firmware builds require Linux or WSL; use a prebuilt starter on Windows')
         cmd = ['k6_pack_build.py', *args.packs, '--tx-profile', args.tx_profile, '--theme', args.theme]
         if args.theme_name: cmd += ['--theme-name', args.theme_name]
         if args.output: cmd += ['--output', str(args.output.expanduser().resolve())]

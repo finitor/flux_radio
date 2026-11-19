@@ -24,3 +24,23 @@ jobs:
           tests/test_k6_store_defaults.py tests/test_k6_theme_package.py
           tests/test_k6_unified_cli.py
           tests/test_k6_pack_install.py tests/test_k6_starter_install.py
+          tests/test_k6_port_lock.py
+
+  windows-installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt pytest
+      - name: Windows installer, serial locking and Catalog tests
+        run: >-
+          python -m pytest -q tests/test_k6_port_lock.py
+          tests/test_k6_starter_install.py tests/test_k6_unified_cli.py
+          tests/test_k6_pack_install.py tests/test_k6_store_defaults.py
+      - name: CLI entry points
+        run: |
+          python tools/k6.py starter-install --help
+          python tools/k6.py radio --help
+          python -m serial.tools.list_ports

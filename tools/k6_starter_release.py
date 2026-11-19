@@ -59,7 +59,9 @@ def package(profile, pack, output):
             z.writestr(prefix+'START-HERE.txt',
                 'Flux experimental FD6818B starter\n'
                 'Read docs/manual/install.md before replacing stock firmware.\n'
-                'Linux / Python 3.10+. No Rust or C compiler needed for installation.\n'
+                'Linux or experimental Windows support / Python 3.10+. No compiler needed.\n'
+                'Windows: double-click install.bat, or follow the PowerShell guide.\n'
+                'Linux:\n'
                 'python3 -m venv .venv\n. .venv/bin/activate\n'
                 'python -m pip install -r requirements.txt\n'
                 'python tools/k6.py starter-install starter --port /dev/ttyUSB0\n'

@@ -15,7 +15,7 @@ stop and ask in the project's [Issues](https://github.com/tcarwash/flux_radio/is
 ## What you need
 
 - A compatible radio, charged battery and a working two-pin USB programming cable.
-- A Linux computer with Python 3.10+ and serial-port access.
+- A Linux or Windows computer with Python 3.10+ and serial-port access. Windows support is experimental.
 - A complete starter pack, either from a trusted release or built using the
   [README](../../README.md#build-from-source). Keep the pack together.
 - A safe location for your radio's 2 MiB SPI backup.
@@ -64,6 +64,41 @@ python tools/k6.py starter-install starter --port /dev/ttyUSB0
 Follow the prompts; never press MENU at FORMAT FLASH? before the backup
 succeeds. The guided path is experimental. The manual procedure below is
 also available, including if a guided install is interrupted.
+
+## Windows (experimental)
+
+Prebuilt starter ZIPs avoid the Linux firmware build toolchain. Extract the **entire**
+ZIP to a writable directory, install Python 3.10 or newer from [python.org](https://www.python.org/downloads/windows/),
+including its launcher, and double-click `install.bat`. It creates a virtual environment,
+installs dependencies and lists COM ports before asking which port to use.
+
+Alternatively, open PowerShell in the extracted directory:
+
+```powershell
+py -3 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m serial.tools.list_ports -v
+.\.venv\Scripts\python.exe tools/k6.py starter-install starter --port COM5
+```
+
+Replace COM5 with the actual programming cable port. No activation or execution-policy
+change is required. In Device Manager, look under **Ports (COM & LPT)**; unplug and
+reconnect the cable to identify the new entry. If there is no port, use Windows Update
+or the cable manufacturer's driver for the actual USB serial chipset (commonly CH340
+or CP210x). Avoid unsigned third-party driver downloads. Close other serial programs
+before installation. Port numbers can change when reconnecting the cable.
+
+To run the local Catalog:
+
+```powershell
+.\.venv\Scripts\python.exe tools/k6.py catalog
+```
+
+Choose Device settings and confirm the COM port. Prebuilt module operations and theme
+editing are intended to work on Windows. Building firmware or compiling new native
+modules still requires Linux or WSL; run those builds there, then use the Windows
+installer with the resulting pack. Windows hardware installation has not yet been
+validated end-to-end.
 
 ## First installation from stock firmware
 

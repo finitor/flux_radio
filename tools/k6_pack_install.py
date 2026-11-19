@@ -168,16 +168,13 @@ def radio_preflight(root, spec, port, key_file=None):
 @contextmanager
 def pack_port(port):
     """Serialize pack operations from the CLI and catalog on the same device."""
-    import fcntl
-
-    identity = hashlib.sha256(os.path.realpath(port).encode()).hexdigest()
-    folder = Path.home() / '.cache' / 'blowfang' / 'pack-ports'
-    folder.mkdir(mode=0o700, parents=True, exist_ok=True)
-    with (folder / identity).open('a') as lock:
+    from k6_port_lock import serial_lock
+    from contextlib import ExitStack
+    with ExitStack() as stack:
         try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            stack.enter_context(serial_lock(port))
         except BlockingIOError as exc:
-            raise PackError(f'another pack operation is using {port}') from exc
+            raise PackError(str(exc)) from exc
         yield
 
 
